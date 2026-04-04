@@ -83,8 +83,13 @@ function update() {
   if (car.y > canvas.height) car.y = canvas.height;
 }
 
+const worldTrack = new Track(ctx);
+worldTrack.load("track.json");
+
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  worldTrack.draw();
 
   ctx.save();
   ctx.translate(car.x, car.y);
