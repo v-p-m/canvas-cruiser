@@ -1,8 +1,39 @@
-const GAME_VERSION = "0.3.4";
+const GAME_VERSION = "0.4.1";
 
 let laps = 0;
 let hasStarted = false; // New flag to handle the first crossing
 let onFinishLine = false;
+let lapStartTime = 0;
+let currentLapTime = 0;
+let bestLapTime = 0;
+
+function drawUI() {
+  // 1. Semi-transparent background bar for the top
+  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+  ctx.fillRect(0, 0, canvas.width, 60);
+
+  ctx.fillStyle = "white";
+  ctx.font = "bold 20px 'Courier New', Courier, monospace";
+  ctx.textAlign = "left";
+
+  // 2. Lap Info
+  const lapDisplay = laps > 0 ? `LAP: ${laps}` : "START LINE";
+  ctx.fillText(lapDisplay, 20, 35);
+
+  // 3. Speedometer (Right side)
+  ctx.textAlign = "right";
+  const speedDisplay = Math.round(Math.abs(car.speed) * 10);
+  ctx.fillText(`${speedDisplay} KM/H`, canvas.width - 20, 35);
+
+  // 4. Timer (Center)
+  ctx.textAlign = "center";
+  if (hasStarted) {
+    currentLapTime = ((Date.now() - lapStartTime) / 1000).toFixed(2);
+    ctx.fillText(`TIME: ${currentLapTime}s`, canvas.width / 2, 35);
+  } else {
+    ctx.fillText("READY?", canvas.width / 2, 35);
+  }
+}
 
 // 1. Initialize Canvas FIRST
 const canvas = document.getElementById("gameCanvas");
@@ -87,6 +118,7 @@ function checkTileCollision(x, y) {
           laps++;
           console.log("Lap Completed:", laps);
         }
+        lapStartTime = Date.now(); // Reset timer on every crossing
       }
     } else {
       // Only reset the flag once the car completely leaves the finish line tiles
@@ -138,6 +170,7 @@ function update() {
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   worldTrack.draw();
+  drawUI();
 
   ctx.save();
   ctx.translate(car.x, car.y);

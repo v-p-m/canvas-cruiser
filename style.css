@@ -1,26 +1,16 @@
 body {
     margin: 0;
+    padding: 0;
     overflow: hidden;
-    background: #1a1a1a;
-    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background: #111; /* Dark background outside the game */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
 }
 
-#gameCanvas {
-    display: block;
-    background: #333; /* The "Asphalt" */
-}
-
-#ui {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    color: white;
-    pointer-events: none; /* Allows clicking "through" the text */
-}
-#version-tag {
-    position: absolute;
-    bottom: -20px;
-    left: 0;
-    opacity: 0.6;
-    font-size: 0.8rem;
+canvas {
+    background: #222;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+    border: 2px solid #444;
 }
