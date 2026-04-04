@@ -1,10 +1,10 @@
-const GAME_VERSION = "0.3.3";
+const GAME_VERSION = "0.3.4";
 
 // 1. Initialize Canvas FIRST
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
-canvas.width = 1024;
-canvas.height = 768;
+canvas.width = 16 * 64;
+canvas.height = 12 * 64;
 
 // 2. Define Track and Load
 const worldTrack = new Track(ctx);
@@ -22,9 +22,10 @@ async function initGame() {
     car.x = startPoint.x;
     car.y = startPoint.y;
   } else {
-    // Default spawn at second tile (1,1) to avoid corner walls
-    car.x = 3 * 64 + 32;
+    // Start car in the middle lane (row 3) of the top straight
+    car.x = 4 * 64;
     car.y = 3 * 64 + 32;
+    car.angle = Math.PI / 2; // Point the car to the right (90 degrees)
   }
 }
 
