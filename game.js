@@ -183,9 +183,6 @@ function draw() {
 
   ctx.fillStyle = "white";
   ctx.font = "bold 24px Courier New";
-  // Display "Get Ready" if not started, otherwise show lap count
-  let displayTrack = hasStarted ? `LAP: ${laps}` : "CROSS LINE TO START";
-  ctx.fillText(displayTrack, 20, 40);
 
   requestAnimationFrame(draw);
 }
