@@ -1,5 +1,6 @@
 {
   "name": "Figure Eight",
+  "version": "0.2.0",
   "lineWidth": 100,
   "color": "#444",
   "points": [

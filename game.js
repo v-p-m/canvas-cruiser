@@ -1,3 +1,13 @@
+const GAME_VERSION = "0.2.0";
+console.log(`Canvas Cruiser Engine Loaded: v${GAME_VERSION}`);
+
+async function initGame() {
+  await worldTrack.load("track.json");
+  if (worldTrack.data.version !== GAME_VERSION) {
+    console.warn("Warning: Track version mismatch!");
+  }
+}
+
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 

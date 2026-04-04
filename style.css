@@ -17,3 +17,10 @@ body {
     color: white;
     pointer-events: none; /* Allows clicking "through" the text */
 }
+#version-tag {
+    position: absolute;
+    bottom: -20px;
+    left: 0;
+    opacity: 0.6;
+    font-size: 0.8rem;
+}
