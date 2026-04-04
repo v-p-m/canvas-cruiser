@@ -13,8 +13,12 @@ const car = {
   speed: 0,
   acceleration: 0.2,
   friction: 0.05,
-  maxSpeed: 5,
-  turnSpeed: 0.04,
+  maxSpeed: 10,
+  turnSpeed: 0.06,
+  velocityX: 0,
+  velocityY: 0,
+  friction: 0.96, // Higher friction = grippy, Lower = ice-like
+  driftGrip: 0.1, // How fast the car "catches" the road (0.01 to 0.2)
 };
 
 const keys = {};
@@ -23,45 +27,52 @@ window.addEventListener("keydown", (e) => (keys[e.key] = true));
 window.addEventListener("keyup", (e) => (keys[e.key] = false));
 
 function update() {
-  // Forward / Backward
-  if (keys["ArrowUp"]) car.speed += car.acceleration;
-  if (keys["ArrowDown"]) car.speed -= car.acceleration;
+  // 1. Handle Input (Acceleration/Braking)
+  if (keys["ArrowUp"]) {
+    car.speed += car.acceleration;
+  } else if (keys["ArrowDown"]) {
+    car.speed -= car.acceleration;
+  } else {
+    car.speed *= 0.95; // Passive slow down
+  }
 
-  // Apply Friction
-  if (car.speed > 0) car.speed -= car.friction;
-  if (car.speed < 0) car.speed += car.friction;
-  if (Math.abs(car.speed) < car.friction) car.speed = 0;
-
-  // Speed Limit
+  // 2. NEW: Hard Cap on Speed
   if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
   if (car.speed < -car.maxSpeed / 2) car.speed = -car.maxSpeed / 2;
+  if (Math.abs(car.speed) < 0.1) car.speed = 0;
 
-  // Steering (only if moving)
+  // 3. Steering (Only if moving)
   if (car.speed !== 0) {
     const flip = car.speed > 0 ? 1 : -1;
     if (keys["ArrowLeft"]) car.angle -= car.turnSpeed * flip;
     if (keys["ArrowRight"]) car.angle += car.turnSpeed * flip;
   }
 
-  // Move Car
-  car.x += Math.sin(car.angle) * car.speed;
-  car.y -= Math.cos(car.angle) * car.speed;
+  // 4. Calculate Velocity Targets
+  const targetVx = Math.sin(car.angle) * car.speed;
+  const targetVy = -Math.cos(car.angle) * car.speed;
 
-  // Screen Boundaries
+  // 5. Apply Drift and Friction to VECTORS
+  car.velocityX += (targetVx - car.velocityX) * car.driftGrip;
+  car.velocityY += (targetVy - car.velocityY) * car.driftGrip;
+
+  // This ensures the actual movement never exceeds the max speed + a tiny drift buffer
+  const currentTotalSpeed = Math.sqrt(car.velocityX ** 2 + car.velocityY ** 2);
+  if (currentTotalSpeed > car.maxSpeed) {
+    const ratio = car.maxSpeed / currentTotalSpeed;
+    car.velocityX *= ratio;
+    car.velocityY *= ratio;
+  }
+
+  // 6. Update Position
+  car.x += car.velocityX;
+  car.y += car.velocityY;
+
+  // 7. Boundaries (Keep your previous logic here)
   if (car.x < 0) car.x = 0;
   if (car.x > canvas.width) car.x = canvas.width;
   if (car.y < 0) car.y = 0;
   if (car.y > canvas.height) car.y = canvas.height;
-
-  // Optional: Stop speed on impact
-  if (
-    car.x <= 0 ||
-    car.x >= canvas.width ||
-    car.y <= 0 ||
-    car.y >= canvas.height
-  ) {
-    car.speed = 0;
-  }
 }
 
 function draw() {
