@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.4.2";
+const GAME_VERSION = "0.5.0";
 
 let laps = 0;
 let hasStarted = false; // New flag to handle the first crossing
@@ -38,8 +38,8 @@ function drawUI() {
 // 1. Initialize Canvas FIRST
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
-canvas.width = 16 * 64;
-canvas.height = 12 * 64;
+canvas.width = 24 * 64;
+canvas.height = 18 * 64;
 
 // 2. Define Track and Load
 const worldTrack = new Track(ctx);
@@ -58,7 +58,7 @@ async function initGame() {
     car.y = startPoint.y;
   } else {
     // Start car in the middle lane (row 3) of the top straight
-    car.x = 4 * 64;
+    car.x = 5 * 64;
     car.y = 3 * 64 + 32;
     car.angle = Math.PI / 2; // Point the car to the right (90 degrees)
   }
