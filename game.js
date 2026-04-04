@@ -44,8 +44,16 @@ function update() {
   // 3. Steering (Only if moving)
   if (car.speed !== 0) {
     const flip = car.speed > 0 ? 1 : -1;
+    const isTurning = keys["ArrowLeft"] || keys["ArrowRight"];
+
     if (keys["ArrowLeft"]) car.angle -= car.turnSpeed * flip;
     if (keys["ArrowRight"]) car.angle += car.turnSpeed * flip;
+
+    // TIRE SCRUB: Slow down while turning
+    if (isTurning) {
+      // Reduces speed by a small percentage (e.g., 2%) every frame while turning
+      car.speed *= 0.98;
+    }
   }
 
   // 4. Calculate Velocity Targets
