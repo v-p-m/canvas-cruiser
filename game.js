@@ -1,5 +1,9 @@
 const GAME_VERSION = "0.3.4";
 
+let laps = 0;
+let hasStarted = false; // New flag to handle the first crossing
+let onFinishLine = false;
+
 // 1. Initialize Canvas FIRST
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -72,9 +76,21 @@ function checkTileCollision(x, y) {
       car.x -= car.velocityX * 2;
       car.y -= car.velocityY * 2;
     }
-    if (tileID === 0) {
-      // Grass
-      car.speed *= 0.92;
+    if (tileID === 9) {
+      if (!onFinishLine) {
+        onFinishLine = true;
+
+        if (!hasStarted) {
+          hasStarted = true;
+          console.log("Race Started!");
+        } else {
+          laps++;
+          console.log("Lap Completed:", laps);
+        }
+      }
+    } else {
+      // Only reset the flag once the car completely leaves the finish line tiles
+      onFinishLine = false;
     }
   }
 }
@@ -131,6 +147,12 @@ function draw() {
   ctx.fillStyle = "white";
   ctx.fillRect(-car.width / 2, -car.height / 2, car.width, 10);
   ctx.restore();
+
+  ctx.fillStyle = "white";
+  ctx.font = "bold 24px Courier New";
+  // Display "Get Ready" if not started, otherwise show lap count
+  let displayTrack = hasStarted ? `LAP: ${laps}` : "CROSS LINE TO START";
+  ctx.fillText(displayTrack, 20, 40);
 
   requestAnimationFrame(draw);
 }

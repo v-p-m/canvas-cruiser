@@ -36,6 +36,18 @@ class Track {
           case 7:
             this.ctx.fillStyle = "#444444"; // Road
             break;
+          case 8:
+          case 9:
+            // 1. Draw White Base
+            this.ctx.fillStyle = "#FFFFFF";
+            this.ctx.fillRect(posX, posY, this.tileSize, this.tileSize);
+
+            // 2. Draw Two Black Squares (Top-Left and Bottom-Right)
+            this.ctx.fillStyle = "#000000";
+            const half = this.tileSize / 2;
+            this.ctx.fillRect(posX, posY, half, half); // Top-Left
+            this.ctx.fillRect(posX + half, posY + half, half, half); // Bottom-Right
+            break;
           default:
             this.ctx.fillStyle = "#ff00ff"; // Error Pink
         }
