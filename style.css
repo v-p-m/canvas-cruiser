@@ -1,0 +1,19 @@
+body {
+    margin: 0;
+    overflow: hidden;
+    background: #1a1a1a;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+#gameCanvas {
+    display: block;
+    background: #333; /* The "Asphalt" */
+}
+
+#ui {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    pointer-events: none; /* Allows clicking "through" the text */
+}
