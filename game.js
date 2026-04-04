@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.4.1";
+const GAME_VERSION = "0.4.2";
 
 let laps = 0;
 let hasStarted = false; // New flag to handle the first crossing
@@ -87,41 +87,45 @@ window.addEventListener("keydown", (e) => (keys[e.key] = true));
 window.addEventListener("keyup", (e) => (keys[e.key] = false));
 
 function checkTileCollision(x, y) {
-  // Guard clause to prevent errors before track loads
   if (!worldTrack.data || !worldTrack.data.map) return;
 
   const gridX = Math.floor(x / worldTrack.data.tileSize);
   const gridY = Math.floor(y / worldTrack.data.tileSize);
 
-  // Check if coordinates are within map bounds
   if (
     worldTrack.data.map[gridY] &&
     worldTrack.data.map[gridY][gridX] !== undefined
   ) {
     const tileID = worldTrack.data.map[gridY][gridX];
 
+    // 1. WALL COLLISION
     if (tileID === 1) {
-      // Wall
       car.speed *= -0.5;
-      // Simple bounce-back to prevent getting stuck in walls
       car.x -= car.velocityX * 2;
       car.y -= car.velocityY * 2;
     }
+
+    // 2. GRASS PENALTY (NEW)
+    if (tileID === 0) {
+      car.speed *= 0.92; // Constant drag while on grass
+    }
+
+    // 3. FINISH LINE
     if (tileID === 9) {
       if (!onFinishLine) {
         onFinishLine = true;
-
         if (!hasStarted) {
           hasStarted = true;
-          console.log("Race Started!");
         } else {
           laps++;
-          console.log("Lap Completed:", laps);
+          // Save Best Lap Logic
+          if (bestLapTime === 0 || currentLapTime < bestLapTime) {
+            bestLapTime = currentLapTime;
+          }
         }
-        lapStartTime = Date.now(); // Reset timer on every crossing
+        lapStartTime = Date.now();
       }
     } else {
-      // Only reset the flag once the car completely leaves the finish line tiles
       onFinishLine = false;
     }
   }
@@ -169,9 +173,11 @@ function update() {
 
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  worldTrack.draw();
-  drawUI();
 
+  // 1. Draw World first
+  worldTrack.draw();
+
+  // 2. Draw Car second
   ctx.save();
   ctx.translate(car.x, car.y);
   ctx.rotate(car.angle);
@@ -181,8 +187,8 @@ function draw() {
   ctx.fillRect(-car.width / 2, -car.height / 2, car.width, 10);
   ctx.restore();
 
-  ctx.fillStyle = "white";
-  ctx.font = "bold 24px Courier New";
+  // 3. Draw UI LAST (So it's always on top)
+  drawUI();
 
   requestAnimationFrame(draw);
 }
