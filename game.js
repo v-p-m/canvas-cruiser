@@ -3,10 +3,23 @@ console.log(`Canvas Cruiser Engine Loaded: v${GAME_VERSION}`);
 
 async function initGame() {
   await worldTrack.load("track.json");
-  if (worldTrack.data.version !== GAME_VERSION) {
-    console.warn("Warning: Track version mismatch!");
+
+  // Set car to the first point of the track
+  if (worldTrack.data && worldTrack.data.points.length > 0) {
+    const startPoint = worldTrack.data.points[0];
+    car.x = startPoint.x;
+    car.y = startPoint.y;
+
+    // Point the car toward the second point
+    const nextPoint = worldTrack.data.points[1];
+    car.angle = Math.atan2(
+      nextPoint.x - startPoint.x,
+      startPoint.y - nextPoint.y,
+    );
   }
 }
+
+initGame();
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
