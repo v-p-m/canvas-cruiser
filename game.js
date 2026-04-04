@@ -46,6 +46,22 @@ function update() {
   // Move Car
   car.x += Math.sin(car.angle) * car.speed;
   car.y -= Math.cos(car.angle) * car.speed;
+
+  // Screen Boundaries
+  if (car.x < 0) car.x = 0;
+  if (car.x > canvas.width) car.x = canvas.width;
+  if (car.y < 0) car.y = 0;
+  if (car.y > canvas.height) car.y = canvas.height;
+
+  // Optional: Stop speed on impact
+  if (
+    car.x <= 0 ||
+    car.x >= canvas.width ||
+    car.y <= 0 ||
+    car.y >= canvas.height
+  ) {
+    car.speed = 0;
+  }
 }
 
 function draw() {
