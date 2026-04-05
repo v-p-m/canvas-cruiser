@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.5.0";
+const GAME_VERSION = "0.5.1";
 
 let laps = 0;
 let hasStarted = false; // New flag to handle the first crossing
@@ -19,12 +19,12 @@ function drawUI() {
   ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
   ctx.fillRect(0, 0, canvas.width, 60);
 
-  ctx.fillStyle = "white";
+  ctx.fillStyle = "#00FF00";
   ctx.font = "bold 20px 'Courier New', Courier, monospace";
   ctx.textAlign = "left";
 
   // 2. Lap Info
-  const lapDisplay = laps > 0 ? `LAP: ${laps}` : "START LINE";
+  const lapDisplay = hasStarted ? `LAP ${laps}` : "GO! GO! GO!";
   ctx.fillText(lapDisplay, 20, 35);
 
   // 3. Speedometer (Right side)
@@ -129,16 +129,23 @@ function checkTileCollision(x, y) {
     if (tileID === 9) {
       if (!onFinishLine) {
         onFinishLine = true;
+
         if (!hasStarted) {
           hasStarted = true;
+          laps = 1; // Start the race at Lap 1 immediately
+          console.log("Race Started! Now on Lap 1");
         } else {
-          laps++;
-          // Save Best Lap Logic
+          laps++; // Move to Lap 2, 3, etc.
+          console.log("Lap Completed! Now on Lap:", laps);
+
+          // Check for Best Lap when finishing a full circuit
           if (bestLapTime === 0 || currentLapTime < bestLapTime) {
             bestLapTime = currentLapTime;
+            // Optional: Save to browser memory
+            localStorage.setItem("bestLap", bestLapTime);
           }
         }
-        lapStartTime = Date.now();
+        lapStartTime = Date.now(); // Reset timer for the new lap
       }
     } else {
       onFinishLine = false;
