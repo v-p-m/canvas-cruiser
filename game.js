@@ -7,6 +7,13 @@ let lapStartTime = 0;
 let currentLapTime = 0;
 let bestLapTime = 0;
 
+const camera = {
+  x: 0,
+  y: 0,
+  width: window.innerWidth,
+  height: window.innerHeight,
+};
+
 function drawUI() {
   // 1. Semi-transparent background bar for the top
   ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
@@ -38,8 +45,16 @@ function drawUI() {
 // 1. Initialize Canvas FIRST
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
-canvas.width = 24 * 64;
-canvas.height = 18 * 64;
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// Handle window resizing
+window.addEventListener("resize", () => {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  camera.width = canvas.width;
+  camera.height = canvas.height;
+});
 
 // 2. Define Track and Load
 const worldTrack = new Track(ctx);
@@ -174,10 +189,19 @@ function update() {
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // 1. Draw World first
+  // CALCULATE CAMERA POSITION
+  // Center the camera on the car
+  camera.x = car.x - camera.width / 2;
+  camera.y = car.y - camera.height / 2;
+
+  // APPLY CAMERA TRANSFORM
+  ctx.save();
+  ctx.translate(-camera.x, -camera.y);
+
+  // --- Everything drawn here moves with the camera ---
   worldTrack.draw();
 
-  // 2. Draw Car second
+  // Draw Car
   ctx.save();
   ctx.translate(car.x, car.y);
   ctx.rotate(car.angle);
@@ -186,8 +210,11 @@ function draw() {
   ctx.fillStyle = "white";
   ctx.fillRect(-car.width / 2, -car.height / 2, car.width, 10);
   ctx.restore();
+  // ---------------------------------------------------
 
-  // 3. Draw UI LAST (So it's always on top)
+  ctx.restore(); // Stop moving the world
+
+  // Draw UI LAST (UI does NOT move with camera)
   drawUI();
 
   requestAnimationFrame(draw);

@@ -1,12 +1,7 @@
 body {
     margin: 0;
-    padding: 0;
-    overflow: hidden;
-    background: #111; /* Dark background outside the game */
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
+    overflow: hidden; /* Prevents scrollbars */
+    background: #111;
 }
 
 canvas {
