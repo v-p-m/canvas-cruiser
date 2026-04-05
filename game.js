@@ -205,10 +205,40 @@ function draw() {
   ctx.save();
   ctx.translate(car.x, car.y);
   ctx.rotate(car.angle);
-  ctx.fillStyle = "red";
-  ctx.fillRect(-car.width / 2, -car.height / 2, car.width, car.height);
-  ctx.fillStyle = "white";
-  ctx.fillRect(-car.width / 2, -car.height / 2, car.width, 10);
+
+  const w = car.width;
+  const h = car.height;
+
+  // 1. DRAW WHEELS (Black rectangles)
+  ctx.fillStyle = "#333";
+  const wheelW = 8;
+  const wheelH = 12;
+  // Front Left & Right
+  ctx.fillRect(-w / 2 - 2, -h / 2 + 5, wheelW, wheelH);
+  ctx.fillRect(w / 2 - 6, -h / 2 + 5, wheelW, wheelH);
+  // Rear Left & Right
+  ctx.fillRect(-w / 2 - 2, h / 2 - 15, wheelW, wheelH);
+  ctx.fillRect(w / 2 - 6, h / 2 - 15, wheelW, wheelH);
+
+  // 2. MAIN BODY (The Red Box)
+  ctx.fillStyle = "#d00"; // Deeper red
+  ctx.fillRect(-w / 2, -h / 2, w, h);
+
+  // 3. WINDSHIELD (Light blue/grey)
+  ctx.fillStyle = "#add8e6";
+  // Positioned toward the front (top of the rectangle)
+  ctx.fillRect(-w / 2 + 4, -h / 2 + 10, w - 8, 12);
+
+  // 4. HEADLIGHTS (Yellow)
+  ctx.fillStyle = "#ff0";
+  ctx.fillRect(-w / 2 + 2, -h / 2 - 2, 6, 4); // Left
+  ctx.fillRect(w / 2 - 8, -h / 2 - 2, 6, 4); // Right
+
+  // 5. TAILLIGHTS (Bright Red)
+  ctx.fillStyle = "#f00";
+  ctx.fillRect(-w / 2 + 2, h / 2 - 2, 6, 3); // Left
+  ctx.fillRect(w / 2 - 8, h / 2 - 2, 6, 3); // Right
+
   ctx.restore();
   // ---------------------------------------------------
 
