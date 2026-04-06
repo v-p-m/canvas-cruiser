@@ -119,23 +119,53 @@ function drawCar() {
 function drawStartMenu() {
   ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+
   ctx.textAlign = "center";
   ctx.fillStyle = "#FFD700";
   ctx.font = "bold 50px 'Courier New'";
   ctx.fillText("🏎️ CANVAS CRUISER 🏎️", canvas.width / 2, 150);
-  ctx.fillStyle = "white";
+
+  // --- ALIGNED CONTROLS ---
+  const centerX = canvas.width / 2;
+  const startY = 280;
+  const lineSpacing = 35;
+  const gutter = 20; // Space between the ':' and the text
+
   ctx.font = "20px 'Courier New'";
-  ctx.fillText(
-    "UP / DOWN : Gas & Brake | LEFT / RIGHT : Steer",
-    canvas.width / 2,
-    280,
-  );
+
+  const controls = [
+    { key: "UP / DOWN", action: "Gas & Brake" },
+    { key: "LEFT / RIGHT", action: "Steer" },
+    { key: "Q", action: "Top 5 Best Laps" },
+  ];
+
+  controls.forEach((item, i) => {
+    const y = startY + i * lineSpacing;
+
+    // 1. Draw the Key (Right Aligned)
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#AAA"; // Slightly dimmer for keys
+    ctx.fillText(item.key, centerX - gutter, y);
+
+    // 2. Draw the Separator (Centered)
+    ctx.textAlign = "center";
+    ctx.fillStyle = "white";
+    ctx.fillText(":", centerX, y);
+
+    // 3. Draw the Action (Left Aligned)
+    ctx.textAlign = "left";
+    ctx.fillStyle = "white";
+    ctx.fillText(item.action, centerX + gutter, y);
+  });
+
+  // --- BLINKING PROMPT ---
+  ctx.textAlign = "center";
   ctx.fillStyle = "#00FF00";
   if (Math.floor(Date.now() / 500) % 2) {
     ctx.fillText(
       "PRESS [ENTER] TO RACE",
       canvas.width / 2,
-      canvas.height - 150,
+      canvas.height - 650,
     );
   }
 }
