@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.5.6";
+const GAME_VERSION = "0.6.0";
 
 let laps = 0;
 let hasStarted = false;
@@ -11,6 +11,7 @@ let isRacing = false; // Start as false so car doesn't move in menu
 let highScores = JSON.parse(localStorage.getItem("highScores")) || [];
 let skidMarks = [];
 const MAX_SKID_MARKS = 500; // Prevent memory lag
+const opponents = [];
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -95,6 +96,10 @@ async function initGame() {
   car.x = 5 * 64;
   car.y = 3 * 64 + 32;
   car.angle = Math.PI / 2;
+
+  // Spawn 2 AI Opponents
+  opponents.push(new AICar(ctx, 5 * 64, 3 * 64 + 100, "#0077ff")); // Blue car
+  opponents.push(new AICar(ctx, 5 * 64, 3 * 64 + 160, "#ff7700")); // Orange car
 }
 
 initGame();
@@ -308,6 +313,8 @@ function update() {
         if (skidMarks.length > 500) skidMarks.shift();
       }
     }
+    // Update all AI
+    opponents.forEach((ai) => ai.update(worldTrack.data.waypoints, isRacing));
   }
 
   // 4. Velocity & Drift
@@ -332,6 +339,25 @@ function draw() {
   ctx.save();
   ctx.translate(-camera.x, -camera.y);
   worldTrack.draw();
+
+  //debug
+  if (worldTrack.data && worldTrack.data.waypoints) {
+    ctx.fillStyle = "rgba(255, 0, 0, 0.5)"; // Semi-transparent red
+    worldTrack.data.waypoints.forEach((wp, index) => {
+      // Draw circle
+      ctx.beginPath();
+      ctx.arc(wp.x, wp.y, 30, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Optional: Label the waypoint number
+      ctx.fillStyle = "white";
+      ctx.font = "bold 16px Arial";
+      ctx.fillText(index, wp.x - 5, wp.y + 5);
+      ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
+    });
+  }
+
+  opponents.forEach((ai) => ai.draw());
 
   // DRAW SKID MARKS
   ctx.fillStyle = "rgba(0, 0, 0, 0.15)"; // Dark grey, slightly transparent
