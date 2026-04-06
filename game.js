@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.5.4";
+const GAME_VERSION = "0.5.5";
 
 let laps = 0;
 let hasStarted = false;
@@ -9,6 +9,8 @@ let bestLapTime = 0;
 let isMenu = true;
 let isRacing = false; // Start as false so car doesn't move in menu
 let highScores = JSON.parse(localStorage.getItem("highScores")) || [];
+let skidMarks = [];
+const MAX_SKID_MARKS = 500; // Prevent memory lag
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -243,6 +245,18 @@ function update() {
       car.speed *= scrubFactor;
 
       if (Math.abs(car.speed) > 7) console.log("Drifting/Scrubbing!");
+
+      if (Math.abs(car.speed) > 5) {
+        // Only at higher speeds
+        skidMarks.push({
+          x: car.x,
+          y: car.y,
+          angle: car.angle,
+        });
+
+        // Keep the array small to prevent lag
+        if (skidMarks.length > 500) skidMarks.shift();
+      }
     }
   }
 
@@ -268,6 +282,27 @@ function draw() {
   ctx.save();
   ctx.translate(-camera.x, -camera.y);
   worldTrack.draw();
+
+  // DRAW SKID MARKS
+  ctx.fillStyle = "rgba(0, 0, 0, 0.15)"; // Dark grey, slightly transparent
+
+  skidMarks.forEach((mark) => {
+    ctx.save();
+    ctx.translate(mark.x, mark.y);
+    ctx.rotate(mark.angle);
+
+    // Draw two skid marks (Left and Right wheel)
+    // Offset by half the car's width to match the wheels
+    const offset = car.width / 2 - 4;
+
+    // Left Rear Tire Mark
+    ctx.fillRect(-offset, car.height / 4, 6, 10);
+    // Right Rear Tire Mark
+    ctx.fillRect(offset - 6, car.height / 4, 6, 10);
+
+    ctx.restore();
+  });
+
   if (!isMenu) drawCar();
   ctx.restore();
 
