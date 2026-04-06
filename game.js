@@ -47,7 +47,7 @@ window.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
 
   // 1. ESC Logic (Global)
-  if (key === "Escape") {
+  if (key === "escape") {
     isMenu = true;
     isRacing = false;
     resetRace(); // Reset position and timers
