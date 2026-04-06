@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.5.5";
+const GAME_VERSION = "0.5.6";
 
 let laps = 0;
 let hasStarted = false;
@@ -177,14 +177,16 @@ function drawStartMenu() {
   });
 
   // --- BLINKING PROMPT ---
+  // Positioned exactly 80px below the last control line
+  const promptY = startY + controls.length * lineSpacing + 60;
+
   ctx.textAlign = "center";
-  ctx.fillStyle = "#00FF00";
+  ctx.font = "bold 26px 'Courier New'";
+
+  // Blinking logic
   if (Math.floor(Date.now() / 500) % 2) {
-    ctx.fillText(
-      "PRESS [ENTER] TO RACE",
-      canvas.width / 2,
-      canvas.height - 650,
-    );
+    ctx.fillStyle = "#00FF00";
+    ctx.fillText("PRESS [ENTER] TO RACE", centerX, promptY);
   }
 }
 
