@@ -302,6 +302,8 @@ function gameLoop(timestamp) {
     if (car.speed < -car.maxSpeed / 2) car.speed = -car.maxSpeed / 2;
     if (Math.abs(car.speed) < 0.1) car.speed = 0;
 
+    opponents.forEach((ai) => ai.update(worldTrack.data.waypoints, isRacing));
+
     if (car.speed !== 0) {
       const flip = car.speed > 0 ? 1 : -1;
       const turningLeft = keys["ArrowLeft"];
@@ -320,7 +322,15 @@ function gameLoop(timestamp) {
         }
       }
 
-      opponents.forEach((ai) => ai.update(worldTrack.data.waypoints, isRacing));
+      // AI vs AI collisions
+      for (let i = 0; i < opponents.length; i++) {
+        for (let j = i + 1; j < opponents.length; j++) {
+          opponents[i].resolveCollision(opponents[j]);
+        }
+      }
+
+      // AI vs player collisions
+      opponents.forEach((ai) => ai.resolveCollision(car));
     }
 
     const targetVx = Math.sin(car.angle) * car.speed;

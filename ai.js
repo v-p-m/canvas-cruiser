@@ -8,9 +8,11 @@ class AICar {
     this.height = 50;
     this.angle = Math.PI / 2;
     this.speed = 0;
-    this.maxSpeed = 7.5 + Math.random() * 1.5; // Randomized difficulty
+    this.maxSpeed = 7.5 + Math.random() * 1.5;
     this.currentWaypoint = 0;
     this.turnSpeed = 0.08;
+    this.velocityX = 0;
+    this.velocityY = 0;
   }
 
   update(waypoints, isRacing) {
@@ -19,27 +21,52 @@ class AICar {
     const target = waypoints[this.currentWaypoint];
     const dx = target.x - this.x;
     const dy = target.y - this.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // 1. Calculate steering
+    // 1. Steering — normalise with atan2 instead of while loops
     const targetAngle = Math.atan2(dx, -dy);
-    let angleDiff = targetAngle - this.angle;
-
-    // Normalize angle to -PI to PI
-    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-
-    // Smooth steering
+    const angleDiff = Math.atan2(
+      Math.sin(targetAngle - this.angle),
+      Math.cos(targetAngle - this.angle),
+    );
     this.angle += angleDiff * this.turnSpeed;
 
-    // 2. Constant movement
-    this.speed = this.maxSpeed;
+    // 2. Speed — ease off on sharp corners
+    const cornerFactor = 1 - Math.min(Math.abs(angleDiff) / Math.PI, 1) * 0.5;
+    this.speed = this.maxSpeed * cornerFactor;
+
+    // 3. Move
     this.x += Math.sin(this.angle) * this.speed;
     this.y -= Math.cos(this.angle) * this.speed;
 
-    // 3. Cycle waypoints
-    if (distance < 100) {
+    // 4. Advance waypoint — squared distance avoids Math.sqrt
+    const distSq = dx * dx + dy * dy;
+    if (distSq < 100 * 100) {
       this.currentWaypoint = (this.currentWaypoint + 1) % waypoints.length;
+    }
+  }
+
+  // Simple circle-based overlap check against another car
+  resolveCollision(other) {
+    const dx = other.x - this.x;
+    const dy = other.y - this.y;
+    const distSq = dx * dx + dy * dy;
+    const minDist = this.width; // treat both cars as circles of radius ~width
+
+    if (distSq < minDist * minDist && distSq > 0) {
+      const dist = Math.sqrt(distSq);
+      const overlap = (minDist - dist) / 2;
+      const nx = dx / dist;
+      const ny = dy / dist;
+
+      // Push both cars apart equally
+      this.x -= nx * overlap;
+      this.y -= ny * overlap;
+      other.x += nx * overlap;
+      other.y += ny * overlap;
+
+      // Dampen speed on impact
+      this.speed *= 0.7;
+      other.speed *= 0.7;
     }
   }
 
@@ -48,27 +75,23 @@ class AICar {
     this.ctx.translate(this.x, this.y);
     this.ctx.rotate(this.angle);
 
-    // Simple AI Car Body
-    this.ctx.fillStyle = "#333"; // Wheels
-    this.ctx.fillRect(-this.width / 2 - 2, -this.height / 2 + 5, 8, 12);
-    this.ctx.fillRect(this.width / 2 - 6, -this.height / 2 + 5, 8, 12);
+    const w = this.width;
+    const h = this.height;
 
+    // All four wheels (matching player car)
+    this.ctx.fillStyle = "#333";
+    this.ctx.fillRect(-w / 2 - 2, -h / 2 + 5, 8, 12); // front left
+    this.ctx.fillRect(w / 2 - 6, -h / 2 + 5, 8, 12); // front right
+    this.ctx.fillRect(-w / 2 - 2, h / 2 - 15, 8, 12); // rear left
+    this.ctx.fillRect(w / 2 - 6, h / 2 - 15, 8, 12); // rear right
+
+    // Body
     this.ctx.fillStyle = this.color;
-    this.ctx.fillRect(
-      -this.width / 2,
-      -this.height / 2,
-      this.width,
-      this.height,
-    );
+    this.ctx.fillRect(-w / 2, -h / 2, w, h);
 
     // Windshield
     this.ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-    this.ctx.fillRect(
-      -this.width / 2 + 5,
-      -this.height / 2 + 10,
-      this.width - 10,
-      10,
-    );
+    this.ctx.fillRect(-w / 2 + 5, -h / 2 + 10, w - 10, 10);
 
     this.ctx.restore();
   }
