@@ -168,9 +168,23 @@ function update() {
 
   if (car.speed !== 0) {
     const flip = car.speed > 0 ? 1 : -1;
-    if (keys["ArrowLeft"]) car.angle -= car.turnSpeed * flip;
-    if (keys["ArrowRight"]) car.angle += car.turnSpeed * flip;
-    if (keys["ArrowLeft"] || keys["ArrowRight"]) car.speed *= 0.98;
+    const turningLeft = keys["ArrowLeft"];
+    const turningRight = keys["ArrowRight"];
+
+    if (turningLeft) car.angle -= car.turnSpeed * flip;
+    if (turningRight) car.angle += car.turnSpeed * flip;
+
+    // DYNAMIC TIRE SCRUB
+    if (turningLeft || turningRight) {
+      // Calculate a penalty based on current speed
+      // Fast cars lose more speed in sharp turns
+      const scrubFactor =
+        0.94 + 0.04 * (1 - Math.abs(car.speed) / car.maxSpeed);
+      car.speed *= scrubFactor;
+
+      // Visual feedback: Console log if you're losing too much grip
+      if (Math.abs(car.speed) > 7) console.log("Drifting/Scrubbing!");
+    }
   }
 
   const targetVx = Math.sin(car.angle) * car.speed;

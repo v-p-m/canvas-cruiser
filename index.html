@@ -2,7 +2,7 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
-        <title>Canvas Cruiser v0.5.1</title>
+        <title>Canvas Cruiser</title>
         <link rel="stylesheet" href="style.css" />
     </head>
     <body>
@@ -10,5 +10,17 @@
         <canvas id="gameCanvas"></canvas>
         <script src="track.js"></script>
         <script src="game.js"></script>
+        <div id="ui">
+            <h1>Canvas Cruiser</h1>
+            <p>Use Arrow Keys to drive</p>
+            <small id="version-display">Loading...</small>
+        </div>
+        <script>
+            // After scripts load, pull the version from game.js
+            window.addEventListener("load", () => {
+                document.getElementById("version-display").innerText =
+                    `v${GAME_VERSION}`;
+            });
+        </script>
     </body>
 </html>
