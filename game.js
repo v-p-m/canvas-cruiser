@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.5.1";
+const GAME_VERSION = "0.5.2";
 
 let laps = 0;
 let hasStarted = false; // New flag to handle the first crossing
@@ -6,6 +6,8 @@ let onFinishLine = false;
 let lapStartTime = 0;
 let currentLapTime = 0;
 let bestLapTime = 0;
+let isRacing = true;
+let highScores = JSON.parse(localStorage.getItem("highScores")) || [];
 
 const camera = {
   x: 0,
@@ -15,6 +17,39 @@ const camera = {
 };
 
 function drawUI() {
+  if (!isRacing) {
+    // --- DRAW LEADERBOARD OVERLAY ---
+    ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "#FFD700";
+    ctx.textAlign = "center";
+    ctx.font = "bold 40px 'Courier New'";
+    ctx.fillText("🏁 TOP 5 BEST LAPS 🏁", canvas.width / 2, 150);
+
+    ctx.fillStyle = "white";
+    ctx.font = "24px 'Courier New'";
+
+    if (highScores.length === 0) {
+      ctx.fillText("No records yet. Get driving!", canvas.width / 2, 250);
+    }
+
+    highScores.forEach((score, index) => {
+      ctx.fillText(
+        `${index + 1}. ${score}s`,
+        canvas.width / 2,
+        220 + index * 40,
+      );
+    });
+
+    ctx.fillStyle = "#00FF00";
+    ctx.fillText(
+      "Press 'Q' to Return to Track",
+      canvas.width / 2,
+      canvas.height - 100,
+    );
+    return; // Stop drawing the rest of the UI
+  }
   // 1. Semi-transparent background bar for the top
   ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
   ctx.fillRect(0, 0, canvas.width, 60);
@@ -100,6 +135,13 @@ const car = {
 const keys = {};
 window.addEventListener("keydown", (e) => (keys[e.key] = true));
 window.addEventListener("keyup", (e) => (keys[e.key] = false));
+window.addEventListener("keydown", (e) => {
+  keys[e.key] = true;
+  if (e.key.toLowerCase() === "q") {
+    isRacing = !isRacing; // Toggle between racing and leaderboard
+    if (!isRacing) car.speed = 0; // Stop car on quit
+  }
+});
 
 function checkTileCollision(x, y) {
   if (!worldTrack.data || !worldTrack.data.map) return;
@@ -136,6 +178,7 @@ function checkTileCollision(x, y) {
           console.log("Race Started! Now on Lap 1");
         } else {
           laps++; // Move to Lap 2, 3, etc.
+          saveLapTime(currentLapTime);
           console.log("Lap Completed! Now on Lap:", laps);
 
           // Check for Best Lap when finishing a full circuit
@@ -154,6 +197,8 @@ function checkTileCollision(x, y) {
 }
 
 function update() {
+  if (!isRacing) return;
+
   if (keys["ArrowUp"]) {
     car.speed += car.acceleration;
   } else if (keys["ArrowDown"]) {
@@ -269,6 +314,14 @@ function draw() {
   drawUI();
 
   requestAnimationFrame(draw);
+}
+
+// Function to save a new lap time
+function saveLapTime(time) {
+  highScores.push(parseFloat(time));
+  highScores.sort((a, b) => a - b); // Sort fastest to slowest
+  highScores = highScores.slice(0, 5); // Keep only top 5
+  localStorage.setItem("highScores", JSON.stringify(highScores));
 }
 
 // Start the loop
