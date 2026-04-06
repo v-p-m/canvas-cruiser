@@ -1,13 +1,19 @@
-const GAME_VERSION = "0.5.2";
+const GAME_VERSION = "0.5.4";
 
 let laps = 0;
-let hasStarted = false; // New flag to handle the first crossing
+let hasStarted = false;
 let onFinishLine = false;
 let lapStartTime = 0;
 let currentLapTime = 0;
 let bestLapTime = 0;
-let isRacing = true;
+let isMenu = true;
+let isRacing = false; // Start as false so car doesn't move in menu
 let highScores = JSON.parse(localStorage.getItem("highScores")) || [];
+
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
 const camera = {
   x: 0,
@@ -15,106 +21,6 @@ const camera = {
   width: window.innerWidth,
   height: window.innerHeight,
 };
-
-function drawUI() {
-  if (!isRacing) {
-    // --- DRAW LEADERBOARD OVERLAY ---
-    ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = "#FFD700";
-    ctx.textAlign = "center";
-    ctx.font = "bold 40px 'Courier New'";
-    ctx.fillText("🏁 TOP 5 BEST LAPS 🏁", canvas.width / 2, 150);
-
-    ctx.fillStyle = "white";
-    ctx.font = "24px 'Courier New'";
-
-    if (highScores.length === 0) {
-      ctx.fillText("No records yet. Get driving!", canvas.width / 2, 250);
-    }
-
-    highScores.forEach((score, index) => {
-      ctx.fillText(
-        `${index + 1}. ${score}s`,
-        canvas.width / 2,
-        220 + index * 40,
-      );
-    });
-
-    ctx.fillStyle = "#00FF00";
-    ctx.fillText(
-      "Press 'Q' to Return to Track",
-      canvas.width / 2,
-      canvas.height - 100,
-    );
-    return; // Stop drawing the rest of the UI
-  }
-  // 1. Semi-transparent background bar for the top
-  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-  ctx.fillRect(0, 0, canvas.width, 60);
-
-  ctx.fillStyle = "#00FF00";
-  ctx.font = "bold 20px 'Courier New', Courier, monospace";
-  ctx.textAlign = "left";
-
-  // 2. Lap Info
-  const lapDisplay = hasStarted ? `LAP ${laps}` : "GO! GO! GO!";
-  ctx.fillText(lapDisplay, 20, 35);
-
-  // 3. Speedometer (Right side)
-  ctx.textAlign = "right";
-  const speedDisplay = Math.round(Math.abs(car.speed) * 10);
-  ctx.fillText(`${speedDisplay} KM/H`, canvas.width - 20, 35);
-
-  // 4. Timer (Center)
-  ctx.textAlign = "center";
-  if (hasStarted) {
-    currentLapTime = ((Date.now() - lapStartTime) / 1000).toFixed(2);
-    ctx.fillText(`TIME: ${currentLapTime}s`, canvas.width / 2, 35);
-  } else {
-    ctx.fillText("READY?", canvas.width / 2, 35);
-  }
-}
-
-// 1. Initialize Canvas FIRST
-const canvas = document.getElementById("gameCanvas");
-const ctx = canvas.getContext("2d");
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
-
-// Handle window resizing
-window.addEventListener("resize", () => {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  camera.width = canvas.width;
-  camera.height = canvas.height;
-});
-
-// 2. Define Track and Load
-const worldTrack = new Track(ctx);
-
-async function initGame() {
-  await worldTrack.load("track.json");
-
-  // Compatibility check: Use points if they exist, otherwise default to tile (1,1)
-  if (
-    worldTrack.data &&
-    worldTrack.data.points &&
-    worldTrack.data.points.length > 0
-  ) {
-    const startPoint = worldTrack.data.points[0];
-    car.x = startPoint.x;
-    car.y = startPoint.y;
-  } else {
-    // Start car in the middle lane (row 3) of the top straight
-    car.x = 5 * 64;
-    car.y = 3 * 64 + 32;
-    car.angle = Math.PI / 2; // Point the car to the right (90 degrees)
-  }
-}
-
-initGame();
 
 const car = {
   x: 0,
@@ -133,19 +39,142 @@ const car = {
 };
 
 const keys = {};
-window.addEventListener("keydown", (e) => (keys[e.key] = true));
-window.addEventListener("keyup", (e) => (keys[e.key] = false));
+
+// SINGLE Event Listener for everything
 window.addEventListener("keydown", (e) => {
+  const key = e.key.toLowerCase();
+
+  if (isMenu) {
+    if (key === "enter" || key === " ") {
+      isMenu = false;
+      isRacing = true;
+    }
+    return;
+  }
+
   keys[e.key] = true;
-  if (e.key.toLowerCase() === "q") {
-    isRacing = !isRacing; // Toggle between racing and leaderboard
-    if (!isRacing) car.speed = 0; // Stop car on quit
+
+  if (key === "q") {
+    isRacing = !isRacing;
+    if (!isRacing) car.speed = 0;
   }
 });
 
+window.addEventListener("keyup", (e) => (keys[e.key] = false));
+
+window.addEventListener("resize", () => {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  camera.width = canvas.width;
+  camera.height = canvas.height;
+});
+
+const worldTrack = new Track(ctx);
+
+async function initGame() {
+  await worldTrack.load("track.json");
+  // Default spawn
+  car.x = 5 * 64;
+  car.y = 3 * 64 + 32;
+  car.angle = Math.PI / 2;
+}
+
+initGame();
+
+function saveLapTime(time) {
+  highScores.push(parseFloat(time));
+  highScores.sort((a, b) => a - b);
+  highScores = highScores.slice(0, 5);
+  localStorage.setItem("highScores", JSON.stringify(highScores));
+}
+
+function drawCar() {
+  ctx.save();
+  ctx.translate(car.x, car.y);
+  ctx.rotate(car.angle);
+
+  const w = car.width;
+  const h = car.height;
+
+  // Wheels
+  ctx.fillStyle = "#333";
+  ctx.fillRect(-w / 2 - 2, -h / 2 + 5, 8, 12);
+  ctx.fillRect(w / 2 - 6, -h / 2 + 5, 8, 12);
+  ctx.fillRect(-w / 2 - 2, h / 2 - 15, 8, 12);
+  ctx.fillRect(w / 2 - 6, h / 2 - 15, 8, 12);
+
+  // Body
+  ctx.fillStyle = "#d00";
+  ctx.fillRect(-w / 2, -h / 2, w, h);
+
+  // Glass
+  ctx.fillStyle = "#add8e6";
+  ctx.fillRect(-w / 2 + 4, -h / 2 + 10, w - 8, 12);
+
+  ctx.restore();
+}
+
+function drawStartMenu() {
+  ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#FFD700";
+  ctx.font = "bold 50px 'Courier New'";
+  ctx.fillText("🏎️ CANVAS CRUISER 🏎️", canvas.width / 2, 150);
+  ctx.fillStyle = "white";
+  ctx.font = "20px 'Courier New'";
+  ctx.fillText(
+    "UP / DOWN : Gas & Brake | LEFT / RIGHT : Steer",
+    canvas.width / 2,
+    280,
+  );
+  ctx.fillStyle = "#00FF00";
+  if (Math.floor(Date.now() / 500) % 2) {
+    ctx.fillText(
+      "PRESS [ENTER] TO RACE",
+      canvas.width / 2,
+      canvas.height - 150,
+    );
+  }
+}
+
+function drawUI() {
+  if (!isRacing && !isMenu) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#FFD700";
+    ctx.textAlign = "center";
+    ctx.font = "bold 40px 'Courier New'";
+    ctx.fillText("🏁 TOP 5 BEST LAPS 🏁", canvas.width / 2, 150);
+    ctx.fillStyle = "white";
+    ctx.font = "24px 'Courier New'";
+    highScores.forEach((score, i) =>
+      ctx.fillText(`${i + 1}. ${score}s`, canvas.width / 2, 220 + i * 40),
+    );
+    return;
+  }
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+  ctx.fillRect(0, 0, canvas.width, 60);
+  ctx.fillStyle = "#00FF00";
+  ctx.font = "bold 20px 'Courier New'";
+  ctx.textAlign = "left";
+  ctx.fillText(hasStarted ? `LAP ${laps}` : "GO! GO! GO!", 20, 35);
+  ctx.textAlign = "right";
+  ctx.fillText(
+    `${Math.round(Math.abs(car.speed) * 10)} KM/H`,
+    canvas.width - 20,
+    35,
+  );
+  ctx.textAlign = "center";
+  if (hasStarted) {
+    currentLapTime = ((Date.now() - lapStartTime) / 1000).toFixed(2);
+    ctx.fillText(`TIME: ${currentLapTime}s`, canvas.width / 2, 35);
+  }
+}
+
 function checkTileCollision(x, y) {
   if (!worldTrack.data || !worldTrack.data.map) return;
-
   const gridX = Math.floor(x / worldTrack.data.tileSize);
   const gridY = Math.floor(y / worldTrack.data.tileSize);
 
@@ -163,32 +192,20 @@ function checkTileCollision(x, y) {
     }
 
     // 2. GRASS PENALTY (NEW)
-    if (tileID === 0) {
-      car.speed *= 0.92; // Constant drag while on grass
-    }
+    if (tileID === 0) car.speed *= 0.92;
 
     // 3. FINISH LINE
     if (tileID === 9) {
       if (!onFinishLine) {
         onFinishLine = true;
-
         if (!hasStarted) {
           hasStarted = true;
-          laps = 1; // Start the race at Lap 1 immediately
-          console.log("Race Started! Now on Lap 1");
+          laps = 1;
         } else {
-          laps++; // Move to Lap 2, 3, etc.
+          laps++;
           saveLapTime(currentLapTime);
-          console.log("Lap Completed! Now on Lap:", laps);
-
-          // Check for Best Lap when finishing a full circuit
-          if (bestLapTime === 0 || currentLapTime < bestLapTime) {
-            bestLapTime = currentLapTime;
-            // Optional: Save to browser memory
-            localStorage.setItem("bestLap", bestLapTime);
-          }
         }
-        lapStartTime = Date.now(); // Reset timer for the new lap
+        lapStartTime = Date.now();
       }
     } else {
       onFinishLine = false;
@@ -197,20 +214,19 @@ function checkTileCollision(x, y) {
 }
 
 function update() {
-  if (!isRacing) return;
+  if (!isRacing || isMenu) return;
 
-  if (keys["ArrowUp"]) {
-    car.speed += car.acceleration;
-  } else if (keys["ArrowDown"]) {
-    car.speed -= car.acceleration;
-  } else {
-    car.speed *= 0.95;
-  }
+  // 1. Acceleration
+  if (keys["ArrowUp"]) car.speed += car.acceleration;
+  else if (keys["ArrowDown"]) car.speed -= car.acceleration;
+  else car.speed *= 0.95;
 
+  // 2. Speed Caps
   if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
   if (car.speed < -car.maxSpeed / 2) car.speed = -car.maxSpeed / 2;
   if (Math.abs(car.speed) < 0.1) car.speed = 0;
 
+  // 3. Steering & DYNAMIC TIRE SCRUB
   if (car.speed !== 0) {
     const flip = car.speed > 0 ? 1 : -1;
     const turningLeft = keys["ArrowLeft"];
@@ -219,115 +235,48 @@ function update() {
     if (turningLeft) car.angle -= car.turnSpeed * flip;
     if (turningRight) car.angle += car.turnSpeed * flip;
 
-    // DYNAMIC TIRE SCRUB
+    // RESTORED: Dynamic Tire Scrub Logic
     if (turningLeft || turningRight) {
       // Calculate a penalty based on current speed
-      // Fast cars lose more speed in sharp turns
       const scrubFactor =
         0.94 + 0.04 * (1 - Math.abs(car.speed) / car.maxSpeed);
       car.speed *= scrubFactor;
 
-      // Visual feedback: Console log if you're losing too much grip
       if (Math.abs(car.speed) > 7) console.log("Drifting/Scrubbing!");
     }
   }
 
+  // 4. Velocity & Drift
   const targetVx = Math.sin(car.angle) * car.speed;
   const targetVy = -Math.cos(car.angle) * car.speed;
-
   car.velocityX += (targetVx - car.velocityX) * car.driftGrip;
   car.velocityY += (targetVy - car.velocityY) * car.driftGrip;
 
-  // Final movement
+  // 5. Position & Collision
   car.x += car.velocityX;
   car.y += car.velocityY;
-
-  // RUN COLLISION CHECK
   checkTileCollision(car.x, car.y);
 
-  // Screen Boundaries
-  if (car.x < 0) car.x = 0;
-  if (car.x > canvas.width) car.x = canvas.width;
-  if (car.y < 0) car.y = 0;
-  if (car.y > canvas.height) car.y = canvas.height;
+  // 6. Camera Follow
+  camera.x = car.x - camera.width / 2;
+  camera.y = car.y - camera.height / 2;
 }
 
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // CALCULATE CAMERA POSITION
-  // Center the camera on the car
-  camera.x = car.x - camera.width / 2;
-  camera.y = car.y - camera.height / 2;
-
-  // APPLY CAMERA TRANSFORM
   ctx.save();
   ctx.translate(-camera.x, -camera.y);
-
-  // --- Everything drawn here moves with the camera ---
   worldTrack.draw();
-
-  // Draw Car
-  ctx.save();
-  ctx.translate(car.x, car.y);
-  ctx.rotate(car.angle);
-
-  const w = car.width;
-  const h = car.height;
-
-  // 1. DRAW WHEELS (Black rectangles)
-  ctx.fillStyle = "#333";
-  const wheelW = 8;
-  const wheelH = 12;
-  // Front Left & Right
-  ctx.fillRect(-w / 2 - 2, -h / 2 + 5, wheelW, wheelH);
-  ctx.fillRect(w / 2 - 6, -h / 2 + 5, wheelW, wheelH);
-  // Rear Left & Right
-  ctx.fillRect(-w / 2 - 2, h / 2 - 15, wheelW, wheelH);
-  ctx.fillRect(w / 2 - 6, h / 2 - 15, wheelW, wheelH);
-
-  // 2. MAIN BODY (The Red Box)
-  ctx.fillStyle = "#d00"; // Deeper red
-  ctx.fillRect(-w / 2, -h / 2, w, h);
-
-  // 3. WINDSHIELD (Light blue/grey)
-  ctx.fillStyle = "#add8e6";
-  // Positioned toward the front (top of the rectangle)
-  ctx.fillRect(-w / 2 + 4, -h / 2 + 10, w - 8, 12);
-
-  // 4. HEADLIGHTS (Yellow)
-  ctx.fillStyle = "#ff0";
-  ctx.fillRect(-w / 2 + 2, -h / 2 - 2, 6, 4); // Left
-  ctx.fillRect(w / 2 - 8, -h / 2 - 2, 6, 4); // Right
-
-  // 5. TAILLIGHTS (Bright Red)
-  ctx.fillStyle = "#f00";
-  ctx.fillRect(-w / 2 + 2, h / 2 - 2, 6, 3); // Left
-  ctx.fillRect(w / 2 - 8, h / 2 - 2, 6, 3); // Right
-
+  if (!isMenu) drawCar();
   ctx.restore();
-  // ---------------------------------------------------
 
-  ctx.restore(); // Stop moving the world
-
-  // Draw UI LAST (UI does NOT move with camera)
-  drawUI();
+  if (isMenu) drawStartMenu();
+  else drawUI();
 
   requestAnimationFrame(draw);
 }
 
-// Function to save a new lap time
-function saveLapTime(time) {
-  highScores.push(parseFloat(time));
-  highScores.sort((a, b) => a - b); // Sort fastest to slowest
-  highScores = highScores.slice(0, 5); // Keep only top 5
-  localStorage.setItem("highScores", JSON.stringify(highScores));
-}
-
-// Start the loop
-updateLoop();
-function updateLoop() {
-  update();
-  setTimeout(updateLoop, 1000 / 60); // Stable 60fps logic
-}
+// Fixed game loop
+setInterval(update, 1000 / 60);
 draw();
