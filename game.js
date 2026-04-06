@@ -46,6 +46,12 @@ const keys = {};
 window.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
 
+  // Reset logic (only allowed in Menu or Leaderboard)
+  if ((isMenu || !isRacing) && key === "c") {
+    clearHighScores();
+    return;
+  }
+
   if (isMenu) {
     if (key === "enter" || key === " ") {
       isMenu = false;
@@ -137,6 +143,7 @@ function drawStartMenu() {
     { key: "UP / DOWN", action: "Gas & Brake" },
     { key: "LEFT / RIGHT", action: "Steer" },
     { key: "Q", action: "Top 5 Best Laps" },
+    { key: "C", action: "Clear Records" },
   ];
 
   controls.forEach((item, i) => {
@@ -340,6 +347,16 @@ function draw() {
   else drawUI();
 
   requestAnimationFrame(draw);
+}
+
+function clearHighScores() {
+  if (confirm("Clear all high scores and records?")) {
+    highScores = [];
+    bestLapTime = 0;
+    localStorage.removeItem("highScores");
+    localStorage.removeItem("bestLap");
+    console.log("Local history cleared.");
+  }
 }
 
 // Fixed game loop
