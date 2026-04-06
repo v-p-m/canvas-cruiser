@@ -46,12 +46,15 @@ const keys = {};
 window.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
 
-  // Reset logic (only allowed in Menu or Leaderboard)
-  if ((isMenu || !isRacing) && key === "c") {
-    clearHighScores();
+  // 1. ESC Logic (Global)
+  if (key === "Escape") {
+    isMenu = true;
+    isRacing = false;
+    resetRace(); // Reset position and timers
     return;
   }
 
+  // 2. Menu Logic
   if (isMenu) {
     if (key === "enter" || key === " ") {
       isMenu = false;
@@ -60,8 +63,15 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
+  // Reset logic (only allowed in Menu or Leaderboard)
+  if ((isMenu || !isRacing) && key === "c") {
+    clearHighScores();
+    return;
+  }
+
   keys[e.key] = true;
 
+  // 3. Racing Logic
   if (key === "q") {
     isRacing = !isRacing;
     if (!isRacing) car.speed = 0;
@@ -144,6 +154,7 @@ function drawStartMenu() {
     { key: "LEFT / RIGHT", action: "Steer" },
     { key: "Q", action: "Top 5 Best Laps" },
     { key: "C", action: "Clear Records" },
+    { key: "ESC", action: "Back to Menu" },
   ];
 
   controls.forEach((item, i) => {
@@ -357,6 +368,22 @@ function clearHighScores() {
     localStorage.removeItem("bestLap");
     console.log("Local history cleared.");
   }
+}
+
+function resetRace() {
+  // Reset Car Position to Start Line
+  car.x = 5 * 64;
+  car.y = 3 * 64 + 32;
+  car.angle = Math.PI / 2;
+  car.speed = 0;
+  car.velocityX = 0;
+  car.velocityY = 0;
+
+  // Reset Session Data
+  laps = 0;
+  hasStarted = false;
+  currentLapTime = 0;
+  onFinishLine = false;
 }
 
 // Fixed game loop
