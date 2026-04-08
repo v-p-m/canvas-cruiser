@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.7.0";
+const GAME_VERSION = "0.7.1";
 
 let laps = 0;
 let hasStarted = false;
@@ -301,7 +301,7 @@ function drawUI() {
   ctx.fillStyle = "#00FF00";
   ctx.font = "bold 20px 'Courier New'";
   ctx.textAlign = "left";
-  ctx.fillText(hasStarted ? `LAP ${laps}` : "GO! GO! GO!", 20, 35);
+  ctx.fillText(hasStarted ? `LAP ${laps}` : "Let's compete!", 20, 35);
   ctx.textAlign = "right";
   ctx.fillText(
     `${Math.round(Math.abs(car.speed) * 10)} KM/H`,

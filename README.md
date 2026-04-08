@@ -1,4 +1,4 @@
-# Canvas Cruiser v0.7.0
+# Canvas Cruiser v0.7.1
 A minimalist top-down racing game built with pure **HTML5 Canvas** and **JavaScript**.
 
 ## Controls
