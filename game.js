@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.6.0";
+const GAME_VERSION = "0.7.0";
 
 let laps = 0;
 let hasStarted = false;
@@ -9,6 +9,8 @@ let bestLapTime = 0;
 let isMenu = true;
 let isRacing = false;
 let highScores = JSON.parse(localStorage.getItem("highScores")) || [];
+let isLeaderboard = false;
+let savedSpeed = 0;
 
 const opponents = [];
 
@@ -78,28 +80,48 @@ window.addEventListener("keydown", (e) => {
     isMenu = true;
     isRacing = false;
     resetRace();
+    isLeaderboard = false;
+    return;
+  }
+
+  if (key === "r") {
+    resetRace();
+    isMenu = false;
+    isRacing = false;
+    StartLights.begin();
+    return;
+  }
+
+  // Q key handler:
+  if (key === "q" && !isMenu) {
+    isLeaderboard = !isLeaderboard;
+    isRacing = !isLeaderboard;
+
+    if (isLeaderboard) {
+      savedSpeed = car.speed; // opening — save
+      car.speed = 0;
+    } else {
+      car.speed = savedSpeed; // closing — restore
+      savedSpeed = 0;
+    }
+    return;
+  }
+
+  if (key === "c" && isLeaderboard) {
+    clearHighScores();
     return;
   }
 
   if (isMenu) {
     if (key === "enter" || key === " ") {
       isMenu = false;
-      isRacing = true;
+      isRacing = false;
+      StartLights.begin();
     }
     return;
   }
 
-  if ((isMenu || !isRacing) && key === "c") {
-    clearHighScores();
-    return;
-  }
-
   keys[e.key] = true;
-
-  if (key === "q") {
-    isRacing = !isRacing;
-    if (!isRacing) car.speed = 0;
-  }
 });
 
 window.addEventListener("keyup", (e) => (keys[e.key] = false));
@@ -131,6 +153,9 @@ function clearHighScores() {
 }
 
 function resetRace() {
+  isLeaderboard = false;
+
+  // Player
   car.x = 5 * 64;
   car.y = 3 * 64 + 32;
   car.angle = Math.PI / 2;
@@ -138,12 +163,26 @@ function resetRace() {
   car.velocityX = 0;
   car.velocityY = 0;
 
+  // AI
+  opponents[0].x = 5 * 64;
+  opponents[0].y = 3 * 64 + 100;
+  opponents[0].angle = Math.PI / 2;
+  opponents[0].speed = 0;
+  opponents[0].currentWaypoint = 0;
+
+  opponents[1].x = 5 * 64;
+  opponents[1].y = 3 * 64 + 160;
+  opponents[1].angle = Math.PI / 2;
+  opponents[1].speed = 0;
+  opponents[1].currentWaypoint = 0;
+
+  // Session
   laps = 0;
   hasStarted = false;
   currentLapTime = 0;
   onFinishLine = false;
 
-  // Clear baked skid marks
+  // Skid marks
   skidCtx.clearRect(0, 0, skidCanvas.width, skidCanvas.height);
 }
 
@@ -228,6 +267,7 @@ function drawStartMenu() {
   const controls = [
     { key: "UP / DOWN", action: "Gas & Brake" },
     { key: "LEFT / RIGHT", action: "Steer" },
+    { key: "R", action: "Reset" },
     { key: "Q", action: "Top 5 Best Laps" },
     { key: "C", action: "Clear Records" },
     { key: "ESC", action: "Back to Menu" },
@@ -256,21 +296,6 @@ function drawStartMenu() {
 }
 
 function drawUI() {
-  if (!isRacing && !isMenu) {
-    ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#FFD700";
-    ctx.textAlign = "center";
-    ctx.font = "bold 40px 'Courier New'";
-    ctx.fillText("🏁 TOP 5 BEST LAPS 🏁", canvas.width / 2, 150);
-    ctx.fillStyle = "white";
-    ctx.font = "24px 'Courier New'";
-    highScores.forEach((score, i) =>
-      ctx.fillText(`${i + 1}. ${score}s`, canvas.width / 2, 220 + i * 40),
-    );
-    return;
-  }
-
   ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
   ctx.fillRect(0, 0, canvas.width, 60);
   ctx.fillStyle = "#00FF00";
@@ -290,10 +315,28 @@ function drawUI() {
   }
 }
 
+function drawLeaderboard() {
+  ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#FFD700";
+  ctx.textAlign = "center";
+  ctx.font = "bold 40px 'Courier New'";
+  ctx.fillText("🏁 TOP 5 BEST LAPS 🏁", canvas.width / 2, 150);
+  ctx.fillStyle = "white";
+  ctx.font = "24px 'Courier New'";
+  highScores.forEach((score, i) =>
+    ctx.fillText(`${i + 1}. ${score}s`, canvas.width / 2, 220 + i * 40),
+  );
+}
+
 // --- Unified game loop ---
 function gameLoop(timestamp) {
+  StartLights.update(timestamp);
+  if (!StartLights.active && !isRacing && !isMenu) {
+    isRacing = true;
+  }
   // UPDATE
-  if (isRacing && !isMenu) {
+  if (isRacing && !isMenu && !isLeaderboard) {
     if (keys["ArrowUp"]) car.speed += car.acceleration;
     else if (keys["ArrowDown"]) car.speed -= car.acceleration;
     else car.speed *= 0.95;
@@ -341,10 +384,11 @@ function gameLoop(timestamp) {
     car.x += car.velocityX;
     car.y += car.velocityY;
     checkTileCollision(car.x, car.y);
-
-    camera.x = car.x - camera.width / 2;
-    camera.y = car.y - camera.height / 2;
   }
+
+  // Camera always follows car — runs during countdown too
+  camera.x = car.x - camera.width / 2;
+  camera.y = car.y - camera.height / 2;
 
   // DRAW
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -378,7 +422,10 @@ function gameLoop(timestamp) {
   ctx.restore();
 
   if (isMenu) drawStartMenu();
+  else if (isLeaderboard) drawLeaderboard();
   else drawUI();
+
+  StartLights.draw(ctx, canvas.width, canvas.height);
 
   requestAnimationFrame(gameLoop);
 }
