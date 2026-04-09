@@ -11,6 +11,7 @@
         <script src="track.js"></script>
         <script src="ai.js"></script>
         <script src="startLights.js"></script>
+        <script src="waypointEditor.js"></script>
         <script src="game.js"></script>
         <div id="ui">
             <h1>Canvas Cruiser</h1>
@@ -21,7 +22,7 @@
             // After scripts load, pull the version from game.js
             window.addEventListener("load", () => {
                 document.getElementById("version-display").innerText =
-                    `v${GAME_VERSION}`;
+                    `${GAME_VERSION}`;
             });
         </script>
     </body>

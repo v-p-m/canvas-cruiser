@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.7.1";
+const GAME_VERSION = "0.7.2";
 
 let laps = 0;
 let hasStarted = false;
@@ -112,6 +112,20 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
+  if (key === "e" && DEBUG) {
+    WaypointEditor.toggle();
+    return;
+  }
+  if (key === "z" && DEBUG) {
+    WaypointEditor.undo();
+    return;
+  }
+  if (key === "p" && DEBUG) {
+    e.preventDefault();
+    WaypointEditor.export();
+    return;
+  }
+
   if (isMenu) {
     if (key === "enter" || key === " ") {
       isMenu = false;
@@ -131,6 +145,10 @@ window.addEventListener("resize", () => {
   canvas.height = window.innerHeight;
   camera.width = canvas.width;
   camera.height = canvas.height;
+});
+
+canvas.addEventListener("click", (e) => {
+  WaypointEditor.handleClick(e.clientX, e.clientY);
 });
 
 const worldTrack = new Track(ctx);
@@ -421,6 +439,8 @@ function gameLoop(timestamp) {
 
   ctx.restore();
 
+  if (DEBUG) WaypointEditor.draw(ctx);
+
   if (isMenu) drawStartMenu();
   else if (isLeaderboard) drawLeaderboard();
   else drawUI();
@@ -433,6 +453,7 @@ function gameLoop(timestamp) {
 // --- Init ---
 async function initGame() {
   await worldTrack.load("track.json");
+  WaypointEditor.init(worldTrack.data.waypoints);
   resizeSkidCanvas();
 
   car.x = 5 * 64;
