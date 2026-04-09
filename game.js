@@ -11,6 +11,17 @@ let isRacing = false;
 let highScores = JSON.parse(localStorage.getItem("highScores")) || [];
 let isLeaderboard = false;
 let savedSpeed = 0;
+let gameMode = "free"; // "free" | "race5" | "race10"
+let selectedMode = 0; // menu cursor
+let totalRaceStart = 0;
+let totalRaceTime = 0;
+let isRaceFinished = false;
+
+const MODES = [
+  { id: "free", label: "Free Drive" },
+  { id: "race5", label: "5 Lap Race" },
+  { id: "race10", label: "10 Lap Race" },
+];
 
 const opponents = [];
 
@@ -126,10 +137,44 @@ const DEBUG = false;
 window.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
 
+  // Menu navigation
+  if (isMenu) {
+    if (e.key === "ArrowUp") {
+      selectedMode = (selectedMode - 1 + MODES.length) % MODES.length;
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      selectedMode = (selectedMode + 1) % MODES.length;
+      return;
+    }
+    if (key === "enter" || key === " ") {
+      gameMode = MODES[selectedMode].id;
+      isMenu = false;
+      isRacing = false;
+      StartLights.begin();
+      return;
+    }
+    return;
+  }
+
+  // Race finished screen
+  if (isRaceFinished) {
+    if (key === "r") {
+      resetRace();
+      isMenu = false;
+      isRacing = false;
+      StartLights.begin();
+    }
+    if (key === "escape") {
+      isMenu = true;
+      resetRace();
+    }
+    return;
+  }
   if (key === "escape") {
+    resetRace();
     isMenu = true;
     isRacing = false;
-    resetRace();
     isLeaderboard = false;
     return;
   }
@@ -213,7 +258,6 @@ function saveLapTime(time) {
   highScores = highScores.slice(0, 5);
   localStorage.setItem("highScores", JSON.stringify(highScores));
 
-  // Trigger if this time is now the best
   if (highScores[0] === parsed && parsed !== previousBest) {
     PersonalBest.trigger(time);
   }
@@ -230,8 +274,10 @@ function clearHighScores() {
 
 function resetRace() {
   isLeaderboard = false;
+  isRaceFinished = false;
+  totalRaceTime = 0;
+  totalRaceStart = 0;
 
-  // Player
   car.x = 5 * 64;
   car.y = 3 * 64 + 32;
   car.angle = Math.PI / 2;
@@ -239,7 +285,6 @@ function resetRace() {
   car.velocityX = 0;
   car.velocityY = 0;
 
-  // AI
   opponents[0].x = 5 * 64;
   opponents[0].y = 3 * 64 + 100;
   opponents[0].angle = Math.PI / 2;
@@ -252,13 +297,11 @@ function resetRace() {
   opponents[1].speed = 0;
   opponents[1].currentWaypoint = 0;
 
-  // Session
   laps = 0;
   hasStarted = false;
   currentLapTime = 0;
   onFinishLine = false;
 
-  // Skid marks
   skidCtx.clearRect(0, 0, skidCanvas.width, skidCanvas.height);
 }
 
@@ -288,11 +331,27 @@ function checkTileCollision(x, y) {
         if (!hasStarted) {
           hasStarted = true;
           laps = 1;
+          totalRaceStart = Date.now();
+          lapStartTime = Date.now();
         } else {
+          const lapTime = ((Date.now() - lapStartTime) / 1000).toFixed(2);
+          lapStartTime = Date.now();
           laps++;
-          saveLapTime(currentLapTime);
+
+          const targetLaps =
+            gameMode === "race5" ? 5 : gameMode === "race10" ? 10 : null;
+
+          if (targetLaps && laps > targetLaps) {
+            // Race complete
+            totalRaceTime = ((Date.now() - totalRaceStart) / 1000).toFixed(2);
+            isRaceFinished = true;
+            isRacing = false;
+            opponents.forEach((ai) => (ai.speed = 0));
+          } else {
+            // Normal lap save
+            saveLapTime(lapTime);
+          }
         }
-        lapStartTime = Date.now();
       }
     } else {
       onFinishLine = false;
@@ -333,15 +392,39 @@ function drawStartMenu() {
   ctx.font = "bold 50px 'Courier New'";
   ctx.fillText("🏎️ CANVAS CRUISER 🏎️", canvas.width / 2, 150);
 
-  const centerX = canvas.width / 2;
-  const startY = 280;
-  const lineSpacing = 35;
-  const gutter = 20;
+  // Mode selector
+  const cx = canvas.width / 2;
+  const modesStartY = 260;
 
-  ctx.font = "20px 'Courier New'";
+  ctx.font = "22px 'Courier New'";
+  MODES.forEach((mode, i) => {
+    const y = modesStartY + i * 52;
+    const selected = i === selectedMode;
+
+    const boxW = 300;
+    const boxH = 40;
+    const boxX = cx - boxW / 2;
+    const boxY = y - 28;
+
+    // Highlight box
+    ctx.fillStyle = selected ? "#FFD700" : "rgba(255,255,255,0.08)";
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxW, boxH, 8);
+    ctx.fill();
+
+    ctx.fillStyle = selected ? "#000" : "#AAA";
+    ctx.fillText(selected ? `▶  ${mode.label}` : mode.label, cx, y);
+  });
+
+  // Controls
+  const controlsY = modesStartY + MODES.length * 52 + 40;
+  const lineSpacing = 32;
+  const gutter = 20;
+  ctx.font = "16px 'Courier New'";
 
   const controls = [
-    { key: "UP / DOWN", action: "Gas & Brake" },
+    { key: "UP / DOWN", action: "Select mode" },
+    { key: "ENTER", action: "Start" },
     { key: "LEFT / RIGHT", action: "Steer" },
     { key: "R", action: "Reset" },
     { key: "Q", action: "Top 5 Best Laps" },
@@ -350,25 +433,17 @@ function drawStartMenu() {
   ];
 
   controls.forEach((item, i) => {
-    const y = startY + i * lineSpacing;
+    const y = controlsY + i * lineSpacing;
     ctx.textAlign = "right";
-    ctx.fillStyle = "#AAA";
-    ctx.fillText(item.key, centerX - gutter, y);
+    ctx.fillStyle = "#888";
+    ctx.fillText(item.key, cx - gutter, y);
     ctx.textAlign = "center";
     ctx.fillStyle = "white";
-    ctx.fillText(":", centerX, y);
+    ctx.fillText(":", cx, y);
     ctx.textAlign = "left";
     ctx.fillStyle = "white";
-    ctx.fillText(item.action, centerX + gutter, y);
+    ctx.fillText(item.action, cx + gutter, y);
   });
-
-  const promptY = startY + controls.length * lineSpacing + 60;
-  ctx.textAlign = "center";
-  ctx.font = "bold 26px 'Courier New'";
-  if (Math.floor(Date.now() / 500) % 2) {
-    ctx.fillStyle = "#00FF00";
-    ctx.fillText("PRESS [ENTER] TO RACE", centerX, promptY);
-  }
 }
 
 function drawUI() {
@@ -377,7 +452,15 @@ function drawUI() {
   ctx.fillStyle = "#00FF00";
   ctx.font = "bold 20px 'Courier New'";
   ctx.textAlign = "left";
-  ctx.fillText(hasStarted ? `LAP ${laps}` : "Let's compete!", 20, 35);
+
+  const lapCount = gameMode === "race5" ? 5 : gameMode === "race10" ? 10 : null;
+  const lapLabel = !hasStarted
+    ? "Let's compete!"
+    : lapCount
+      ? `LAP ${laps} / ${lapCount}`
+      : `LAP ${laps}`;
+
+  ctx.fillText(lapLabel, 20, 35);
   ctx.textAlign = "right";
   ctx.fillText(
     `${Math.round(Math.abs(car.speed) * 10)} KM/H`,
@@ -403,6 +486,39 @@ function drawLeaderboard() {
   highScores.forEach((score, i) =>
     ctx.fillText(`${i + 1}. ${score}s`, canvas.width / 2, 220 + i * 40),
   );
+}
+
+function drawRaceFinished() {
+  ctx.fillStyle = "rgba(0, 0, 0, 0.88)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const cx = canvas.width / 2;
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#FFD700";
+  ctx.font = "bold 48px 'Courier New'";
+  ctx.fillText("🏁 RACE FINISHED 🏁", cx, 160);
+
+  const lapCount = gameMode === "race5" ? 5 : 10;
+  ctx.fillStyle = "white";
+  ctx.font = "28px 'Courier New'";
+  ctx.fillText(`${lapCount} laps completed`, cx, 230);
+
+  ctx.font = "bold 36px 'Courier New'";
+  ctx.fillStyle = "#00FF88";
+  ctx.fillText(`Total: ${totalRaceTime}s`, cx, 300);
+
+  // Personal best indicator
+  if (highScores.length > 0 && parseFloat(totalRaceTime) === highScores[0]) {
+    ctx.fillStyle = "#FFD700";
+    ctx.font = "bold 24px 'Courier New'";
+    ctx.fillText("🏆 New Best Total!", cx, 350);
+  }
+
+  ctx.font = "20px 'Courier New'";
+  ctx.fillStyle = "#AAA";
+  ctx.fillText("R  — Race again", cx, 420);
+  ctx.fillText("ESC — Main menu", cx, 455);
 }
 
 let lastTime = 0;
@@ -502,6 +618,7 @@ function gameLoop(timestamp) {
   if (DEBUG) WaypointEditor.draw(ctx);
 
   if (isMenu) drawStartMenu();
+  else if (isRaceFinished) drawRaceFinished();
   else if (isLeaderboard) drawLeaderboard();
   else drawUI();
 
