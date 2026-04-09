@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.7.2";
+const GAME_VERSION = "0.7.3";
 
 let laps = 0;
 let hasStarted = false;
@@ -40,6 +40,56 @@ const car = {
   velocityY: 0,
   friction: 0.96,
   driftGrip: 0.1,
+};
+
+const PersonalBest = {
+  active: false,
+  timer: 0,
+  duration: 3000, // ms to show the banner
+  lastBest: null,
+
+  trigger(time) {
+    this.active = true;
+    this.timer = this.duration;
+    this.lastBest = time;
+  },
+
+  update(dt) {
+    if (!this.active) return;
+    this.timer -= dt;
+    if (this.timer <= 0) {
+      this.active = false;
+    }
+  },
+
+  draw(ctx, canvasWidth) {
+    if (!this.active) return;
+
+    const alpha = Math.min(1, this.timer / 500); // fade out last 500ms
+    const cx = canvasWidth / 2;
+    const y = 120;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // Banner
+    ctx.fillStyle = "#FFD700";
+    ctx.font = "bold 32px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`🏆 NEW BEST: ${this.lastBest}s`, cx, y);
+
+    // Underline
+    const textWidth = ctx.measureText(`🏆 NEW BEST: ${this.lastBest}s`).width;
+    ctx.strokeStyle = "#FFD700";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - textWidth / 2, y + 22);
+    ctx.lineTo(cx + textWidth / 2, y + 22);
+    ctx.stroke();
+
+    ctx.restore();
+  },
 };
 
 const keys = {};
@@ -155,10 +205,18 @@ const worldTrack = new Track(ctx);
 
 // --- Scoring ---
 function saveLapTime(time) {
-  highScores.push(parseFloat(time));
+  const parsed = parseFloat(time);
+  const previousBest = highScores[0] || null;
+
+  highScores.push(parsed);
   highScores.sort((a, b) => a - b);
   highScores = highScores.slice(0, 5);
   localStorage.setItem("highScores", JSON.stringify(highScores));
+
+  // Trigger if this time is now the best
+  if (highScores[0] === parsed && parsed !== previousBest) {
+    PersonalBest.trigger(time);
+  }
 }
 
 function clearHighScores() {
@@ -347,12 +405,20 @@ function drawLeaderboard() {
   );
 }
 
+let lastTime = 0;
+
 // --- Unified game loop ---
 function gameLoop(timestamp) {
+  const dt = timestamp - lastTime;
+  lastTime = timestamp;
+
   StartLights.update(timestamp);
+  PersonalBest.update(dt);
+
   if (!StartLights.active && !isRacing && !isMenu) {
     isRacing = true;
   }
+
   // UPDATE
   if (isRacing && !isMenu && !isLeaderboard) {
     if (keys["ArrowUp"]) car.speed += car.acceleration;
@@ -362,8 +428,6 @@ function gameLoop(timestamp) {
     if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
     if (car.speed < -car.maxSpeed / 2) car.speed = -car.maxSpeed / 2;
     if (Math.abs(car.speed) < 0.1) car.speed = 0;
-
-    opponents.forEach((ai) => ai.update(worldTrack.data.waypoints, isRacing));
 
     if (car.speed !== 0) {
       const flip = car.speed > 0 ? 1 : -1;
@@ -382,17 +446,17 @@ function gameLoop(timestamp) {
           paintSkidMark(car.x, car.y, car.angle);
         }
       }
-
-      // AI vs AI collisions
-      for (let i = 0; i < opponents.length; i++) {
-        for (let j = i + 1; j < opponents.length; j++) {
-          opponents[i].resolveCollision(opponents[j]);
-        }
-      }
-
-      // AI vs player collisions
-      opponents.forEach((ai) => ai.resolveCollision(car));
     }
+
+    // Collisions — always, not gated on car.speed
+    opponents.forEach((ai) => ai.update(worldTrack.data.waypoints, isRacing));
+
+    for (let i = 0; i < opponents.length; i++) {
+      for (let j = i + 1; j < opponents.length; j++) {
+        opponents[i].resolveCollision(opponents[j]);
+      }
+    }
+    opponents.forEach((ai) => ai.resolveCollision(car));
 
     const targetVx = Math.sin(car.angle) * car.speed;
     const targetVy = -Math.cos(car.angle) * car.speed;
@@ -404,7 +468,7 @@ function gameLoop(timestamp) {
     checkTileCollision(car.x, car.y);
   }
 
-  // Camera always follows car — runs during countdown too
+  // Camera always follows — runs during countdown too
   camera.x = car.x - camera.width / 2;
   camera.y = car.y - camera.height / 2;
 
@@ -415,11 +479,8 @@ function gameLoop(timestamp) {
   ctx.translate(-camera.x, -camera.y);
 
   worldTrack.draw();
-
-  // Single drawImage instead of 500 save/restore pairs
   ctx.drawImage(skidCanvas, 0, 0);
 
-  // Waypoint debug — gated, zero cost in production
   if (DEBUG && worldTrack.data?.waypoints) {
     ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
     ctx.font = "bold 16px Arial";
@@ -434,7 +495,6 @@ function gameLoop(timestamp) {
   }
 
   opponents.forEach((ai) => ai.draw());
-
   if (!isMenu) drawCar();
 
   ctx.restore();
@@ -446,6 +506,7 @@ function gameLoop(timestamp) {
   else drawUI();
 
   StartLights.draw(ctx, canvas.width, canvas.height);
+  PersonalBest.draw(ctx, canvas.width);
 
   requestAnimationFrame(gameLoop);
 }
