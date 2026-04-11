@@ -242,8 +242,17 @@ window.addEventListener("resize", () => {
   camera.height = canvas.height;
 });
 
-canvas.addEventListener("click", (e) => {
-  WaypointEditor.handleClick(e.clientX, e.clientY);
+canvas.addEventListener("mousedown", (e) => {
+  canvas.focus();
+  WaypointEditor.handleMouseDown(e.clientX, e.clientY);
+});
+
+canvas.addEventListener("mousemove", (e) => {
+  WaypointEditor.handleMouseMove(e.clientX, e.clientY);
+});
+
+canvas.addEventListener("mouseup", () => {
+  WaypointEditor.handleMouseUp();
 });
 
 const worldTrack = new Track(ctx);
