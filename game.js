@@ -131,7 +131,7 @@ function paintSkidMark(x, y, angle) {
 }
 
 // --- Debug flag ---
-const DEBUG = false;
+const DEBUG = true;
 
 // --- Input ---
 window.addEventListener("keydown", (e) => {
@@ -346,7 +346,10 @@ function checkTileCollision(x, y) {
             totalRaceTime = ((Date.now() - totalRaceStart) / 1000).toFixed(2);
             isRaceFinished = true;
             isRacing = false;
-            opponents.forEach((ai) => (ai.speed = 0));
+            //opponents.forEach((ai) => (ai.speed = 0));
+            opponents.forEach((ai) =>
+              ai.update(worldTrack.data.waypoints, isRacing, car.x, car.y),
+            );
           } else {
             // Normal lap save
             saveLapTime(lapTime);

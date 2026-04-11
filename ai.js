@@ -13,44 +13,70 @@ class AICar {
     this.turnSpeed = 0.08;
     this.velocityX = 0;
     this.velocityY = 0;
+    this.grip = 0.15;
+    this.lineOffset = (Math.random() - 0.5) * 40;
   }
 
-  update(waypoints, isRacing) {
+  update(waypoints, isRacing, playerX, playerY) {
     if (!isRacing || !waypoints || waypoints.length === 0) return;
 
-    const target = waypoints[this.currentWaypoint];
-    const dx = target.x - this.x;
-    const dy = target.y - this.y;
+    const current = waypoints[this.currentWaypoint];
+    const next = waypoints[(this.currentWaypoint + 1) % waypoints.length];
 
-    // 1. Steering — normalise with atan2 instead of while loops
-    const targetAngle = Math.atan2(dx, -dy);
+    const dx = current.x - this.x;
+    const dy = current.y - this.y;
+    const distSq = dx * dx + dy * dy;
+
+    // Perpendicular offset for varied racing line
+    const perpX = -(current.y - next.y);
+    const perpY = current.x - next.x;
+    const perpLen = Math.sqrt(perpX * perpX + perpY * perpY) || 1;
+
+    const targetX = current.x + (perpX / perpLen) * this.lineOffset;
+    const targetY = current.y + (perpY / perpLen) * this.lineOffset;
+
+    // Steering
+    const targetAngle = Math.atan2(targetX - this.x, -(targetY - this.y));
     const angleDiff = Math.atan2(
       Math.sin(targetAngle - this.angle),
       Math.cos(targetAngle - this.angle),
     );
     this.angle += angleDiff * this.turnSpeed;
 
-    // 2. Speed — ease off on sharp corners
+    // Corner braking
     const cornerFactor = 1 - Math.min(Math.abs(angleDiff) / Math.PI, 1) * 0.5;
-    this.speed = this.maxSpeed * cornerFactor;
 
-    // 3. Move
-    this.x += Math.sin(this.angle) * this.speed;
-    this.y -= Math.cos(this.angle) * this.speed;
+    // Rubber banding
+    let rubberBand = 1.0;
+    if (playerX !== undefined && playerY !== undefined) {
+      const dxP = playerX - this.x;
+      const dyP = playerY - this.y;
+      const distToPlayer = Math.sqrt(dxP * dxP + dyP * dyP);
+      if (distToPlayer > 400) rubberBand = 1.15;
+      if (distToPlayer < 100) rubberBand = 0.88;
+    }
 
-    // 4. Advance waypoint — squared distance avoids Math.sqrt
-    const distSq = dx * dx + dy * dy;
-    if (distSq < 100 * 100) {
+    this.speed = this.maxSpeed * cornerFactor * rubberBand;
+
+    // Velocity-based movement
+    const targetVx = Math.sin(this.angle) * this.speed;
+    const targetVy = -Math.cos(this.angle) * this.speed;
+    this.velocityX += (targetVx - this.velocityX) * this.grip;
+    this.velocityY += (targetVy - this.velocityY) * this.grip;
+    this.x += this.velocityX;
+    this.y += this.velocityY;
+
+    // Advance waypoint
+    if (distSq < 80 * 80) {
       this.currentWaypoint = (this.currentWaypoint + 1) % waypoints.length;
     }
   }
 
-  // Simple circle-based overlap check against another car
   resolveCollision(other) {
     const dx = other.x - this.x;
     const dy = other.y - this.y;
     const distSq = dx * dx + dy * dy;
-    const minDist = this.width; // treat both cars as circles of radius ~width
+    const minDist = this.width;
 
     if (distSq < minDist * minDist && distSq > 0) {
       const dist = Math.sqrt(distSq);
@@ -58,13 +84,11 @@ class AICar {
       const nx = dx / dist;
       const ny = dy / dist;
 
-      // Push both cars apart equally
       this.x -= nx * overlap;
       this.y -= ny * overlap;
       other.x += nx * overlap;
       other.y += ny * overlap;
 
-      // Dampen speed on impact
       this.speed *= 0.7;
       other.speed *= 0.7;
     }
@@ -78,18 +102,15 @@ class AICar {
     const w = this.width;
     const h = this.height;
 
-    // All four wheels (matching player car)
     this.ctx.fillStyle = "#333";
-    this.ctx.fillRect(-w / 2 - 2, -h / 2 + 5, 8, 12); // front left
-    this.ctx.fillRect(w / 2 - 6, -h / 2 + 5, 8, 12); // front right
-    this.ctx.fillRect(-w / 2 - 2, h / 2 - 15, 8, 12); // rear left
-    this.ctx.fillRect(w / 2 - 6, h / 2 - 15, 8, 12); // rear right
+    this.ctx.fillRect(-w / 2 - 2, -h / 2 + 5, 8, 12);
+    this.ctx.fillRect(w / 2 - 6, -h / 2 + 5, 8, 12);
+    this.ctx.fillRect(-w / 2 - 2, h / 2 - 15, 8, 12);
+    this.ctx.fillRect(w / 2 - 6, h / 2 - 15, 8, 12);
 
-    // Body
     this.ctx.fillStyle = this.color;
     this.ctx.fillRect(-w / 2, -h / 2, w, h);
 
-    // Windshield
     this.ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
     this.ctx.fillRect(-w / 2 + 5, -h / 2 + 10, w - 10, 10);
 
