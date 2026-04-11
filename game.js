@@ -535,6 +535,57 @@ function drawRaceFinished() {
 
 let lastTime = 0;
 
+function resolvePlayerCollision(other) {
+  for (let iter = 0; iter < 3; iter++) {
+    const dx = other.x - car.x;
+    const dy = other.y - car.y;
+
+    const cos = Math.cos(-car.angle);
+    const sin = Math.sin(-car.angle);
+
+    const localX = dx * cos - dy * sin;
+    const localY = dx * sin + dy * cos;
+
+    const halfW = car.width;
+    const halfH = car.height;
+
+    const overlapX = halfW - Math.abs(localX);
+    const overlapY = halfH - Math.abs(localY);
+
+    if (overlapX <= 0 || overlapY <= 0) return;
+
+    let pushLocalX = 0;
+    let pushLocalY = 0;
+
+    if (overlapX < overlapY) {
+      pushLocalX = overlapX * Math.sign(localX);
+    } else {
+      pushLocalY = overlapY * Math.sign(localY);
+    }
+
+    const cos2 = Math.cos(car.angle);
+    const sin2 = Math.sin(car.angle);
+
+    const pushX = pushLocalX * cos2 - pushLocalY * sin2;
+    const pushY = pushLocalX * sin2 + pushLocalY * cos2;
+
+    const totalSpeed = Math.abs(car.speed) + Math.abs(other.speed) + 0.001;
+    const carRatio = Math.abs(other.speed) / totalSpeed;
+    const otherRatio = Math.abs(car.speed) / totalSpeed;
+
+    car.x -= pushX * carRatio;
+    car.y -= pushY * carRatio;
+    other.x += pushX * otherRatio;
+    other.y += pushY * otherRatio;
+
+    const impactForce = Math.sqrt(pushX * pushX + pushY * pushY);
+    if (impactForce > 0.5) {
+      car.speed *= 0.75;
+      other.speed *= 0.75;
+    }
+  }
+}
+
 // --- Unified game loop ---
 function gameLoop(timestamp) {
   const dt = timestamp - lastTime;
@@ -576,15 +627,20 @@ function gameLoop(timestamp) {
       }
     }
 
-    // Collisions — always, not gated on car.speed
-    opponents.forEach((ai) => ai.update(worldTrack.data.waypoints, isRacing));
+    // AI update
+    opponents.forEach((ai) =>
+      ai.update(worldTrack.data.waypoints, isRacing, car.x, car.y),
+    );
 
+    // AI vs AI collisions
     for (let i = 0; i < opponents.length; i++) {
       for (let j = i + 1; j < opponents.length; j++) {
         opponents[i].resolveCollision(opponents[j]);
       }
     }
-    opponents.forEach((ai) => ai.resolveCollision(car));
+
+    // Player vs AI — checked from both reference frames
+    opponents.forEach((ai) => resolvePlayerCollision(ai));
 
     const targetVx = Math.sin(car.angle) * car.speed;
     const targetVy = -Math.cos(car.angle) * car.speed;

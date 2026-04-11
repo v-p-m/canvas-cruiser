@@ -73,25 +73,75 @@ class AICar {
   }
 
   resolveCollision(other) {
-    const dx = other.x - this.x;
-    const dy = other.y - this.y;
-    const distSq = dx * dx + dy * dy;
-    const minDist = this.width;
+    // Run multiple iterations to prevent penetration
+    for (let iter = 0; iter < 3; iter++) {
+      const dx = other.x - this.x;
+      const dy = other.y - this.y;
 
-    if (distSq < minDist * minDist && distSq > 0) {
-      const dist = Math.sqrt(distSq);
-      const overlap = (minDist - dist) / 2;
-      const nx = dx / dist;
-      const ny = dy / dist;
+      const cos = Math.cos(-this.angle);
+      const sin = Math.sin(-this.angle);
 
-      this.x -= nx * overlap;
-      this.y -= ny * overlap;
-      other.x += nx * overlap;
-      other.y += ny * overlap;
+      const localX = dx * cos - dy * sin;
+      const localY = dx * sin + dy * cos;
 
-      this.speed *= 0.7;
-      other.speed *= 0.7;
+      const halfW = this.width;
+      const halfH = this.height;
+
+      const overlapX = halfW - Math.abs(localX);
+      const overlapY = halfH - Math.abs(localY);
+
+      if (overlapX <= 0 || overlapY <= 0) return;
+
+      // Push out along axis of least overlap
+      let pushLocalX = 0;
+      let pushLocalY = 0;
+
+      if (overlapX < overlapY) {
+        pushLocalX = overlapX * Math.sign(localX);
+      } else {
+        pushLocalY = overlapY * Math.sign(localY);
+      }
+
+      // Transform push back to world space
+      const cos2 = Math.cos(this.angle);
+      const sin2 = Math.sin(this.angle);
+
+      const pushX = pushLocalX * cos2 - pushLocalY * sin2;
+      const pushY = pushLocalX * sin2 + pushLocalY * cos2;
+
+      // Push proportional to each car's speed — faster car pushes more
+      const totalSpeed = Math.abs(this.speed) + Math.abs(other.speed) + 0.001;
+      const thisRatio = Math.abs(other.speed) / totalSpeed;
+      const otherRatio = Math.abs(this.speed) / totalSpeed;
+
+      this.x -= pushX * thisRatio;
+      this.y -= pushY * thisRatio;
+      other.x += pushX * otherRatio;
+      other.y += pushY * otherRatio;
+
+      // Reflect and dampen velocities
+      const impactForce = Math.sqrt(pushX * pushX + pushY * pushY);
+      if (impactForce > 0.5) {
+        this.speed *= 0.75;
+        other.speed *= 0.75;
+      }
     }
+  }
+
+  drawCollisionBox(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.angle);
+
+    // drawCollisionBox
+    const hw = this.width / 2; // = 15
+    const hh = this.height / 2; // = 25
+
+    ctx.strokeStyle = "rgba(255, 0, 0, 0.8)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-hw, -hh, hw * 2, hh * 2);
+
+    ctx.restore();
   }
 
   draw() {
@@ -115,5 +165,7 @@ class AICar {
     this.ctx.fillRect(-w / 2 + 5, -h / 2 + 10, w - 10, 10);
 
     this.ctx.restore();
+
+    if (DEBUG) this.drawCollisionBox(this.ctx);
   }
 }
