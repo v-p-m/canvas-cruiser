@@ -1,5 +1,8 @@
 const GAME_VERSION = "0.7.3";
 
+// --- Debug flag ---
+let DEBUG = false;
+
 let laps = 0;
 let hasStarted = false;
 let onFinishLine = false;
@@ -130,9 +133,6 @@ function paintSkidMark(x, y, angle) {
   skidCtx.restore();
 }
 
-// --- Debug flag ---
-const DEBUG = true;
-
 // --- Input ---
 window.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
@@ -207,6 +207,12 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
+  if (key === "d") {
+    DEBUG = !DEBUG;
+    console.log(`Debug ${DEBUG ? "ON" : "OFF"}`);
+    if (!DEBUG) WaypointEditor.active = false; // close editor when debug turns off
+    return;
+  }
   if (key === "e" && DEBUG) {
     WaypointEditor.toggle();
     return;
@@ -665,25 +671,14 @@ function gameLoop(timestamp) {
   worldTrack.draw();
   ctx.drawImage(skidCanvas, 0, 0);
 
-  if (DEBUG && worldTrack.data?.waypoints) {
-    ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
-    ctx.font = "bold 16px Arial";
-    worldTrack.data.waypoints.forEach((wp, i) => {
-      ctx.beginPath();
-      ctx.arc(wp.x, wp.y, 30, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "white";
-      ctx.fillText(i, wp.x - 5, wp.y + 5);
-      ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
-    });
-  }
-
   opponents.forEach((ai) => ai.draw());
   if (!isMenu) drawCar();
 
   ctx.restore();
 
+  // DEBUG HUD
   if (DEBUG) WaypointEditor.draw(ctx);
+  if (DEBUG) DebugHUD.draw(ctx);
 
   if (isMenu) drawStartMenu();
   else if (isRaceFinished) drawRaceFinished();

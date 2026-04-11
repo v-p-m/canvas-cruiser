@@ -7,9 +7,7 @@ const WaypointEditor = {
   GRAB_RADIUS: 20, // px — how close you need to click to grab a waypoint
 
   init(existingWaypoints) {
-    if (!DEBUG) return;
     this.waypoints = existingWaypoints || [];
-    console.log("Waypoint editor ready. Press E to toggle.");
   },
 
   toggle() {
@@ -139,20 +137,5 @@ const WaypointEditor = {
       ctx.textBaseline = "middle";
       ctx.fillText(i, sx, sy);
     });
-
-    // Status banner
-    if (this.active) {
-      ctx.fillStyle = "rgba(0,0,0,0.6)";
-      ctx.fillRect(0, canvas.height - 36, canvas.width, 36);
-      ctx.fillStyle = "#FFD700";
-      ctx.font = "14px monospace";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(
-        `WAYPOINT EDITOR  |  CLICK: place  |  DRAG: move  |  Z: undo  |  P: export  |  ${this.waypoints.length} points`,
-        canvas.width / 2,
-        canvas.height - 18,
-      );
-    }
   },
 };
