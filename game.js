@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.7.3";
+const GAME_VERSION = "0.7.4";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -24,6 +24,12 @@ const MODES = [
   { id: "free", label: "Free Drive" },
   { id: "race5", label: "5 Lap Race" },
   { id: "race10", label: "10 Lap Race" },
+];
+
+const SPAWN_POSITIONS = [
+  { x: 550, y: 200, angle: Math.PI / 2, color: null }, // player
+  { x: 400, y: 200, angle: Math.PI / 2, color: "#0077ff" }, // AI 1
+  { x: 475, y: 275, angle: Math.PI / 2, color: "#ff7700" }, // AI 2
 ];
 
 const opponents = [];
@@ -293,24 +299,25 @@ function resetRace() {
   totalRaceTime = 0;
   totalRaceStart = 0;
 
-  car.x = 5 * 64;
-  car.y = 3 * 64 + 32;
-  car.angle = Math.PI / 2;
+  // Player
+  car.x = SPAWN_POSITIONS[0].x;
+  car.y = SPAWN_POSITIONS[0].y;
+  car.angle = SPAWN_POSITIONS[0].angle;
   car.speed = 0;
   car.velocityX = 0;
   car.velocityY = 0;
 
-  opponents[0].x = 5 * 64;
-  opponents[0].y = 3 * 64 + 100;
-  opponents[0].angle = Math.PI / 2;
-  opponents[0].speed = 0;
-  opponents[0].currentWaypoint = 0;
-
-  opponents[1].x = 5 * 64;
-  opponents[1].y = 3 * 64 + 160;
-  opponents[1].angle = Math.PI / 2;
-  opponents[1].speed = 0;
-  opponents[1].currentWaypoint = 0;
+  // AI — reset from same spawn list
+  for (let i = 0; i < opponents.length; i++) {
+    const s = SPAWN_POSITIONS[i + 1];
+    opponents[i].x = s.x;
+    opponents[i].y = s.y;
+    opponents[i].angle = s.angle;
+    opponents[i].speed = 0;
+    opponents[i].velocityX = 0;
+    opponents[i].velocityY = 0;
+    opponents[i].currentWaypoint = 0;
+  }
 
   laps = 0;
   hasStarted = false;
@@ -446,7 +453,7 @@ function drawStartMenu() {
     { key: "LEFT / RIGHT", action: "Steer" },
     { key: "R", action: "Reset" },
     { key: "Q", action: "Top 5 Best Laps" },
-    { key: "C", action: "Clear Records" },
+    { key: "C", action: "Clear records (on best laps screen)" },
     { key: "ESC", action: "Back to Menu" },
   ];
 
@@ -541,19 +548,19 @@ function drawRaceFinished() {
 
 let lastTime = 0;
 
-function resolvePlayerCollision(other) {
+function resolveCollision(a, b) {
   for (let iter = 0; iter < 3; iter++) {
-    const dx = other.x - car.x;
-    const dy = other.y - car.y;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
 
-    const cos = Math.cos(-car.angle);
-    const sin = Math.sin(-car.angle);
+    const cos = Math.cos(-a.angle);
+    const sin = Math.sin(-a.angle);
 
     const localX = dx * cos - dy * sin;
     const localY = dx * sin + dy * cos;
 
-    const halfW = car.width;
-    const halfH = car.height;
+    const halfW = a.width;
+    const halfH = a.height;
 
     const overlapX = halfW - Math.abs(localX);
     const overlapY = halfH - Math.abs(localY);
@@ -569,25 +576,41 @@ function resolvePlayerCollision(other) {
       pushLocalY = overlapY * Math.sign(localY);
     }
 
-    const cos2 = Math.cos(car.angle);
-    const sin2 = Math.sin(car.angle);
+    const cos2 = Math.cos(a.angle);
+    const sin2 = Math.sin(a.angle);
 
     const pushX = pushLocalX * cos2 - pushLocalY * sin2;
     const pushY = pushLocalX * sin2 + pushLocalY * cos2;
 
-    const totalSpeed = Math.abs(car.speed) + Math.abs(other.speed) + 0.001;
-    const carRatio = Math.abs(other.speed) / totalSpeed;
-    const otherRatio = Math.abs(car.speed) / totalSpeed;
+    const totalSpeed = Math.abs(a.speed) + Math.abs(b.speed) + 0.001;
+    const aRatio = Math.abs(b.speed) / totalSpeed;
+    const bRatio = Math.abs(a.speed) / totalSpeed;
 
-    car.x -= pushX * carRatio;
-    car.y -= pushY * carRatio;
-    other.x += pushX * otherRatio;
-    other.y += pushY * otherRatio;
+    // Separate
+    a.x -= pushX * aRatio;
+    a.y -= pushY * aRatio;
+    b.x += pushX * bRatio;
+    b.y += pushY * bRatio;
 
+    // Lateral nudge
     const impactForce = Math.sqrt(pushX * pushX + pushY * pushY);
-    if (impactForce > 0.5) {
-      car.speed *= 0.75;
-      other.speed *= 0.75;
+    if (impactForce > 0.3) {
+      const nudge = impactForce * 0.6;
+
+      a.velocityX -= pushX * aRatio * nudge;
+      a.velocityY -= pushY * aRatio * nudge;
+      b.velocityX += pushX * bRatio * nudge;
+      b.velocityY += pushY * bRatio * nudge;
+
+      // Only punish very hard impacts
+      if (impactForce > 3) {
+        if (a.speedMultiplier !== undefined)
+          a.speedMultiplier = Math.max(0.7, a.speedMultiplier * 0.9);
+        else a.speed *= 0.85;
+        if (b.speedMultiplier !== undefined)
+          b.speedMultiplier = Math.max(0.7, b.speedMultiplier * 0.9);
+        else b.speed *= 0.85;
+      }
     }
   }
 }
@@ -599,6 +622,7 @@ function gameLoop(timestamp) {
 
   StartLights.update(timestamp);
   PersonalBest.update(dt);
+  DebugHUD.update(timestamp);
 
   if (!StartLights.active && !isRacing && !isMenu) {
     isRacing = true;
@@ -635,18 +659,18 @@ function gameLoop(timestamp) {
 
     // AI update
     opponents.forEach((ai) =>
-      ai.update(worldTrack.data.waypoints, isRacing, car.x, car.y),
+      ai.update(worldTrack.data.waypoints, isRacing, car.x, car.y, opponents),
     );
 
-    // AI vs AI collisions
+    // AI vs AI
     for (let i = 0; i < opponents.length; i++) {
       for (let j = i + 1; j < opponents.length; j++) {
-        opponents[i].resolveCollision(opponents[j]);
+        resolveCollision(opponents[i], opponents[j]);
       }
     }
 
-    // Player vs AI — checked from both reference frames
-    opponents.forEach((ai) => resolvePlayerCollision(ai));
+    // Player vs AI
+    opponents.forEach((ai) => resolveCollision(car, ai));
 
     const targetVx = Math.sin(car.angle) * car.speed;
     const targetVy = -Math.cos(car.angle) * car.speed;
@@ -697,12 +721,16 @@ async function initGame() {
   WaypointEditor.init(worldTrack.data.waypoints);
   resizeSkidCanvas();
 
-  car.x = 5 * 64;
-  car.y = 3 * 64 + 32;
-  car.angle = Math.PI / 2;
+  // Player
+  car.x = SPAWN_POSITIONS[0].x;
+  car.y = SPAWN_POSITIONS[0].y;
+  car.angle = SPAWN_POSITIONS[0].angle;
 
-  opponents.push(new AICar(ctx, 5 * 64, 3 * 64 + 100, "#0077ff"));
-  opponents.push(new AICar(ctx, 5 * 64, 3 * 64 + 160, "#ff7700"));
+  // AI — created from spawn list
+  for (let i = 1; i < SPAWN_POSITIONS.length; i++) {
+    const s = SPAWN_POSITIONS[i];
+    opponents.push(new AICar(ctx, s.x, s.y, s.color));
+  }
 
   requestAnimationFrame(gameLoop);
 }
