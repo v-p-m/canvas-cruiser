@@ -633,6 +633,9 @@ function gameLoop(timestamp) {
   const dt = timestamp - lastTime;
   lastTime = timestamp;
 
+  // Normalised delta — 1.0 at 60fps, 0.5 at 120fps, 2.0 at 30fps
+  const delta = Math.min(dt / (1000 / 60), 3); // cap at 3 to prevent huge jumps after tab switch
+
   StartLights.update(timestamp);
   PersonalBest.update(dt);
   DebugHUD.update(timestamp);
@@ -643,9 +646,9 @@ function gameLoop(timestamp) {
 
   // UPDATE
   if (isRacing && !isMenu && !isLeaderboard) {
-    if (keys["ArrowUp"]) car.speed += car.acceleration;
-    else if (keys["ArrowDown"]) car.speed -= car.acceleration;
-    else car.speed *= 0.95;
+    if (keys["ArrowUp"]) car.speed += car.acceleration * delta;
+    else if (keys["ArrowDown"]) car.speed -= car.acceleration * delta;
+    else car.speed *= Math.pow(0.95, delta);
 
     if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
     if (car.speed < -car.maxSpeed / 2) car.speed = -car.maxSpeed / 2;
@@ -656,13 +659,13 @@ function gameLoop(timestamp) {
       const turningLeft = keys["ArrowLeft"];
       const turningRight = keys["ArrowRight"];
 
-      if (turningLeft) car.angle -= car.turnSpeed * flip;
-      if (turningRight) car.angle += car.turnSpeed * flip;
+      if (turningLeft) car.angle -= car.turnSpeed * flip * delta;
+      if (turningRight) car.angle += car.turnSpeed * flip * delta;
 
       if (turningLeft || turningRight) {
         const scrubFactor =
           0.94 + 0.04 * (1 - Math.abs(car.speed) / car.maxSpeed);
-        car.speed *= scrubFactor;
+        car.speed *= Math.pow(scrubFactor, delta);
 
         if (Math.abs(car.speed) > 5) {
           paintSkidMark(car.x, car.y, car.angle);
@@ -672,7 +675,14 @@ function gameLoop(timestamp) {
 
     // AI update
     opponents.forEach((ai) =>
-      ai.update(worldTrack.data.waypoints, isRacing, car.x, car.y, opponents),
+      ai.update(
+        worldTrack.data.waypoints,
+        isRacing,
+        car.x,
+        car.y,
+        opponents,
+        delta,
+      ),
     );
 
     // AI vs AI
@@ -687,11 +697,11 @@ function gameLoop(timestamp) {
 
     const targetVx = Math.sin(car.angle) * car.speed;
     const targetVy = -Math.cos(car.angle) * car.speed;
-    car.velocityX += (targetVx - car.velocityX) * car.driftGrip;
-    car.velocityY += (targetVy - car.velocityY) * car.driftGrip;
+    car.velocityX += (targetVx - car.velocityX) * car.driftGrip * delta;
+    car.velocityY += (targetVy - car.velocityY) * car.driftGrip * delta;
 
-    car.x += car.velocityX;
-    car.y += car.velocityY;
+    car.x += car.velocityX * delta;
+    car.y += car.velocityY * delta;
     checkTileCollision(car.x, car.y);
   }
 

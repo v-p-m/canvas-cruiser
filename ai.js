@@ -18,7 +18,7 @@ class AICar {
     this.lineOffset = (Math.random() - 0.5) * 40;
   }
 
-  applyRepulsion(others) {
+  applyRepulsion(others, delta = 1) {
     const REPULSION_RADIUS = DebugConfig.values.aiRepulsionRadius; // 120 - px — start pushing apart at this distance
     const REPULSION_FORCE = DebugConfig.values.aiRepulsionForce; //0.3 - how strongly they push apart
 
@@ -34,13 +34,13 @@ class AICar {
         const strength = (1 - dist / REPULSION_RADIUS) * REPULSION_FORCE;
 
         // Push this car away from other
-        this.velocityX += (dx / dist) * strength;
-        this.velocityY += (dy / dist) * strength;
+        this.velocityX += (dx / dist) * strength * delta;
+        this.velocityY += (dy / dist) * strength * delta;
       }
     });
   }
 
-  update(waypoints, isRacing, playerX, playerY, others) {
+  update(waypoints, isRacing, playerX, playerY, others, delta = 1) {
     if (!isRacing || !waypoints || waypoints.length === 0) return;
 
     const current = waypoints[this.currentWaypoint];
@@ -64,7 +64,7 @@ class AICar {
       Math.sin(targetAngle - this.angle),
       Math.cos(targetAngle - this.angle),
     );
-    this.angle += angleDiff * this.turnSpeed;
+    this.angle += angleDiff * this.turnSpeed * delta;
 
     // Rubber banding — must be declared before use
     let rubberBand = 1.0;
@@ -77,7 +77,7 @@ class AICar {
     }
 
     // Decay multiplier back to 1 each frame
-    this.speedMultiplier = Math.min(1.0, this.speedMultiplier + 0.02);
+    this.speedMultiplier = Math.min(1.0, this.speedMultiplier + 0.02 * delta);
 
     // Speed — ease off on sharp corners, apply rubber band and multiplier
     const cornerFactor = 1 - Math.min(Math.abs(angleDiff) / Math.PI, 1) * 0.5;
@@ -87,17 +87,17 @@ class AICar {
     // Velocity-based movement
     const targetVx = Math.sin(this.angle) * this.speed;
     const targetVy = -Math.cos(this.angle) * this.speed;
-    this.velocityX += (targetVx - this.velocityX) * this.grip;
-    this.velocityY += (targetVy - this.velocityY) * this.grip;
-    this.x += this.velocityX;
-    this.y += this.velocityY;
+    this.velocityX += (targetVx - this.velocityX) * this.grip * delta;
+    this.velocityY += (targetVy - this.velocityY) * this.grip * delta;
+    this.x += this.velocityX * delta;
+    this.y += this.velocityY * delta;
 
     // Advance waypoint
     if (distSq < 80 * 80) {
       this.currentWaypoint = (this.currentWaypoint + 1) % waypoints.length;
     }
 
-    this.applyRepulsion(others);
+    this.applyRepulsion(others, delta);
   }
 
   drawCollisionBox(ctx) {
