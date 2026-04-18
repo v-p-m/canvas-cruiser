@@ -45,7 +45,7 @@ const DebugHUD = {
       );
     } else {
       ctx.fillText(
-        `DEBUG  |  E: waypoint editor  |  D: debug off`,
+        `DEBUG  |  E: waypoint editor  | C: config | D: debug off`,
         canvas.width / 2,
         canvas.height - 18,
       );

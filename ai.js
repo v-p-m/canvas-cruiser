@@ -19,8 +19,8 @@ class AICar {
   }
 
   applyRepulsion(others) {
-    const REPULSION_RADIUS = 120; // px — start pushing apart at this distance
-    const REPULSION_FORCE = 0.3; // how strongly they push apart
+    const REPULSION_RADIUS = DebugConfig.values.aiRepulsionRadius; // 120 - px — start pushing apart at this distance
+    const REPULSION_FORCE = DebugConfig.values.aiRepulsionForce; //0.3 - how strongly they push apart
 
     others.forEach((other) => {
       if (other === this) return;

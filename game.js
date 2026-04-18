@@ -219,6 +219,10 @@ window.addEventListener("keydown", (e) => {
     if (!DEBUG) WaypointEditor.active = false; // close editor when debug turns off
     return;
   }
+  if (key === "c" && DEBUG && !isLeaderboard) {
+    DebugConfig.toggle();
+    return;
+  }
   if (key === "e" && DEBUG) {
     WaypointEditor.toggle();
     return;
@@ -559,8 +563,8 @@ function resolveCollision(a, b) {
     const localX = dx * cos - dy * sin;
     const localY = dx * sin + dy * cos;
 
-    const halfW = a.width;
-    const halfH = a.height;
+    const halfW = a.width * DebugConfig.values.collisionHalfW;
+    const halfH = a.height * DebugConfig.values.collisionHalfH;
 
     const overlapX = halfW - Math.abs(localX);
     const overlapY = halfH - Math.abs(localY);
@@ -594,9 +598,11 @@ function resolveCollision(a, b) {
 
     // Lateral nudge
     const impactForce = Math.sqrt(pushX * pushX + pushY * pushY);
-    if (impactForce > 0.3) {
-      const nudge = impactForce * 0.6;
 
+    // nudge line:
+    const nudge = impactForce * DebugConfig.values.collisionNudge;
+
+    if (impactForce > DebugConfig.values.collisionHardImpact) {
       a.velocityX -= pushX * aRatio * nudge;
       a.velocityY -= pushY * aRatio * nudge;
       b.velocityX += pushX * bRatio * nudge;
@@ -733,6 +739,8 @@ async function initGame() {
   }
 
   requestAnimationFrame(gameLoop);
+
+  DebugConfig.init();
 }
 
 initGame();
