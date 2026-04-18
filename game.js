@@ -120,13 +120,20 @@ const skidCtx = skidCanvas.getContext("2d");
 
 function resizeSkidCanvas() {
   if (worldTrack.data) {
-    skidCanvas.width = worldTrack.data.map[0].length * worldTrack.data.tileSize;
-    skidCanvas.height = worldTrack.data.map.length * worldTrack.data.tileSize;
-  } else {
-    skidCanvas.width = 4096;
-    skidCanvas.height = 4096;
+    // Cap at actual screen size — skid marks outside view
+    // are repainted when the player returns anyway
+    skidCanvas.width = Math.min(
+      worldTrack.data.map[0].length * worldTrack.data.tileSize,
+      2048,
+    );
+    skidCanvas.height = Math.min(
+      worldTrack.data.map.length * worldTrack.data.tileSize,
+      2048,
+    );
   }
 }
+
+let skidDirty = false;
 
 function paintSkidMark(x, y, angle) {
   skidCtx.save();
@@ -137,6 +144,7 @@ function paintSkidMark(x, y, angle) {
   skidCtx.fillRect(-offset, car.height / 4, 6, 10);
   skidCtx.fillRect(offset - 6, car.height / 4, 6, 10);
   skidCtx.restore();
+  skidDirty = true;
 }
 
 // --- Input ---
@@ -391,7 +399,7 @@ function checkTileCollision(x, y) {
 // --- Draw helpers ---
 function drawCar() {
   ctx.save();
-  ctx.translate(car.x, car.y);
+  ctx.translate(car.x - camera.x, car.y - camera.y); // screen space
   ctx.rotate(car.angle);
 
   const w = car.width;
@@ -695,18 +703,43 @@ function gameLoop(timestamp) {
   // DRAW
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  ctx.save();
-  ctx.translate(-camera.x, -camera.y);
+  if (worldTrack.bakedCanvas) {
+    // How far into the world the camera starts
+    const srcX = Math.max(0, Math.floor(camera.x));
+    const srcY = Math.max(0, Math.floor(camera.y));
 
-  worldTrack.draw();
-  ctx.drawImage(skidCanvas, 0, 0);
+    // Destination offset — when camera is before world edge, shift dest right/down
+    const dstX = Math.max(0, Math.floor(-camera.x));
+    const dstY = Math.max(0, Math.floor(-camera.y));
 
-  opponents.forEach((ai) => ai.draw());
+    const srcW = Math.min(
+      worldTrack.bakedCanvas.width - srcX,
+      camera.width - dstX,
+    );
+    const srcH = Math.min(
+      worldTrack.bakedCanvas.height - srcY,
+      camera.height - dstY,
+    );
+
+    if (srcW > 0 && srcH > 0) {
+      ctx.drawImage(
+        worldTrack.bakedCanvas,
+        srcX,
+        srcY,
+        srcW,
+        srcH,
+        dstX,
+        dstY,
+        srcW,
+        srcH,
+      );
+      ctx.drawImage(skidCanvas, srcX, srcY, srcW, srcH, dstX, dstY, srcW, srcH);
+    }
+  }
+  // Cars — screen space
   if (!isMenu) drawCar();
+  opponents.forEach((ai) => ai.draw());
 
-  ctx.restore();
-
-  // DEBUG HUD
   if (DEBUG) WaypointEditor.draw(ctx);
   if (DEBUG) DebugHUD.draw(ctx);
 

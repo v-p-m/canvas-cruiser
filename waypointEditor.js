@@ -19,13 +19,21 @@ const WaypointEditor = {
   // Find waypoint index near screen coords, returns -1 if none
   findNear(screenX, screenY) {
     for (let i = 0; i < this.waypoints.length; i++) {
-      const sx = this.waypoints[i].x - camera.x;
+      const sx = this.waypoints[i].x - camera.x; // world → screen
       const sy = this.waypoints[i].y - camera.y;
       const dx = screenX - sx;
       const dy = screenY - sy;
       if (dx * dx + dy * dy < this.GRAB_RADIUS * this.GRAB_RADIUS) return i;
     }
     return -1;
+  },
+
+  handleClick(screenX, screenY) {
+    if (!this.active) return;
+    // camera.x/y are world offsets so this is correct
+    const worldX = screenX + camera.x;
+    const worldY = screenY + camera.y;
+    this.waypoints.push({ x: Math.round(worldX), y: Math.round(worldY) });
   },
 
   handleMouseDown(screenX, screenY) {

@@ -102,12 +102,11 @@ class AICar {
 
   drawCollisionBox(ctx) {
     ctx.save();
-    ctx.translate(this.x, this.y);
+    ctx.translate(this.x - camera.x, this.y - camera.y); // screen space
     ctx.rotate(this.angle);
 
-    // drawCollisionBox
-    const hw = this.width / 2; // = 15
-    const hh = this.height / 2; // = 25
+    const hw = this.width / 2;
+    const hh = this.height / 2;
 
     ctx.strokeStyle = "rgba(255, 0, 0, 0.8)";
     ctx.lineWidth = 1.5;
@@ -118,7 +117,7 @@ class AICar {
 
   draw() {
     this.ctx.save();
-    this.ctx.translate(this.x, this.y);
+    this.ctx.translate(this.x - camera.x, this.y - camera.y); // screen space
     this.ctx.rotate(this.angle);
 
     const w = this.width;

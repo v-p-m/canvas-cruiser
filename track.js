@@ -3,30 +3,40 @@ class Track {
     this.ctx = ctx;
     this.data = null;
     this.tileSize = 64;
+    this.bakedCanvas = null;
   }
 
   async load(url) {
     const response = await fetch(url);
     this.data = await response.json();
     this.tileSize = this.data.tileSize;
+    this.bake(); // draw once, never again
   }
 
-  draw() {
-    // Guard clause: Don't draw if data hasn't loaded yet
-    if (!this.data || !this.data.map) return;
+  bake() {
+    const cols = this.data.map[0].length;
+    const rows = this.data.map.length;
+
+    this.bakedCanvas = document.createElement("canvas");
+    this.bakedCanvas.width = cols * this.tileSize;
+    this.bakedCanvas.height = rows * this.tileSize;
+
+    const bCtx = this.bakedCanvas.getContext("2d");
 
     this.data.map.forEach((row, y) => {
       row.forEach((tileID, x) => {
         const posX = x * this.tileSize;
         const posY = y * this.tileSize;
+        const half = this.tileSize / 2;
 
-        // Choose color based on tileID
         switch (tileID) {
           case 0:
-            this.ctx.fillStyle = "#2d5a27"; // Grass
+            bCtx.fillStyle = "#2d5a27";
+            bCtx.fillRect(posX, posY, this.tileSize, this.tileSize);
             break;
           case 1:
-            this.ctx.fillStyle = "#1a1a1a"; // Wall
+            bCtx.fillStyle = "#1a1a1a";
+            bCtx.fillRect(posX, posY, this.tileSize, this.tileSize);
             break;
           case 2:
           case 3:
@@ -34,31 +44,35 @@ class Track {
           case 5:
           case 6:
           case 7:
-            this.ctx.fillStyle = "#444444"; // Road
+            bCtx.fillStyle = "#444444";
+            bCtx.fillRect(posX, posY, this.tileSize, this.tileSize);
             break;
           case 8:
           case 9:
-            // 1. Draw White Base
-            this.ctx.fillStyle = "#FFFFFF";
-            this.ctx.fillRect(posX, posY, this.tileSize, this.tileSize);
-
-            // 2. Draw Two Black Squares (Top-Left and Bottom-Right)
-            this.ctx.fillStyle = "#000000";
-            const half = this.tileSize / 2;
-            this.ctx.fillRect(posX, posY, half, half); // Top-Left
-            this.ctx.fillRect(posX + half, posY + half, half, half); // Bottom-Right
+            bCtx.fillStyle = "#FFFFFF";
+            bCtx.fillRect(posX, posY, this.tileSize, this.tileSize);
+            bCtx.fillStyle = "#000000";
+            bCtx.fillRect(posX, posY, half, half);
+            bCtx.fillRect(posX + half, posY + half, half, half);
             break;
           default:
-            this.ctx.fillStyle = "#ff00ff"; // Error Pink
+            bCtx.fillStyle = "#ff00ff";
+            bCtx.fillRect(posX, posY, this.tileSize, this.tileSize);
         }
 
-        // Draw the tile square
-        this.ctx.fillRect(posX, posY, this.tileSize, this.tileSize);
-
-        // Draw subtle grid lines for debugging
-        this.ctx.strokeStyle = "rgba(0,0,0,0.1)";
-        this.ctx.strokeRect(posX, posY, this.tileSize, this.tileSize);
+        // Grid lines — remove this in production, costs nothing baked
+        // but was costing a strokeRect per tile per frame before
+        if (DEBUG) {
+          bCtx.strokeStyle = "rgba(0,0,0,0.1)";
+          bCtx.strokeRect(posX, posY, this.tileSize, this.tileSize);
+        }
       });
     });
+  }
+
+  draw() {
+    if (!this.bakedCanvas) return;
+    // Single drawImage instead of hundreds of fillRect calls
+    this.ctx.drawImage(this.bakedCanvas, 0, 0);
   }
 }
