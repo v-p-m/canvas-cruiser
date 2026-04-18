@@ -59,13 +59,6 @@ class Track {
             bCtx.fillStyle = "#ff00ff";
             bCtx.fillRect(posX, posY, this.tileSize, this.tileSize);
         }
-
-        // Grid lines — remove this in production, costs nothing baked
-        // but was costing a strokeRect per tile per frame before
-        if (DEBUG) {
-          bCtx.strokeStyle = "rgba(0,0,0,0.1)";
-          bCtx.strokeRect(posX, posY, this.tileSize, this.tileSize);
-        }
       });
     });
   }

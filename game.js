@@ -136,6 +136,9 @@ function resizeSkidCanvas() {
 let skidDirty = false;
 
 function paintSkidMark(x, y, angle) {
+  // Skip if outside skid canvas bounds
+  if (x < 0 || y < 0 || x > skidCanvas.width || y > skidCanvas.height) return;
+
   skidCtx.save();
   skidCtx.translate(x, y);
   skidCtx.rotate(angle);
@@ -380,10 +383,6 @@ function checkTileCollision(x, y) {
             totalRaceTime = ((Date.now() - totalRaceStart) / 1000).toFixed(2);
             isRaceFinished = true;
             isRacing = false;
-            //opponents.forEach((ai) => (ai.speed = 0));
-            opponents.forEach((ai) =>
-              ai.update(worldTrack.data.waypoints, isRacing, car.x, car.y),
-            );
           } else {
             // Normal lap save
             saveLapTime(lapTime);
