@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.7.5";
+const GAME_VERSION = "0.7.6";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -20,6 +20,7 @@ let totalRaceStart = 0;
 let totalRaceTime = 0;
 let isRaceFinished = false;
 let leaderboardFrom = "game"; // "game" | "menu"
+let isKeyBindings = false;
 
 const MODES = [
   { id: "free", label: "Free Drive" },
@@ -179,6 +180,12 @@ window.addEventListener("keydown", (e) => {
       selectedMode = (selectedMode + 1) % MODES.length;
       return;
     }
+    if (key === "k") {
+      isMenu = false;
+      isKeyBindings = true;
+      KeyBindings.lastRejected = null;
+      return;
+    }
     if (key === "q") {
       isMenu = false;
       isLeaderboard = true;
@@ -194,7 +201,29 @@ window.addEventListener("keydown", (e) => {
     }
     return;
   }
+  // Key binding screen
+  if (isKeyBindings) {
+    if (KeyBindings.handleRebind(e.key)) return; // consuming a rebind
 
+    if (key === "escape") {
+      isKeyBindings = false;
+      isMenu = true;
+      KeyBindings.listening = null;
+      return;
+    }
+    if (key === "r") {
+      KeyBindings.reset();
+      return;
+    }
+    if (key === "enter" && KeyBindings._rows) {
+      // Enter selects the focused row — cycle through actions
+      const actions = ["accelerate", "brake", "left", "right"];
+      const cur = actions.indexOf(KeyBindings.listening);
+      KeyBindings.startListening(actions[(cur + 1) % actions.length]);
+      return;
+    }
+    return;
+  }
   // Race finished screen
   if (isRaceFinished) {
     if (key === "r") {
@@ -253,7 +282,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
-  if (key === "d") {
+  if (key === "b") {
     DEBUG = !DEBUG;
     console.log(`Debug ${DEBUG ? "ON" : "OFF"}`);
     if (!DEBUG) WaypointEditor.active = false; // close editor when debug turns off
@@ -300,6 +329,10 @@ window.addEventListener("resize", () => {
 
 canvas.addEventListener("mousedown", (e) => {
   canvas.focus();
+  if (isKeyBindings) {
+    KeyBindings.handleClick(e.clientX, e.clientY);
+    return;
+  }
   WaypointEditor.handleMouseDown(e.clientX, e.clientY);
 });
 
@@ -491,9 +524,10 @@ function drawStartMenu() {
     { key: "UP / DOWN", action: "Select mode" },
     { key: "ENTER", action: "Start" },
     { key: "LEFT / RIGHT", action: "Steer" },
+    { key: "K", action: "Key bindings" },
     { key: "R", action: "Reset" },
     { key: "Q", action: "Top 5 Best Laps" },
-    { key: "C", action: "Clear records (on best laps screen)" },
+    { key: "B", action: "DEBUG" },
     { key: "ESC", action: "Back to Menu" },
   ];
 
@@ -687,8 +721,13 @@ function gameLoop(timestamp) {
 
   // UPDATE
   if (isRacing && !isMenu && !isLeaderboard) {
-    if (keys["ArrowUp"]) car.speed += car.acceleration * delta;
-    else if (keys["ArrowDown"]) car.speed -= car.acceleration * delta;
+    const accel = keys[KeyBindings.bindings.accelerate];
+    const braking = keys[KeyBindings.bindings.brake];
+    const left = keys[KeyBindings.bindings.left];
+    const right = keys[KeyBindings.bindings.right];
+
+    if (accel) car.speed += car.acceleration * delta;
+    else if (braking) car.speed -= car.acceleration * delta;
     else car.speed *= Math.pow(0.95, delta);
 
     if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
@@ -697,13 +736,11 @@ function gameLoop(timestamp) {
 
     if (car.speed !== 0) {
       const flip = car.speed > 0 ? 1 : -1;
-      const turningLeft = keys["ArrowLeft"];
-      const turningRight = keys["ArrowRight"];
 
-      if (turningLeft) car.angle -= car.turnSpeed * flip * delta;
-      if (turningRight) car.angle += car.turnSpeed * flip * delta;
+      if (left) car.angle -= car.turnSpeed * flip * delta;
+      if (right) car.angle += car.turnSpeed * flip * delta;
 
-      if (turningLeft || turningRight) {
+      if (left || right) {
         const scrubFactor =
           0.94 + 0.04 * (1 - Math.abs(car.speed) / car.maxSpeed);
         car.speed *= Math.pow(scrubFactor, delta);
@@ -794,6 +831,7 @@ function gameLoop(timestamp) {
   if (DEBUG) DebugHUD.draw(ctx);
 
   if (isMenu) drawStartMenu();
+  else if (isKeyBindings) KeyBindings.draw(ctx, canvas);
   else if (isRaceFinished) drawRaceFinished();
   else if (isLeaderboard) drawLeaderboard();
   else drawUI();
@@ -806,6 +844,7 @@ function gameLoop(timestamp) {
 
 // --- Init ---
 async function initGame() {
+  KeyBindings.load();
   await worldTrack.load("track.json");
   WaypointEditor.init(worldTrack.data.waypoints);
   resizeSkidCanvas();

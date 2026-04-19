@@ -3,26 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <title>Canvas Cruiser</title>
-        <style>
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-            body {
-                background: #111;
-                overflow: hidden;
-            }
-            canvas {
-                display: block;
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100vw;
-                height: 100vh;
-                background: #222;
-            }
-        </style>
+        <link rel="stylesheet" href="style.css" />
     </head>
     <body>
         <canvas id="gameCanvas"></canvas>
@@ -33,6 +14,7 @@
         <script src="waypointEditor.js"></script>
         <script src="debugHUD.js"></script>
         <script src="debugConfig.js"></script>
+        <script src="keyBindings.js"></script>
         <script src="game.js"></script>
 
         <script>
