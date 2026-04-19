@@ -8,7 +8,6 @@ class AICar {
     this.height = 50;
     this.angle = Math.PI / 2;
     this.speed = 0;
-    this.maxSpeed = 7.5 + Math.random() * 1.5;
     this.speedMultiplier = 1.0;
     this.currentWaypoint = 0;
     this.turnSpeed = 0.08;
@@ -17,6 +16,18 @@ class AICar {
     this.grip = 0.15;
     this.lineOffset = (Math.random() - 0.5) * 40;
     this.startDelay = Math.random() * 800; // 0–800ms random delay
+    this.basMaxSpeed = 7.5 + Math.random() * 1.5; // fixed base
+    this.maxSpeed = this.basMaxSpeed;
+    this.lapSpeedOffset = 0; // varies each lap
+    this.lastWaypoint = -1;
+    this.randomiseLapSpeed(); // set initial variation
+  }
+
+  randomiseLapSpeed() {
+    // ±15% variation from base speed each lap
+    const variation = (Math.random() - 0.5) * 0.3;
+    this.lapSpeedOffset = variation;
+    this.maxSpeed = this.basMaxSpeed * (1 + variation);
   }
 
   applyRepulsion(others, delta = 1) {
@@ -50,12 +61,25 @@ class AICar {
       return;
     }
 
-    const current = waypoints[this.currentWaypoint];
-    const next = waypoints[(this.currentWaypoint + 1) % waypoints.length];
+    let current = waypoints[this.currentWaypoint];
+    let next = waypoints[(this.currentWaypoint + 1) % waypoints.length];
 
     const dx = current.x - this.x;
     const dy = current.y - this.y;
     const distSq = dx * dx + dy * dy;
+
+    if (distSq < 120 * 120) {
+      const prev = this.currentWaypoint;
+      this.currentWaypoint = (this.currentWaypoint + 1) % waypoints.length;
+
+      if (prev !== 0 && this.currentWaypoint === 0) {
+        this.randomiseLapSpeed();
+      }
+
+      // Recalculate current and next after advancing
+      current = waypoints[this.currentWaypoint];
+      next = waypoints[(this.currentWaypoint + 1) % waypoints.length];
+    }
 
     // Perpendicular offset for varied racing line
     const perpX = -(current.y - next.y);
