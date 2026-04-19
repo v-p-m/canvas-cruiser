@@ -28,6 +28,18 @@ const DebugConfig = {
     // Race
     countdownInterval: 1000,
     countdownGoTime: 400,
+
+    // Spawn
+    spawnPlayerX: 550,
+    spawnPlayerY: 200,
+    spawnAI1X: 400,
+    spawnAI1Y: 200,
+    spawnAI2X: 475,
+    spawnAI2Y: 275,
+    spawnAI3X: 400,
+    spawnAI3Y: 275,
+    spawnAI4X: 550,
+    spawnAI4Y: 350,
   },
 
   schema: [
@@ -133,6 +145,17 @@ const DebugConfig = {
       max: 2000,
       step: 50,
     },
+    { group: "Spawn positions" },
+    { key: "spawnPlayerX", label: "Player X", min: 0, max: 2048, step: 5 },
+    { key: "spawnPlayerY", label: "Player Y", min: 0, max: 2048, step: 5 },
+    { key: "spawnAI1X", label: "AI 1 X", min: 0, max: 2048, step: 5 },
+    { key: "spawnAI1Y", label: "AI 1 Y", min: 0, max: 2048, step: 5 },
+    { key: "spawnAI2X", label: "AI 2 X", min: 0, max: 2048, step: 5 },
+    { key: "spawnAI2Y", label: "AI 2 Y", min: 0, max: 2048, step: 5 },
+    { key: "spawnAI3X", label: "AI 3 X", min: 0, max: 2048, step: 5 },
+    { key: "spawnAI3Y", label: "AI 3 Y", min: 0, max: 2048, step: 5 },
+    { key: "spawnAI4X", label: "AI 4 X", min: 0, max: 2048, step: 5 },
+    { key: "spawnAI4Y", label: "AI 4 Y", min: 0, max: 2048, step: 5 },
   ],
 
   values: {},
@@ -178,6 +201,18 @@ const DebugConfig = {
     // StartLights
     StartLights.interval = v.countdownInterval;
     StartLights.goDisplayTime = v.countdownGoTime;
+
+    // Spawn positions
+    SPAWN_POSITIONS[0].x = v.spawnPlayerX;
+    SPAWN_POSITIONS[0].y = v.spawnPlayerY;
+    SPAWN_POSITIONS[1].x = v.spawnAI1X;
+    SPAWN_POSITIONS[1].y = v.spawnAI1Y;
+    SPAWN_POSITIONS[2].x = v.spawnAI2X;
+    SPAWN_POSITIONS[2].y = v.spawnAI2Y;
+    SPAWN_POSITIONS[3].x = v.spawnAI3X;
+    SPAWN_POSITIONS[3].y = v.spawnAI3Y;
+    SPAWN_POSITIONS[4].x = v.spawnAI4X;
+    SPAWN_POSITIONS[4].y = v.spawnAI4Y;
   },
 
   toggle() {

@@ -37,6 +37,27 @@ const DebugHUD = {
     ctx.fillStyle = "#FFD700";
     ctx.font = "14px monospace";
 
+    if (DEBUG) {
+      SPAWN_POSITIONS.forEach((pos, i) => {
+        const sx = pos.x - camera.x;
+        const sy = pos.y - camera.y;
+
+        ctx.beginPath();
+        ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+        ctx.fillStyle = i === 0 ? "#FF0000" : "#FF8800";
+        ctx.fill();
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.fillStyle = "white";
+        ctx.font = "bold 11px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(i === 0 ? "P" : `A${i}`, sx, sy);
+      });
+    }
+
     if (WaypointEditor.active) {
       ctx.fillText(
         `WAYPOINT EDITOR  |  CLICK: place  |  DRAG: move  |  Z: undo  |  P: export  |  ${WaypointEditor.waypoints.length} points`,
