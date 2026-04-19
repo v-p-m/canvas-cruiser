@@ -394,6 +394,7 @@ function resetRace() {
     opponents[i].velocityX = 0;
     opponents[i].velocityY = 0;
     opponents[i].currentWaypoint = 0;
+    opponents[i].startDelay = Math.random() * 800; // re-randomise on each reset
   }
 
   laps = 0;

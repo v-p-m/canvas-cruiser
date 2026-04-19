@@ -16,6 +16,7 @@ class AICar {
     this.velocityY = 0;
     this.grip = 0.15;
     this.lineOffset = (Math.random() - 0.5) * 40;
+    this.startDelay = Math.random() * 800; // 0–800ms random delay
   }
 
   applyRepulsion(others, delta = 1) {
@@ -42,6 +43,12 @@ class AICar {
 
   update(waypoints, isRacing, playerX, playerY, others, delta = 1) {
     if (!isRacing || !waypoints || waypoints.length === 0) return;
+
+    // Burn down the start delay before moving
+    if (this.startDelay > 0) {
+      this.startDelay -= (delta / 60) * 1000; // convert delta frames to ms
+      return;
+    }
 
     const current = waypoints[this.currentWaypoint];
     const next = waypoints[(this.currentWaypoint + 1) % waypoints.length];
