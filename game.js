@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.7.4";
+const GAME_VERSION = "0.7.5";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -19,6 +19,7 @@ let selectedMode = 0; // menu cursor
 let totalRaceStart = 0;
 let totalRaceTime = 0;
 let isRaceFinished = false;
+let leaderboardFrom = "game"; // "game" | "menu"
 
 const MODES = [
   { id: "free", label: "Free Drive" },
@@ -154,6 +155,20 @@ function paintSkidMark(x, y, angle) {
 window.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
 
+  // Leaderboard ESC — first, before anything else
+  if (key === "escape" && isLeaderboard) {
+    isLeaderboard = false;
+    if (leaderboardFrom === "menu") {
+      isMenu = true;
+      isRacing = false;
+    } else {
+      isRacing = true;
+      car.speed = savedSpeed;
+      savedSpeed = 0;
+    }
+    return;
+  }
+
   // Menu navigation
   if (isMenu) {
     if (e.key === "ArrowUp") {
@@ -162,6 +177,12 @@ window.addEventListener("keydown", (e) => {
     }
     if (e.key === "ArrowDown") {
       selectedMode = (selectedMode + 1) % MODES.length;
+      return;
+    }
+    if (key === "q") {
+      isMenu = false;
+      isLeaderboard = true;
+      leaderboardFrom = "menu";
       return;
     }
     if (key === "enter" || key === " ") {
@@ -188,6 +209,8 @@ window.addEventListener("keydown", (e) => {
     }
     return;
   }
+
+  // General ESC
   if (key === "escape") {
     resetRace();
     isMenu = true;
@@ -205,16 +228,22 @@ window.addEventListener("keydown", (e) => {
   }
 
   // Q key handler:
-  if (key === "q" && !isMenu) {
+  if (key === "q") {
     isLeaderboard = !isLeaderboard;
-    isRacing = !isLeaderboard;
 
     if (isLeaderboard) {
-      savedSpeed = car.speed; // opening — save
+      leaderboardFrom = "game";
+      savedSpeed = car.speed;
       car.speed = 0;
     } else {
-      car.speed = savedSpeed; // closing — restore
-      savedSpeed = 0;
+      if (leaderboardFrom === "menu") {
+        isMenu = true;
+        isRacing = false;
+      } else {
+        isRacing = true;
+        car.speed = savedSpeed;
+        savedSpeed = 0;
+      }
     }
     return;
   }
@@ -522,6 +551,18 @@ function drawLeaderboard() {
   highScores.forEach((score, i) =>
     ctx.fillText(`${i + 1}. ${score}s`, canvas.width / 2, 220 + i * 40),
   );
+
+  // Back hint
+  ctx.font = "18px 'Courier New'";
+  ctx.fillStyle = "#AAA";
+  ctx.fillText(
+    leaderboardFrom === "menu"
+      ? "ESC / Q — Back to menu"
+      : "ESC / Q — Back to race",
+    canvas.width / 2,
+    420,
+  );
+  ctx.fillText("C — Clear records", canvas.width / 2, 450);
 }
 
 function drawRaceFinished() {
