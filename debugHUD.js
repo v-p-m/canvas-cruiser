@@ -66,7 +66,7 @@ const DebugHUD = {
       );
     } else {
       ctx.fillText(
-        `DEBUG  |  E: waypoint editor  | C: config | B: debug off`,
+        `DEBUG | E: waypoint editor  | T: track editor | C: config | B: debug off`,
         canvas.width / 2,
         canvas.height - 18,
       );

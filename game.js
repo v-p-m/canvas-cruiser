@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.7.6";
+const GAME_VERSION = "0.8.0";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -158,6 +158,9 @@ function paintSkidMark(x, y, angle) {
 window.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
 
+  // Forward to track editor first
+  if (TrackEditor.active && TrackEditor.handleKeyDown(e)) return;
+
   // Leaderboard ESC — first, before anything else
   if (key === "escape" && isLeaderboard) {
     isLeaderboard = false;
@@ -298,6 +301,10 @@ window.addEventListener("keydown", (e) => {
     WaypointEditor.toggle();
     return;
   }
+  if (key === "t" && DEBUG) {
+    TrackEditor.toggle();
+    return;
+  }
   if (key === "z" && DEBUG) {
     WaypointEditor.undo();
     return;
@@ -335,16 +342,36 @@ canvas.addEventListener("mousedown", (e) => {
     KeyBindings.handleClick(e.clientX, e.clientY);
     return;
   }
+  if (TrackEditor.active) {
+    TrackEditor.handleMouseDown(e.clientX, e.clientY, e.button);
+    return;
+  }
   WaypointEditor.handleMouseDown(e.clientX, e.clientY);
 });
 
 canvas.addEventListener("mousemove", (e) => {
+  if (TrackEditor.active) {
+    TrackEditor.handleMouseMove(e.clientX, e.clientY, e.buttons);
+    return;
+  }
   WaypointEditor.handleMouseMove(e.clientX, e.clientY);
 });
 
 canvas.addEventListener("mouseup", () => {
+  if (TrackEditor.active) {
+    TrackEditor.handleMouseUp();
+    return;
+  }
   WaypointEditor.handleMouseUp();
 });
+
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    TrackEditor.handleWheel(e);
+  },
+  { passive: false },
+);
 
 const worldTrack = new Track(ctx);
 
@@ -796,14 +823,11 @@ function gameLoop(timestamp) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   if (worldTrack.bakedCanvas) {
-    // How far into the world the camera starts
-    const srcX = Math.max(0, Math.floor(camera.x));
-    const srcY = Math.max(0, Math.floor(camera.y));
-
-    // Destination offset — when camera is before world edge, shift dest right/down
-    const dstX = Math.max(0, Math.floor(-camera.x));
-    const dstY = Math.max(0, Math.floor(-camera.y));
-
+    const view = TrackEditor.getViewOffset() || camera;
+    const srcX = Math.max(0, Math.floor(view.x));
+    const srcY = Math.max(0, Math.floor(view.y));
+    const dstX = Math.max(0, Math.floor(-view.x));
+    const dstY = Math.max(0, Math.floor(-view.y));
     const srcW = Math.min(
       worldTrack.bakedCanvas.width - srcX,
       camera.width - dstX,
@@ -812,7 +836,6 @@ function gameLoop(timestamp) {
       worldTrack.bakedCanvas.height - srcY,
       camera.height - dstY,
     );
-
     if (srcW > 0 && srcH > 0) {
       ctx.drawImage(
         worldTrack.bakedCanvas,
@@ -825,14 +848,28 @@ function gameLoop(timestamp) {
         srcW,
         srcH,
       );
-      ctx.drawImage(skidCanvas, srcX, srcY, srcW, srcH, dstX, dstY, srcW, srcH);
+      if (!TrackEditor.active)
+        // hide skid marks while editing
+        ctx.drawImage(
+          skidCanvas,
+          srcX,
+          srcY,
+          srcW,
+          srcH,
+          dstX,
+          dstY,
+          srcW,
+          srcH,
+        );
     }
   }
+
   // Cars — screen space
-  if (!isMenu) drawCar();
-  opponents.forEach((ai) => ai.draw());
+  if (!isMenu && !TrackEditor.active) drawCar();
+  if (!TrackEditor.active) opponents.forEach((ai) => ai.draw());
 
   if (DEBUG) WaypointEditor.draw(ctx);
+  if (DEBUG) TrackEditor.draw(ctx);
   if (DEBUG) DebugHUD.draw(ctx);
 
   if (isMenu) drawStartMenu();
