@@ -361,7 +361,7 @@ const TrackEditor = (() => {
     });
 
     // Right-side hint
-    ctx.fillStyle = "#888";
+    ctx.fillStyle = "#FFD700";
     ctx.font = "11px monospace";
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";

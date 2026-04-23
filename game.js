@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.8.0";
+const GAME_VERSION = "0.8.1";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -335,6 +335,8 @@ window.addEventListener("resize", () => {
   camera.width = canvas.width;
   camera.height = canvas.height;
 });
+
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 canvas.addEventListener("mousedown", (e) => {
   canvas.focus();
@@ -868,15 +870,15 @@ function gameLoop(timestamp) {
   if (!isMenu && !TrackEditor.active) drawCar();
   if (!TrackEditor.active) opponents.forEach((ai) => ai.draw());
 
-  if (DEBUG) WaypointEditor.draw(ctx);
+  if (DEBUG && !TrackEditor.active) WaypointEditor.draw(ctx);
   if (DEBUG) TrackEditor.draw(ctx);
-  if (DEBUG) DebugHUD.draw(ctx);
+  if (DEBUG && !TrackEditor.active) DebugHUD.draw(ctx);
 
   if (isMenu) drawStartMenu();
   else if (isKeyBindings) KeyBindings.draw(ctx, canvas);
   else if (isRaceFinished) drawRaceFinished();
   else if (isLeaderboard) drawLeaderboard();
-  else drawUI();
+  else if (!TrackEditor.active) drawUI();
 
   StartLights.draw(ctx, canvas.width, canvas.height);
   PersonalBest.draw(ctx, canvas.width);
