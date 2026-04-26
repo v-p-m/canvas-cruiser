@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.8.2";
+const GAME_VERSION = "0.8.3";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -428,8 +428,8 @@ function resetRace() {
     opponents[i].velocityY = 0;
     opponents[i].currentWaypoint = 0;
     opponents[i].startDelay = Math.random() * 800; // re-randomise on each reset
+    opponents[i].basMaxSpeed = 7.5 + Math.random() * 1.5;
     opponents[i].maxSpeed = opponents[i].basMaxSpeed; // reset to base
-    opponents[i].randomiseLapSpeed(); // fresh variation
   }
 
   laps = 0;

@@ -34,14 +34,6 @@ class AICar {
     this.maxSpeed = this.basMaxSpeed;
     this.lapSpeedOffset = 0; // varies each lap
     this.lastWaypoint = -1;
-    this.randomiseLapSpeed(); // set initial variation
-  }
-
-  randomiseLapSpeed() {
-    // ±15% variation from base speed each lap
-    const variation = (Math.random() - 0.5) * 0.3;
-    this.lapSpeedOffset = variation;
-    this.maxSpeed = this.basMaxSpeed * (1 + variation);
   }
 
   applyRepulsion(others, delta = 1) {
@@ -86,10 +78,6 @@ class AICar {
       const prev = this.currentWaypoint;
       this.currentWaypoint = (this.currentWaypoint + 1) % waypoints.length;
 
-      if (prev !== 0 && this.currentWaypoint === 0) {
-        this.randomiseLapSpeed();
-      }
-
       // Recalculate current and next after advancing
       current = waypoints[this.currentWaypoint];
       next = waypoints[(this.currentWaypoint + 1) % waypoints.length];
@@ -126,8 +114,9 @@ class AICar {
 
     // Speed — ease off on sharp corners, apply rubber band and multiplier
     const cornerFactor = 1 - Math.min(Math.abs(angleDiff) / Math.PI, 1) * 0.5;
-    this.speed =
+    const targetSpeed =
       this.maxSpeed * cornerFactor * rubberBand * this.speedMultiplier;
+    this.speed += (targetSpeed - this.speed) * 0.05 * delta;
 
     // Velocity-based movement
     const targetVx = Math.sin(this.angle) * this.speed;

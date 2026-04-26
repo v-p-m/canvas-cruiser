@@ -192,6 +192,7 @@ const DebugConfig = {
     opponents.forEach((ai) => {
       ai.basMaxSpeed =
         v.aiMaxSpeedMin + Math.random() * (v.aiMaxSpeedMax - v.aiMaxSpeedMin);
+      ai.maxSpeed = ai.basMaxSpeed;
       ai.randomiseLapSpeed(); // re-apply variation from new base
       ai.turnSpeed = v.aiTurnSpeed;
       ai.grip = v.aiGrip;
