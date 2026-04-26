@@ -1,11 +1,25 @@
+const aiCarImages = {};
+const aiImageSources = {
+  "#0077ff": "assets/car_blue.png",
+  "#ff7700": "assets/car_orange.png",
+  "#00cc44": "assets/car_green.png",
+  "#cc00cc": "assets/car_purple.png",
+};
+
+for (const [color, src] of Object.entries(aiImageSources)) {
+  const img = new Image();
+  img.src = src;
+  aiCarImages[color] = img;
+}
+
 class AICar {
   constructor(ctx, x, y, color = "#0077ff") {
     this.ctx = ctx;
     this.x = x;
     this.y = y;
     this.color = color;
-    this.width = 30;
-    this.height = 50;
+    this.width = 34;
+    this.height = 56;
     this.angle = Math.PI / 2;
     this.speed = 0;
     this.speedMultiplier = 1.0;
@@ -148,23 +162,27 @@ class AICar {
 
   draw() {
     this.ctx.save();
-    this.ctx.translate(this.x - camera.x, this.y - camera.y); // screen space
+    this.ctx.translate(this.x - camera.x, this.y - camera.y);
     this.ctx.rotate(this.angle);
 
     const w = this.width;
     const h = this.height;
+    const img = aiCarImages[this.color];
 
-    this.ctx.fillStyle = "#333";
-    this.ctx.fillRect(-w / 2 - 2, -h / 2 + 5, 8, 12);
-    this.ctx.fillRect(w / 2 - 6, -h / 2 + 5, 8, 12);
-    this.ctx.fillRect(-w / 2 - 2, h / 2 - 15, 8, 12);
-    this.ctx.fillRect(w / 2 - 6, h / 2 - 15, 8, 12);
-
-    this.ctx.fillStyle = this.color;
-    this.ctx.fillRect(-w / 2, -h / 2, w, h);
-
-    this.ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-    this.ctx.fillRect(-w / 2 + 5, -h / 2 + 10, w - 10, 10);
+    if (img && img.complete && img.naturalWidth > 0) {
+      this.ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    } else {
+      // Fallback: original rectangle while image loads
+      this.ctx.fillStyle = "#333";
+      this.ctx.fillRect(-w / 2 - 2, -h / 2 + 5, 8, 12);
+      this.ctx.fillRect(w / 2 - 6, -h / 2 + 5, 8, 12);
+      this.ctx.fillRect(-w / 2 - 2, h / 2 - 15, 8, 12);
+      this.ctx.fillRect(w / 2 - 6, h / 2 - 15, 8, 12);
+      this.ctx.fillStyle = this.color;
+      this.ctx.fillRect(-w / 2, -h / 2, w, h);
+      this.ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+      this.ctx.fillRect(-w / 2 + 5, -h / 2 + 10, w - 10, 10);
+    }
 
     this.ctx.restore();
 

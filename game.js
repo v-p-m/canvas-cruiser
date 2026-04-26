@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.8.1";
+const GAME_VERSION = "0.8.2";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -53,8 +53,8 @@ const camera = {
 const car = {
   x: 0,
   y: 0,
-  width: 30,
-  height: 50,
+  width: 34,
+  height: 56,
   angle: 0,
   speed: 0,
   acceleration: 0.2,
@@ -65,6 +65,8 @@ const car = {
   friction: 0.96,
   driftGrip: 0.1,
 };
+const carImage = new Image();
+carImage.src = "assets/car_player.png";
 
 const PersonalBest = {
   active: false,
@@ -497,20 +499,29 @@ function drawCar() {
   ctx.translate(car.x - camera.x, car.y - camera.y); // screen space
   ctx.rotate(car.angle);
 
-  const w = car.width;
-  const h = car.height;
-
-  ctx.fillStyle = "#333";
-  ctx.fillRect(-w / 2 - 2, -h / 2 + 5, 8, 12);
-  ctx.fillRect(w / 2 - 6, -h / 2 + 5, 8, 12);
-  ctx.fillRect(-w / 2 - 2, h / 2 - 15, 8, 12);
-  ctx.fillRect(w / 2 - 6, h / 2 - 15, 8, 12);
-
-  ctx.fillStyle = "#d00";
-  ctx.fillRect(-w / 2, -h / 2, w, h);
-
-  ctx.fillStyle = "#add8e6";
-  ctx.fillRect(-w / 2 + 4, -h / 2 + 10, w - 8, 12);
+  if (carImage.complete && carImage.naturalWidth > 0) {
+    // Draw the sprite centered on the car's position
+    ctx.drawImage(
+      carImage,
+      -car.width / 2,
+      -car.height / 2,
+      car.width,
+      car.height,
+    );
+  } else {
+    // Fallback: original rectangle car while image loads
+    const w = car.width;
+    const h = car.height;
+    ctx.fillStyle = "#333";
+    ctx.fillRect(-w / 2 - 2, -h / 2 + 5, 8, 12);
+    ctx.fillRect(w / 2 - 6, -h / 2 + 5, 8, 12);
+    ctx.fillRect(-w / 2 - 2, h / 2 - 15, 8, 12);
+    ctx.fillRect(w / 2 - 6, h / 2 - 15, 8, 12);
+    ctx.fillStyle = "#d00";
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.fillStyle = "#add8e6";
+    ctx.fillRect(-w / 2 + 4, -h / 2 + 10, w - 8, 12);
+  }
 
   ctx.restore();
 }
