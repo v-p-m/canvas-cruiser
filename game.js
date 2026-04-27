@@ -680,6 +680,13 @@ function drawRaceFinished() {
 let lastTime = 0;
 
 function resolveCollision(a, b) {
+  let finalPushX = 0,
+    finalPushY = 0,
+    finalARatio = 1,
+    finalBRatio = 1;
+  let didCollide = false;
+
+  // Separation loop — position only, no velocity changes here
   for (let iter = 0; iter < 3; iter++) {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
@@ -723,17 +730,31 @@ function resolveCollision(a, b) {
     b.x += pushX * bRatio;
     b.y += pushY * bRatio;
 
-    // Lateral nudge
-    const impactForce = Math.sqrt(pushX * pushX + pushY * pushY);
-
-    // nudge line:
-    const nudge = impactForce * DebugConfig.values.collisionNudge;
+    // Track the last resolved push for the impulse step below
+    finalPushX = pushX;
+    finalPushY = pushY;
+    finalARatio = aRatio;
+    finalBRatio = bRatio;
+    didCollide = true;
+  }
+  // Apply velocity impulse exactly once, after all position separation is done.
+  // Clamp nudge so a large overlap can never launch a car across the map.
+  if (didCollide) {
+    const impactForce = Math.sqrt(
+      finalPushX * finalPushX + finalPushY * finalPushY,
+    );
 
     if (impactForce > DebugConfig.values.collisionHardImpact) {
-      a.velocityX -= pushX * aRatio * nudge;
-      a.velocityY -= pushY * aRatio * nudge;
-      b.velocityX += pushX * bRatio * nudge;
-      b.velocityY += pushY * bRatio * nudge;
+      const MAX_NUDGE = 2.5;
+      const nudge = Math.min(
+        impactForce * DebugConfig.values.collisionNudge,
+        MAX_NUDGE,
+      );
+
+      a.velocityX -= finalPushX * finalARatio * nudge;
+      a.velocityY -= finalPushY * finalARatio * nudge;
+      b.velocityX += finalPushX * finalBRatio * nudge;
+      b.velocityY += finalPushY * finalBRatio * nudge;
 
       // Only punish very hard impacts
       if (impactForce > 3) {
