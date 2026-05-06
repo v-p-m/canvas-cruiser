@@ -29,7 +29,7 @@ class AICar {
     this.velocityY = 0;
     this.grip = 0.15;
     this.lineOffset = (Math.random() - 0.5) * 40;
-    this.startDelay = Math.random() * 800; // 0–800ms random delay
+    this.startDelay = Math.random() * 400; // 0–800ms random delay
     this.basMaxSpeed = 7.5 + Math.random() * 1.5; // fixed base
     this.maxSpeed = this.basMaxSpeed;
     this.lapSpeedOffset = 0; // varies each lap
@@ -109,11 +109,27 @@ class AICar {
       if (distToPlayer < 100) rubberBand = 0.88;
     }
 
-    // Decay multiplier back to 1 each frame
-    this.speedMultiplier = Math.min(1.0, this.speedMultiplier + 0.02 * delta);
+    // Check grass FIRST before decaying multiplier
+    let onGrass = false;
+    if (worldTrack.data && worldTrack.data.map) {
+      const gridX = Math.floor(this.x / worldTrack.data.tileSize);
+      const gridY = Math.floor(this.y / worldTrack.data.tileSize);
+      const row = worldTrack.data.map[gridY];
+      if (row && row[gridX] === 0) {
+        onGrass = true;
+      }
+    }
+
+    // Decay multiplier back to 1 only when on road; clamp hard when on grass
+    if (onGrass) {
+      this.speedMultiplier = Math.min(this.speedMultiplier, 0.45);
+    } else {
+      this.speedMultiplier = Math.min(1.0, this.speedMultiplier + 0.02 * delta);
+    }
 
     // Speed — ease off on sharp corners, apply rubber band and multiplier
     const cornerFactor = 1 - Math.min(Math.abs(angleDiff) / Math.PI, 1) * 0.5;
+
     const targetSpeed =
       this.maxSpeed * cornerFactor * rubberBand * this.speedMultiplier;
     this.speed += (targetSpeed - this.speed) * 0.05 * delta;
@@ -121,8 +137,10 @@ class AICar {
     // Velocity-based movement
     const targetVx = Math.sin(this.angle) * this.speed;
     const targetVy = -Math.cos(this.angle) * this.speed;
-    this.velocityX += (targetVx - this.velocityX) * this.grip * delta;
-    this.velocityY += (targetVy - this.velocityY) * this.grip * delta;
+    // Use stronger grip on grass so velocity catches down to targetSpeed quickly
+    const effectiveGrip = onGrass ? Math.min(this.grip * 4, 0.5) : this.grip;
+    this.velocityX += (targetVx - this.velocityX) * effectiveGrip * delta;
+    this.velocityY += (targetVy - this.velocityY) * effectiveGrip * delta;
     this.x += this.velocityX * delta;
     this.y += this.velocityY * delta;
 
