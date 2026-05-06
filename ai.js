@@ -30,7 +30,7 @@ class AICar {
     this.grip = 0.15;
     this.lineOffset = (Math.random() - 0.5) * 40;
     this.startDelay = Math.random() * 400; // 0–800ms random delay
-    this.basMaxSpeed = 7.5 + Math.random() * 1.5; // fixed base
+    this.basMaxSpeed = 7.5 + Math.random() * 2.5; // fixed base
     this.maxSpeed = this.basMaxSpeed;
     this.lapSpeedOffset = 0; // varies each lap
     this.lastWaypoint = -1;

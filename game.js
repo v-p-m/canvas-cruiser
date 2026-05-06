@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.8.3";
+const GAME_VERSION = "0.8.4";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -140,6 +140,198 @@ function resizeSkidCanvas() {
 }
 
 let skidDirty = false;
+
+// ─────────────────────────────────────────
+// RAIN SYSTEM
+// ─────────────────────────────────────────
+const Rain = {
+  active: false,
+  intensity: 0, // 0→1, lerps toward targetIntensity
+  targetIntensity: 0,
+  drops: [],
+  MAX_DROPS: 600,
+  puddles: [], // static world-space puddles drawn on track
+  MAX_PUDDLES: 40,
+
+  // How much rain damps player grip / friction
+  GRIP_PENALTY: 0.55, // multiplied onto driftGrip when fully wet
+  FRICTION_BONUS: 0.015, // added to friction (closer to 1 = less slowdown)
+
+  toggle() {
+    if (this.targetIntensity === 0) {
+      this.targetIntensity = 1;
+      this.active = true;
+      this._spawnPuddles();
+    } else {
+      this.targetIntensity = 0;
+    }
+  },
+
+  _spawnPuddles() {
+    if (!worldTrack.data) return;
+    this.puddles = [];
+    const { map, tileSize } = worldTrack.data;
+    const roadTiles = [];
+    map.forEach((row, ty) =>
+      row.forEach((id, tx) => {
+        if (id >= 2 && id <= 9) roadTiles.push({ tx, ty });
+      }),
+    );
+    const count = Math.min(this.MAX_PUDDLES, roadTiles.length);
+    for (let i = 0; i < count; i++) {
+      const tile = roadTiles[Math.floor(Math.random() * roadTiles.length)];
+      this.puddles.push({
+        x:
+          tile.tx * tileSize +
+          tileSize / 2 +
+          (Math.random() - 0.5) * tileSize * 0.6,
+        y:
+          tile.ty * tileSize +
+          tileSize / 2 +
+          (Math.random() - 0.5) * tileSize * 0.6,
+        rx: 10 + Math.random() * 22,
+        ry: 5 + Math.random() * 12,
+        alpha: 0.18 + Math.random() * 0.18,
+        ripple: Math.random() * Math.PI * 2,
+      });
+    }
+  },
+
+  _spawnDrop() {
+    return {
+      // screen-space — reposition each frame so they always fill viewport
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      len: 8 + Math.random() * 10,
+      speed: 14 + Math.random() * 10,
+      alpha: 0.25 + Math.random() * 0.35,
+    };
+  },
+
+  update(delta) {
+    // Lerp intensity
+    const step = 0.008 * delta;
+    if (this.intensity < this.targetIntensity)
+      this.intensity = Math.min(this.targetIntensity, this.intensity + step);
+    else if (this.intensity > this.targetIntensity)
+      this.intensity = Math.max(this.targetIntensity, this.intensity - step);
+
+    if (this.intensity <= 0) {
+      this.active = false;
+      return;
+    }
+    if (this.targetIntensity > 0) this.active = true;
+
+    // Maintain drop pool
+    const desiredDrops = Math.floor(this.intensity * this.MAX_DROPS);
+    while (this.drops.length < desiredDrops) this.drops.push(this._spawnDrop());
+    while (this.drops.length > desiredDrops) this.drops.pop();
+
+    // Move drops
+    this.drops.forEach((d) => {
+      d.y += d.speed * delta;
+      d.x += 2 * delta; // slight angle
+      if (d.y > canvas.height + 20) {
+        d.y = -20;
+        d.x = Math.random() * canvas.width;
+      }
+    });
+
+    // Animate puddle ripples
+    this.puddles.forEach((p) => {
+      p.ripple += 0.04 * delta;
+    });
+
+    // Apply wet handling to player
+    const wet = this.intensity;
+    const BASE_GRIP = 0.1;
+    const BASE_FRICTION = 0.96;
+    car.driftGrip = BASE_GRIP * (1 - wet * (1 - this.GRIP_PENALTY));
+    car.friction = BASE_FRICTION + wet * this.FRICTION_BONUS;
+
+    // Apply to AI
+    opponents.forEach((ai) => {
+      ai.grip = 0.15 * (1 - wet * (1 - this.GRIP_PENALTY));
+    });
+  },
+
+  drawPuddles() {
+    if (this.intensity <= 0) return;
+    this.puddles.forEach((p) => {
+      const sx = p.x - camera.x;
+      const sy = p.y - camera.y;
+      if (
+        sx < -60 ||
+        sx > canvas.width + 60 ||
+        sy < -40 ||
+        sy > canvas.height + 40
+      )
+        return;
+
+      ctx.save();
+      ctx.globalAlpha = p.alpha * this.intensity;
+      ctx.translate(sx, sy);
+
+      // Puddle ellipse
+      ctx.fillStyle = "#6aaccc";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, p.rx, p.ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Ripple ring
+      const rScale = 0.5 + 0.5 * Math.abs(Math.sin(p.ripple));
+      ctx.strokeStyle = "rgba(150,200,230,0.5)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, p.rx * rScale, p.ry * rScale, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.restore();
+    });
+  },
+
+  drawDrops() {
+    if (this.intensity <= 0) return;
+    ctx.save();
+    ctx.strokeStyle = `rgba(174, 214, 241, ${0.55 * this.intensity})`;
+    ctx.lineWidth = 1;
+    this.drops.forEach((d) => {
+      ctx.globalAlpha = d.alpha * this.intensity;
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x + 2, d.y + d.len);
+      ctx.stroke();
+    });
+    ctx.restore();
+  },
+
+  drawOverlay() {
+    if (this.intensity <= 0) return;
+    // Slight blue-grey tint over the whole scene
+    ctx.save();
+    ctx.globalAlpha = 0.1 * this.intensity;
+    ctx.fillStyle = "#6a9ab0";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  },
+
+  drawHUD() {
+    if (this.intensity <= 0 && this.targetIntensity === 0) return;
+    ctx.save();
+    ctx.font = "bold 16px 'Courier New'";
+    ctx.textAlign = "left";
+    ctx.fillStyle =
+      this.intensity > 0.5
+        ? `rgba(174,214,241,${0.7 + 0.3 * this.intensity})`
+        : "#aaa";
+    ctx.fillText(
+      this.intensity > 0.05 ? `🌧  WET TRACK` : `🌤  DRYING...`,
+      16,
+      canvas.height - 48,
+    );
+    ctx.restore();
+  },
+};
 
 function paintSkidMark(x, y, angle) {
   // Skip if outside skid canvas bounds
@@ -286,6 +478,11 @@ window.addEventListener("keydown", (e) => {
 
   if (key === "c" && isLeaderboard) {
     clearHighScores();
+    return;
+  }
+
+  if (key === "p" && !isMenu) {
+    Rain.toggle();
     return;
   }
 
@@ -780,6 +977,7 @@ function gameLoop(timestamp) {
   StartLights.update(timestamp);
   PersonalBest.update(dt);
   DebugHUD.update(timestamp);
+  Rain.update(delta);
 
   if (!StartLights.active && !isRacing && !isMenu) {
     isRacing = true;
@@ -895,12 +1093,16 @@ function gameLoop(timestamp) {
           srcW,
           srcH,
         );
+      Rain.drawPuddles(); // world-space puddles, before cars
     }
   }
 
   // Cars — screen space
   if (!isMenu && !TrackEditor.active) drawCar();
   if (!TrackEditor.active) opponents.forEach((ai) => ai.draw());
+
+  Rain.drawOverlay(); // scene tint
+  Rain.drawDrops(); // screen-space streaks
 
   if (DEBUG && !TrackEditor.active) WaypointEditor.draw(ctx);
   if (DEBUG) TrackEditor.draw(ctx);
@@ -914,6 +1116,7 @@ function gameLoop(timestamp) {
 
   StartLights.draw(ctx, canvas.width, canvas.height);
   PersonalBest.draw(ctx, canvas.width);
+  Rain.drawHUD();
 
   requestAnimationFrame(gameLoop);
 }
