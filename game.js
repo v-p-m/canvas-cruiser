@@ -731,6 +731,8 @@ function drawStartMenu() {
   ctx.fillStyle = "#FFD700";
   ctx.font = "bold 50px 'Courier New'";
   ctx.fillText("🏎️ CANVAS CRUISER 🏎️", canvas.width / 2, 150);
+  ctx.font = "bold 12px 'Courier New'";
+  ctx.fillText("v" + GAME_VERSION, canvas.width / 2, 200);
 
   // Mode selector
   const cx = canvas.width / 2;
