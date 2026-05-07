@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.8.4";
+const GAME_VERSION = "0.8.5";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -16,6 +16,8 @@ let isLeaderboard = false;
 let savedSpeed = 0;
 let gameMode = "free"; // "free" | "race5" | "race10"
 let selectedMode = 0; // menu cursor
+let weatherWetFromLap = null;
+let weatherWetToLap = null;
 let totalRaceStart = 0;
 let totalRaceTime = 0;
 let isRaceFinished = false;
@@ -316,19 +318,56 @@ const Rain = {
   },
 
   drawHUD() {
-    if (this.intensity <= 0 && this.targetIntensity === 0) return;
     ctx.save();
     ctx.font = "bold 16px 'Courier New'";
     ctx.textAlign = "left";
-    ctx.fillStyle =
-      this.intensity > 0.5
-        ? `rgba(174,214,241,${0.7 + 0.3 * this.intensity})`
-        : "#aaa";
-    ctx.fillText(
-      this.intensity > 0.05 ? `🌧  WET TRACK` : `🌤  DRYING...`,
-      16,
-      canvas.height - 48,
-    );
+
+    // Active rain label
+    if (this.intensity > 0 || this.targetIntensity > 0) {
+      ctx.fillStyle =
+        this.intensity > 0.5
+          ? `rgba(174,214,241,${0.7 + 0.3 * this.intensity})`
+          : "#aaa";
+      ctx.fillText(
+        this.intensity > 0.05 ? `🌧  WET TRACK` : `🌤  DRYING...`,
+        16,
+        canvas.height - 48,
+      );
+    }
+
+    // Pre-race forecast hint (before hasStarted, in a race mode)
+    if (
+      !hasStarted &&
+      !isMenu &&
+      (gameMode === "race5" || gameMode === "race10")
+    ) {
+      const wet = weatherWetFromLap !== null;
+      if (gameMode === "race5") {
+        ctx.fillStyle = wet
+          ? "rgba(174,214,241,0.85)"
+          : "rgba(200,230,200,0.85)";
+        ctx.fillText(
+          wet ? `🌧  FORECAST: WET RACE` : `☀️  FORECAST: DRY RACE`,
+          16,
+          canvas.height - 48,
+        );
+      } else {
+        // race10 — show the wet window
+        if (wet) {
+          const to = weatherWetToLap ? `lap ${weatherWetToLap - 1}` : "end";
+          ctx.fillStyle = "rgba(174,214,241,0.85)";
+          ctx.fillText(
+            `🌧  RAIN: lap ${weatherWetFromLap} → ${to}`,
+            16,
+            canvas.height - 48,
+          );
+        } else {
+          ctx.fillStyle = "rgba(200,230,200,0.85)";
+          ctx.fillText(`☀️  FORECAST: DRY RACE`, 16, canvas.height - 48);
+        }
+      }
+    }
+
     ctx.restore();
   },
 };
@@ -395,6 +434,7 @@ window.addEventListener("keydown", (e) => {
       gameMode = MODES[selectedMode].id;
       isMenu = false;
       isRacing = false;
+      scheduleWeather();
       StartLights.begin();
       return;
     }
@@ -427,6 +467,7 @@ window.addEventListener("keydown", (e) => {
   if (isRaceFinished) {
     if (key === "r") {
       resetRace();
+      scheduleWeather();
       isMenu = false;
       isRacing = false;
       StartLights.begin();
@@ -449,6 +490,7 @@ window.addEventListener("keydown", (e) => {
 
   if (key === "r") {
     resetRace();
+    scheduleWeather();
     isMenu = false;
     isRacing = false;
     StartLights.begin();
@@ -600,11 +642,48 @@ function clearHighScores() {
   }
 }
 
+// ─────────────────────────────────────────
+// WEATHER SCHEDULING
+// ─────────────────────────────────────────
+function scheduleWeather() {
+  weatherWetFromLap = null;
+  weatherWetToLap = null;
+
+  if (gameMode === "race5") {
+    // 50/50 — either the whole race is wet, or completely dry
+    if (Math.random() < 0.5) {
+      weatherWetFromLap = 1; // rain from lap 1
+      weatherWetToLap = null; // stays wet all race
+    }
+  } else if (gameMode === "race10") {
+    // Rain covers ~5 laps starting at a random lap between 1 and 6
+    const start = 1 + Math.floor(Math.random() * 6); // 1–6
+    const duration = 4 + Math.floor(Math.random() * 3); // 4–6 laps
+    weatherWetFromLap = start;
+    weatherWetToLap = start + duration; // rain stops when this lap begins
+  }
+  // free drive: no schedule — player uses P to toggle
+}
+
+function applyWeatherForLap(lap) {
+  if (gameMode !== "race5" && gameMode !== "race10") return;
+  const shouldBeWet =
+    weatherWetFromLap !== null &&
+    lap >= weatherWetFromLap &&
+    (weatherWetToLap === null || lap < weatherWetToLap);
+  const currentlyWet = Rain.targetIntensity > 0;
+  if (shouldBeWet && !currentlyWet) Rain.toggle();
+  if (!shouldBeWet && currentlyWet) Rain.toggle();
+}
+
 function resetRace() {
   isLeaderboard = false;
   isRaceFinished = false;
   totalRaceTime = 0;
   totalRaceStart = 0;
+
+  // Clear rain
+  if (Rain.targetIntensity > 0) Rain.toggle();
 
   // Player
   car.x = SPAWN_POSITIONS[0].x;
@@ -624,9 +703,9 @@ function resetRace() {
     opponents[i].velocityX = 0;
     opponents[i].velocityY = 0;
     opponents[i].currentWaypoint = 0;
-    opponents[i].startDelay = Math.random() * 800; // re-randomise on each reset
-    opponents[i].basMaxSpeed = 7.5 + Math.random() * 1.5;
-    opponents[i].maxSpeed = opponents[i].basMaxSpeed; // reset to base
+    opponents[i].startDelay = Math.random() * 400;
+    opponents[i].basMaxSpeed = 7.5 + Math.random() * 2.5;
+    opponents[i].maxSpeed = opponents[i].basMaxSpeed;
   }
 
   laps = 0;
@@ -665,10 +744,12 @@ function checkTileCollision(x, y) {
           laps = 1;
           totalRaceStart = Date.now();
           lapStartTime = Date.now();
+          applyWeatherForLap(1); // apply scheduled weather from lap 1
         } else {
           const lapTime = ((Date.now() - lapStartTime) / 1000).toFixed(2);
           lapStartTime = Date.now();
           laps++;
+          applyWeatherForLap(laps); // check weather schedule each lap
 
           const targetLaps =
             gameMode === "race5" ? 5 : gameMode === "race10" ? 10 : null;
