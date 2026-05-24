@@ -555,10 +555,10 @@ window.addEventListener("keydown", (e) => {
     WaypointEditor.export();
     return;
   }
-  keys[e.key.toLowerCase()] = true;
+  keys[e.key] = true;
 });
 
-window.addEventListener("keyup", (e) => (keys[e.key.toLowerCase()] = false));
+window.addEventListener("keyup", (e) => (keys[e.key] = false));
 
 window.addEventListener("resize", () => {
   canvas.width = window.innerWidth;
