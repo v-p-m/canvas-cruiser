@@ -555,20 +555,10 @@ window.addEventListener("keydown", (e) => {
     WaypointEditor.export();
     return;
   }
-
-  if (isMenu) {
-    if (key === "enter" || key === " ") {
-      isMenu = false;
-      isRacing = false;
-      StartLights.begin();
-    }
-    return;
-  }
-
-  keys[e.key] = true;
+  keys[e.key.toLowerCase()] = true;
 });
 
-window.addEventListener("keyup", (e) => (keys[e.key] = false));
+window.addEventListener("keyup", (e) => (keys[e.key.toLowerCase()] = false));
 
 window.addEventListener("resize", () => {
   canvas.width = window.innerWidth;
@@ -1079,7 +1069,7 @@ function gameLoop(timestamp) {
 
     if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
     if (car.speed < -car.maxSpeed / 2) car.speed = -car.maxSpeed / 2;
-    if (Math.abs(car.speed) < 0.1) car.speed = 0;
+    if (!accel && !braking && Math.abs(car.speed) < 0.01) car.speed = 0;
 
     if (car.speed !== 0) {
       const flip = car.speed > 0 ? 1 : -1;
