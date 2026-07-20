@@ -13,13 +13,22 @@ let isMenu = true;
 let isRacing = false;
 let highScores = [];
 try {
-  highScores = JSON.parse(localStorage.getItem("highScores")) || [];
+  const parsed = JSON.parse(localStorage.getItem("highScores"));
+  if (Array.isArray(parsed)) highScores = parsed;
+  else if (parsed !== null) localStorage.removeItem("highScores");
 } catch {
   localStorage.removeItem("highScores");
 }
 let bestTotalTimes = {};
 try {
-  bestTotalTimes = JSON.parse(localStorage.getItem("bestTotalTimes")) || {};
+  const parsed = JSON.parse(localStorage.getItem("bestTotalTimes"));
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    for (const mode of Object.keys(parsed)) {
+      if (Array.isArray(parsed[mode])) bestTotalTimes[mode] = parsed[mode];
+    }
+  } else if (parsed !== null) {
+    localStorage.removeItem("bestTotalTimes");
+  }
 } catch {
   localStorage.removeItem("bestTotalTimes");
 }
@@ -949,9 +958,15 @@ function drawLeaderboard() {
     canvas.width * 0.8,
   ];
   const columns = [
-    { title: "🏁 TOP 5 LAPS 🏁", entries: highScores },
-    { title: "🏆 TOP 3 · 5-LAP 🏆", entries: bestTotalTimes.race5 || [] },
-    { title: "🏆 TOP 3 · 10-LAP 🏆", entries: bestTotalTimes.race10 || [] },
+    { title: "🏁 TOP 5 LAPS 🏁", entries: Array.isArray(highScores) ? highScores : [] },
+    {
+      title: "🏆 TOP 3 · 5-LAP 🏆",
+      entries: Array.isArray(bestTotalTimes.race5) ? bestTotalTimes.race5 : [],
+    },
+    {
+      title: "🏆 TOP 3 · 10-LAP 🏆",
+      entries: Array.isArray(bestTotalTimes.race10) ? bestTotalTimes.race10 : [],
+    },
   ];
 
   columns.forEach((col, ci) => {
