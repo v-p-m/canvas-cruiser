@@ -33,9 +33,13 @@ const KeyBindings = {
 
   load() {
     const saved = localStorage.getItem("keyBindings");
-    this.bindings = saved
-      ? { ...this.defaults, ...JSON.parse(saved) }
-      : { ...this.defaults };
+    this.bindings = { ...this.defaults };
+    if (!saved) return;
+    try {
+      Object.assign(this.bindings, JSON.parse(saved));
+    } catch {
+      localStorage.removeItem("keyBindings");
+    }
   },
 
   save() {

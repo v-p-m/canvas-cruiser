@@ -11,9 +11,22 @@ let currentLapTime = 0;
 let bestLapTime = 0;
 let isMenu = true;
 let isRacing = false;
-let highScores = JSON.parse(localStorage.getItem("highScores")) || [];
+let highScores = [];
+try {
+  highScores = JSON.parse(localStorage.getItem("highScores")) || [];
+} catch {
+  localStorage.removeItem("highScores");
+}
+let bestTotalTimes = {};
+try {
+  bestTotalTimes = JSON.parse(localStorage.getItem("bestTotalTimes")) || {};
+} catch {
+  localStorage.removeItem("bestTotalTimes");
+}
+let isNewBestTotal = false;
 let isLeaderboard = false;
 let savedSpeed = 0;
+let racePaused = false;
 let gameMode = "free"; // "free" | "race5" | "race10"
 let selectedMode = 0; // menu cursor
 let weatherWetFromLap = null;
@@ -410,6 +423,14 @@ window.addEventListener("keydown", (e) => {
 
   // Menu navigation
   if (isMenu) {
+    if (key === "escape" && racePaused) {
+      isMenu = false;
+      isRacing = true;
+      car.speed = savedSpeed;
+      savedSpeed = 0;
+      racePaused = false;
+      return;
+    }
     if (e.key === "ArrowUp") {
       selectedMode = (selectedMode - 1 + MODES.length) % MODES.length;
       return;
@@ -431,6 +452,9 @@ window.addEventListener("keydown", (e) => {
       return;
     }
     if (key === "enter" || key === " ") {
+      resetRace();
+      racePaused = false;
+      savedSpeed = 0;
       gameMode = MODES[selectedMode].id;
       isMenu = false;
       isRacing = false;
@@ -467,6 +491,7 @@ window.addEventListener("keydown", (e) => {
   if (isRaceFinished) {
     if (key === "r") {
       resetRace();
+      racePaused = false;
       scheduleWeather();
       isMenu = false;
       isRacing = false;
@@ -474,22 +499,27 @@ window.addEventListener("keydown", (e) => {
     }
     if (key === "escape") {
       isMenu = true;
+      racePaused = false;
       resetRace();
     }
     return;
   }
 
-  // General ESC
+  // General ESC — pause the race and return to the menu; ESC again from the
+  // menu resumes it (see the isMenu block above).
   if (key === "escape") {
-    resetRace();
-    isMenu = true;
+    savedSpeed = car.speed;
+    car.speed = 0;
     isRacing = false;
+    isMenu = true;
     isLeaderboard = false;
+    racePaused = true;
     return;
   }
 
   if (key === "r") {
     resetRace();
+    racePaused = false;
     scheduleWeather();
     isMenu = false;
     isRacing = false;
@@ -523,7 +553,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
-  if (key === "p" && !isMenu) {
+  if (key === "p" && !isMenu && !DEBUG) {
     Rain.toggle();
     return;
   }
@@ -559,6 +589,10 @@ window.addEventListener("keydown", (e) => {
 });
 
 window.addEventListener("keyup", (e) => (keys[e.key] = false));
+
+window.addEventListener("blur", () => {
+  for (const k in keys) keys[k] = false;
+});
 
 window.addEventListener("resize", () => {
   canvas.width = window.innerWidth;
@@ -623,12 +657,27 @@ function saveLapTime(time) {
   }
 }
 
+function saveTotalTime(mode, time) {
+  const parsed = parseFloat(time);
+  const list = bestTotalTimes[mode] || [];
+  const previousBest = list[0];
+
+  isNewBestTotal = previousBest === undefined || parsed < previousBest;
+
+  list.push(parsed);
+  list.sort((a, b) => a - b);
+  bestTotalTimes[mode] = list.slice(0, 3);
+  localStorage.setItem("bestTotalTimes", JSON.stringify(bestTotalTimes));
+}
+
 function clearHighScores() {
   if (confirm("Clear all high scores and records?")) {
     highScores = [];
     bestLapTime = 0;
+    bestTotalTimes = {};
     localStorage.removeItem("highScores");
     localStorage.removeItem("bestLap");
+    localStorage.removeItem("bestTotalTimes");
   }
 }
 
@@ -747,6 +796,7 @@ function checkTileCollision(x, y) {
           if (targetLaps && laps > targetLaps) {
             // Race complete
             totalRaceTime = ((Date.now() - totalRaceStart) / 1000).toFixed(2);
+            saveTotalTime(gameMode, totalRaceTime);
             isRaceFinished = true;
             isRacing = false;
           } else {
@@ -891,15 +941,36 @@ function drawUI() {
 function drawLeaderboard() {
   ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#FFD700";
   ctx.textAlign = "center";
-  ctx.font = "bold 40px 'Courier New'";
-  ctx.fillText("🏁 TOP 5 BEST LAPS 🏁", canvas.width / 2, 150);
-  ctx.fillStyle = "white";
-  ctx.font = "24px 'Courier New'";
-  highScores.forEach((score, i) =>
-    ctx.fillText(`${i + 1}. ${score}s`, canvas.width / 2, 220 + i * 40),
-  );
+
+  const colX = [
+    canvas.width * 0.2,
+    canvas.width * 0.5,
+    canvas.width * 0.8,
+  ];
+  const columns = [
+    { title: "🏁 TOP 5 LAPS 🏁", entries: highScores },
+    { title: "🏆 TOP 3 · 5-LAP 🏆", entries: bestTotalTimes.race5 || [] },
+    { title: "🏆 TOP 3 · 10-LAP 🏆", entries: bestTotalTimes.race10 || [] },
+  ];
+
+  columns.forEach((col, ci) => {
+    const x = colX[ci];
+    ctx.fillStyle = "#FFD700";
+    ctx.font = "bold 26px 'Courier New'";
+    ctx.fillText(col.title, x, 150);
+
+    ctx.fillStyle = "white";
+    ctx.font = "22px 'Courier New'";
+    if (col.entries.length === 0) {
+      ctx.fillStyle = "#888";
+      ctx.fillText("— no times yet —", x, 220);
+    } else {
+      col.entries.forEach((score, i) =>
+        ctx.fillText(`${i + 1}. ${score}s`, x, 220 + i * 36),
+      );
+    }
+  });
 
   // Back hint
   ctx.font = "18px 'Courier New'";
@@ -935,7 +1006,7 @@ function drawRaceFinished() {
   ctx.fillText(`Total: ${totalRaceTime}s`, cx, 300);
 
   // Personal best indicator
-  if (highScores.length > 0 && parseFloat(totalRaceTime) === highScores[0]) {
+  if (isNewBestTotal) {
     ctx.fillStyle = "#FFD700";
     ctx.font = "bold 24px 'Courier New'";
     ctx.fillText("🏆 New Best Total!", cx, 350);
@@ -1052,12 +1123,16 @@ function gameLoop(timestamp) {
   DebugHUD.update(timestamp);
   Rain.update(delta);
 
-  if (!StartLights.active && !isRacing && !isMenu) {
+  // True whenever a menu/overlay screen owns input — the race must not
+  // auto-resume or keep updating physics in the background while shown.
+  const inOverlay = isMenu || isKeyBindings || isLeaderboard || isRaceFinished;
+
+  if (!StartLights.active && !isRacing && !inOverlay) {
     isRacing = true;
   }
 
   // UPDATE
-  if (isRacing && !isMenu && !isLeaderboard) {
+  if (isRacing && !inOverlay) {
     const accel = keys[KeyBindings.bindings.accelerate];
     const braking = keys[KeyBindings.bindings.brake];
     const left = keys[KeyBindings.bindings.left];
@@ -1071,20 +1146,18 @@ function gameLoop(timestamp) {
     if (car.speed < -car.maxSpeed / 2) car.speed = -car.maxSpeed / 2;
     if (!accel && !braking && Math.abs(car.speed) < 0.01) car.speed = 0;
 
-    if (car.speed !== 0) {
-      const flip = car.speed > 0 ? 1 : -1;
+    const flip = car.speed >= 0 ? 1 : -1;
 
-      if (left) car.angle -= car.turnSpeed * flip * delta;
-      if (right) car.angle += car.turnSpeed * flip * delta;
+    if (left) car.angle -= car.turnSpeed * flip * delta;
+    if (right) car.angle += car.turnSpeed * flip * delta;
 
-      if (left || right) {
-        const scrubFactor =
-          0.94 + 0.04 * (1 - Math.abs(car.speed) / car.maxSpeed);
-        car.speed *= Math.pow(scrubFactor, delta);
+    if (car.speed !== 0 && (left || right)) {
+      const scrubFactor =
+        0.94 + 0.04 * (1 - Math.abs(car.speed) / car.maxSpeed);
+      car.speed *= Math.pow(scrubFactor, delta);
 
-        if (Math.abs(car.speed) > 5) {
-          paintSkidMark(car.x, car.y, car.angle);
-        }
+      if (Math.abs(car.speed) > 5) {
+        paintSkidMark(car.x, car.y, car.angle);
       }
     }
 
@@ -1196,6 +1269,24 @@ function gameLoop(timestamp) {
 
 // --- Init ---
 async function initGame() {
+  try {
+    await initGameUnsafe();
+  } catch (err) {
+    console.error("Failed to initialize game:", err);
+    ctx.fillStyle = "#111";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#FF4444";
+    ctx.font = "bold 24px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      "Failed to load the game. Please refresh the page.",
+      canvas.width / 2,
+      canvas.height / 2,
+    );
+  }
+}
+
+async function initGameUnsafe() {
   KeyBindings.load();
   await worldTrack.load("track.json");
   WaypointEditor.init(worldTrack.data.waypoints);

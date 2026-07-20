@@ -162,9 +162,13 @@ const DebugConfig = {
 
   load() {
     const saved = localStorage.getItem("debugConfig");
-    this.values = saved
-      ? { ...this.defaults, ...JSON.parse(saved) }
-      : { ...this.defaults };
+    this.values = { ...this.defaults };
+    if (!saved) return;
+    try {
+      Object.assign(this.values, JSON.parse(saved));
+    } catch {
+      localStorage.removeItem("debugConfig");
+    }
   },
 
   save() {
