@@ -32,8 +32,6 @@ class AICar {
     this.startDelay = Math.random() * 400; // 0–800ms random delay
     this.basMaxSpeed = 7.5 + Math.random() * 2.5; // fixed base
     this.maxSpeed = this.basMaxSpeed;
-    this.lapSpeedOffset = 0; // varies each lap
-    this.lastWaypoint = -1;
   }
 
   applyRepulsion(others, delta = 1) {

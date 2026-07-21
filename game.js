@@ -54,10 +54,10 @@ const MODES = [
 
 const SPAWN_POSITIONS = [
   { x: 550, y: 200, angle: Math.PI / 2, color: null }, // player
-  { x: 440, y: 200, angle: Math.PI / 2, color: "#0077ff" }, // AI 1
-  { x: 505, y: 275, angle: Math.PI / 2, color: "#ff7700" }, // AI 2
-  { x: 390, y: 275, angle: Math.PI / 2, color: "#00cc44" }, // AI 3
-  { x: 335, y: 200, angle: Math.PI / 2, color: "#cc00cc" }, // AI 4
+  { x: 500, y: 200, angle: Math.PI / 2, color: "#0077ff" }, // AI 1
+  { x: 450, y: 275, angle: Math.PI / 2, color: "#ff7700" }, // AI 2
+  { x: 400, y: 200, angle: Math.PI / 2, color: "#00cc44" }, // AI 3
+  { x: 350, y: 275, angle: Math.PI / 2, color: "#cc00cc" }, // AI 4
 ];
 
 const opponents = [];
