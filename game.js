@@ -857,6 +857,7 @@ function drawStartMenu() {
   ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  ctx.textBaseline = "alphabetic";
   ctx.textAlign = "center";
   ctx.fillStyle = "#FFD700";
   ctx.font = "bold 50px 'Courier New'";

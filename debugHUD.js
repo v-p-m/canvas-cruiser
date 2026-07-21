@@ -19,6 +19,8 @@ const DebugHUD = {
   draw(ctx) {
     if (!DEBUG) return;
 
+    ctx.save();
+
     // FPS counter — top right corner
     const fpsColor =
       this.fps >= 55 ? "#00FF88" : this.fps >= 30 ? "#FFD700" : "#FF4444";
@@ -71,5 +73,7 @@ const DebugHUD = {
         canvas.height - 18,
       );
     }
+
+    ctx.restore();
   },
 };

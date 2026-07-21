@@ -90,6 +90,7 @@ const WaypointEditor = {
   draw(ctx) {
     if (!DEBUG) return;
 
+    ctx.save();
     this.waypoints.forEach((wp, i) => {
       const sx = wp.x - camera.x;
       const sy = wp.y - camera.y;
@@ -145,5 +146,6 @@ const WaypointEditor = {
       ctx.textBaseline = "middle";
       ctx.fillText(i, sx, sy);
     });
+    ctx.restore();
   },
 };
