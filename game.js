@@ -204,15 +204,16 @@ const Rain = {
     const count = Math.min(this.MAX_PUDDLES, roadTiles.length);
     for (let i = 0; i < count; i++) {
       const tile = roadTiles[Math.floor(Math.random() * roadTiles.length)];
+      const px =
+        tile.tx * tileSize + tileSize / 2 + (Math.random() - 0.5) * tileSize * 0.6;
+      const py =
+        tile.ty * tileSize + tileSize / 2 + (Math.random() - 0.5) * tileSize * 0.6;
+      // Corner tiles are only partly tarmac now — skip spots the smoothed
+      // road edge has cut away
+      if (worldTrack.sampleRoad(px, py) < 0.65) continue;
       this.puddles.push({
-        x:
-          tile.tx * tileSize +
-          tileSize / 2 +
-          (Math.random() - 0.5) * tileSize * 0.6,
-        y:
-          tile.ty * tileSize +
-          tileSize / 2 +
-          (Math.random() - 0.5) * tileSize * 0.6,
+        x: px,
+        y: py,
         rx: 10 + Math.random() * 22,
         ry: 5 + Math.random() * 12,
         alpha: 0.18 + Math.random() * 0.18,
@@ -782,7 +783,11 @@ function checkTileCollision(x, y) {
       car.y -= car.velocityY * 2;
     }
 
-    if (tileID === 0) car.speed *= 0.92;
+    // Off-track drag, scaled by how far past the smoothed road edge we
+    // are, so clipping a kerb costs a little and a full excursion costs
+    // the old flat 0.92.
+    const offRoad = worldTrack.offRoad(x, y);
+    if (offRoad > 0) car.speed *= 1 - 0.08 * offRoad;
 
     if (tileID === 9) {
       if (!onFinishLine) {

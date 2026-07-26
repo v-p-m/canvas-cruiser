@@ -107,22 +107,21 @@ class AICar {
       if (distToPlayer < 100) rubberBand = 0.88;
     }
 
-    // Check grass FIRST before decaying multiplier
-    let onGrass = false;
-    if (worldTrack.data && worldTrack.data.map) {
-      const gridX = Math.floor(this.x / worldTrack.data.tileSize);
-      const gridY = Math.floor(this.y / worldTrack.data.tileSize);
-      const row = worldTrack.data.map[gridY];
-      if (row && row[gridX] === 0) {
-        onGrass = true;
-      }
-    }
+    // How far off the tarmac we are, 0..1 — smooth across the road edge
+    // instead of flipping at a tile boundary. Check this FIRST, before
+    // decaying the multiplier.
+    const offRoad = worldTrack.field ? worldTrack.offRoad(this.x, this.y) : 0;
 
-    // Decay multiplier back to 1 only when on road; clamp hard when on grass
-    if (onGrass) {
-      this.speedMultiplier = Math.min(this.speedMultiplier, 0.45);
+    // Ceiling on speed: 1.0 on the racing surface, 0.45 fully into the
+    // grass, and everything in between out at the edges.
+    const ceiling = 1 - 0.55 * offRoad;
+    if (this.speedMultiplier > ceiling) {
+      this.speedMultiplier = ceiling;
     } else {
-      this.speedMultiplier = Math.min(1.0, this.speedMultiplier + 0.02 * delta);
+      this.speedMultiplier = Math.min(
+        ceiling,
+        this.speedMultiplier + 0.02 * delta,
+      );
     }
 
     // Speed — ease off on sharp corners, apply rubber band and multiplier
@@ -135,8 +134,10 @@ class AICar {
     // Velocity-based movement
     const targetVx = Math.sin(this.angle) * this.speed;
     const targetVy = -Math.cos(this.angle) * this.speed;
-    // Use stronger grip on grass so velocity catches down to targetSpeed quickly
-    const effectiveGrip = onGrass ? Math.min(this.grip * 4, 0.5) : this.grip;
+    // Blend toward stronger grip off-track so velocity catches down to
+    // targetSpeed quickly once we're properly in the grass
+    const grassGrip = Math.min(this.grip * 4, 0.5);
+    const effectiveGrip = this.grip + (grassGrip - this.grip) * offRoad;
     this.velocityX += (targetVx - this.velocityX) * effectiveGrip * delta;
     this.velocityY += (targetVy - this.velocityY) * effectiveGrip * delta;
     this.x += this.velocityX * delta;
