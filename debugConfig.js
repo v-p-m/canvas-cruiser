@@ -29,17 +29,22 @@ const DebugConfig = {
     countdownInterval: 1000,
     countdownGoTime: 400,
 
-    // Spawn
-    spawnPlayerX: 550,
-    spawnPlayerY: 200,
-    spawnAI1X: 400,
-    spawnAI1Y: 200,
-    spawnAI2X: 475,
-    spawnAI2Y: 275,
-    spawnAI3X: 400,
-    spawnAI3Y: 275,
-    spawnAI4X: 550,
-    spawnAI4Y: 350,
+    // Spawn — filled in from SPAWN_POSITIONS by seedSpawnDefaults()
+  },
+
+  // Bumped whenever the built-in grid in game.js changes, so a saved copy of
+  // the old one can't quietly override it on the next load.
+  spawnVersion: 2,
+
+  // SPAWN_POSITIONS is the one source of truth for the starting grid; the
+  // sliders only nudge it at runtime. Keeping a second copy of the numbers
+  // here let the two drift apart, and this copy was the one that won.
+  seedSpawnDefaults() {
+    SPAWN_POSITIONS.forEach((pos, i) => {
+      const name = i === 0 ? "Player" : `AI${i}`;
+      this.defaults[`spawn${name}X`] = pos.x;
+      this.defaults[`spawn${name}Y`] = pos.y;
+    });
   },
 
   schema: [
@@ -161,11 +166,20 @@ const DebugConfig = {
   values: {},
 
   load() {
+    this.seedSpawnDefaults();
     const saved = localStorage.getItem("debugConfig");
     this.values = { ...this.defaults };
     if (!saved) return;
     try {
-      Object.assign(this.values, JSON.parse(saved));
+      const parsed = JSON.parse(saved);
+      // Grid coordinates saved against an older layout would put cars back on
+      // the grass, so drop them and keep the rest of the tuning.
+      const savedVersion = +localStorage.getItem("debugConfigSpawnVersion");
+      if (savedVersion !== this.spawnVersion) {
+        for (const key of Object.keys(parsed))
+          if (key.startsWith("spawn")) delete parsed[key];
+      }
+      Object.assign(this.values, parsed);
     } catch {
       localStorage.removeItem("debugConfig");
     }
@@ -173,11 +187,13 @@ const DebugConfig = {
 
   save() {
     localStorage.setItem("debugConfig", JSON.stringify(this.values));
+    localStorage.setItem("debugConfigSpawnVersion", this.spawnVersion);
   },
 
   reset() {
     this.values = { ...this.defaults };
     localStorage.removeItem("debugConfig");
+    localStorage.removeItem("debugConfigSpawnVersion");
     this.apply();
     this.buildPanel();
   },
@@ -207,16 +223,11 @@ const DebugConfig = {
     StartLights.goDisplayTime = v.countdownGoTime;
 
     // Spawn positions
-    SPAWN_POSITIONS[0].x = v.spawnPlayerX;
-    SPAWN_POSITIONS[0].y = v.spawnPlayerY;
-    SPAWN_POSITIONS[1].x = v.spawnAI1X;
-    SPAWN_POSITIONS[1].y = v.spawnAI1Y;
-    SPAWN_POSITIONS[2].x = v.spawnAI2X;
-    SPAWN_POSITIONS[2].y = v.spawnAI2Y;
-    SPAWN_POSITIONS[3].x = v.spawnAI3X;
-    SPAWN_POSITIONS[3].y = v.spawnAI3Y;
-    SPAWN_POSITIONS[4].x = v.spawnAI4X;
-    SPAWN_POSITIONS[4].y = v.spawnAI4Y;
+    SPAWN_POSITIONS.forEach((pos, i) => {
+      const name = i === 0 ? "Player" : `AI${i}`;
+      pos.x = v[`spawn${name}X`];
+      pos.y = v[`spawn${name}Y`];
+    });
   },
 
   toggle() {

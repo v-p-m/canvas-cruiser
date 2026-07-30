@@ -60,12 +60,17 @@ const MODES = [
   { id: "race10", label: "10 Lap Race" },
 ];
 
+// Staggered starting grid on the top straight, behind the finish line.
+// The straight runs y 128–320, so the two lanes sit at 190 and 258 — a car
+// is 34 wide across the grid and 56 long along it, which leaves both lanes
+// clear of the kerbs and every pair far enough apart that the collision
+// solver has nothing to separate on the line.
 const SPAWN_POSITIONS = [
-  { x: 550, y: 200, angle: Math.PI / 2, color: null }, // player
-  { x: 500, y: 200, angle: Math.PI / 2, color: "#0077ff" }, // AI 1
-  { x: 450, y: 275, angle: Math.PI / 2, color: "#ff7700" }, // AI 2
-  { x: 400, y: 200, angle: Math.PI / 2, color: "#00cc44" }, // AI 3
-  { x: 350, y: 275, angle: Math.PI / 2, color: "#cc00cc" }, // AI 4
+  { x: 560, y: 190, angle: Math.PI / 2, color: null }, // player
+  { x: 500, y: 258, angle: Math.PI / 2, color: "#0077ff" }, // AI 1
+  { x: 440, y: 190, angle: Math.PI / 2, color: "#ff7700" }, // AI 2
+  { x: 380, y: 258, angle: Math.PI / 2, color: "#00cc44" }, // AI 3
+  { x: 320, y: 190, angle: Math.PI / 2, color: "#cc00cc" }, // AI 4
 ];
 
 const opponents = [];
