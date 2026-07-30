@@ -98,11 +98,18 @@ const KeyBindings = {
     return labels[key] || key;
   },
 
-  draw(ctx, canvas) {
+  // `mouse` is the live pointer position, used for hover highlighting. Every
+  // clickable region is recorded in this._hitAreas as it is drawn, so the hit
+  // boxes always match what is on screen.
+  draw(ctx, canvas, mouse = { x: -1, y: -1 }) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.88)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const cx = canvas.width / 2;
+
+    this._hitAreas = [];
+    const isHovered = (x, y, w, h) =>
+      mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h;
 
     ctx.textAlign = "center";
     ctx.fillStyle = "#FFD700";
@@ -125,30 +132,45 @@ const KeyBindings = {
     actions.forEach((item, i) => {
       const y = startY + i * rowH;
       const isListening = this.listening === item.action;
-      const isConflict = false;
+      const hovered = isHovered(boxX, y, boxW, boxH);
+
+      this._hitAreas.push({
+        kind: "rebind",
+        action: item.action,
+        x: boxX,
+        y,
+        w: boxW,
+        h: boxH,
+      });
 
       // Row background
       ctx.fillStyle = isListening
         ? "rgba(255, 215, 0, 0.15)"
-        : "rgba(255, 255, 255, 0.05)";
+        : hovered
+          ? "rgba(255, 215, 0, 0.08)"
+          : "rgba(255, 255, 255, 0.05)";
       ctx.beginPath();
       ctx.roundRect(boxX, y, boxW, boxH, 8);
       ctx.fill();
 
       // Border
-      ctx.strokeStyle = isListening ? "#FFD700" : "rgba(255,255,255,0.15)";
+      ctx.strokeStyle = isListening
+        ? "#FFD700"
+        : hovered
+          ? "rgba(255,215,0,0.5)"
+          : "rgba(255,255,255,0.15)";
       ctx.lineWidth = isListening ? 2 : 1;
       ctx.stroke();
 
       // Action label
       ctx.textAlign = "left";
-      ctx.fillStyle = isListening ? "#FFD700" : "#CCC";
+      ctx.fillStyle = isListening || hovered ? "#FFD700" : "#CCC";
       ctx.font = "18px 'Courier New'";
       ctx.fillText(item.label, boxX + 16, y + boxH / 2 + 6);
 
       // Key label
       ctx.textAlign = "right";
-      ctx.fillStyle = isListening ? "#FFD700" : "white";
+      ctx.fillStyle = isListening || hovered ? "#FFD700" : "white";
       ctx.font = isListening ? "bold 18px 'Courier New'" : "18px 'Courier New'";
       ctx.fillText(
         isListening ? "press a key..." : this.labelFor(item.action),
@@ -157,43 +179,88 @@ const KeyBindings = {
       );
     });
 
-    // Instructions
+    // Instructions — the last two lines are also clickable buttons
     const bottomY = startY + actions.length * rowH + 40;
     ctx.textAlign = "center";
     ctx.font = "16px 'Courier New'";
     ctx.fillStyle = "#888";
-    ctx.fillText("CLICK or ENTER on a row to rebind", cx, bottomY);
-    ctx.fillText("R — Reset to defaults", cx, bottomY + 30);
-    ctx.fillText("ESC — Back to menu", cx, bottomY + 60);
+    ctx.fillText(
+      this.listening
+        ? "Press a key, or CLICK the row again to cancel"
+        : "CLICK or ENTER on a row to rebind",
+      cx,
+      bottomY,
+    );
 
-    // Store row positions for click detection
-    this._rows = actions.map((item, i) => ({
-      action: item.action,
-      y: startY + i * rowH,
-      h: boxH,
-      x: boxX,
-      w: boxW,
-    }));
+    const buttons = [
+      { kind: "reset", text: "R — Reset to defaults", y: bottomY + 30 },
+      { kind: "back", text: "ESC — Back to menu", y: bottomY + 60 },
+    ];
+
+    buttons.forEach((btn) => {
+      const textW = ctx.measureText(btn.text).width;
+      const w = textW + 32;
+      const h = 28;
+      const x = cx - w / 2;
+      const y = btn.y - 20;
+      const hovered = isHovered(x, y, w, h);
+
+      this._hitAreas.push({ kind: btn.kind, x, y, w, h });
+
+      if (hovered) {
+        ctx.fillStyle = "rgba(255,215,0,0.12)";
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, 6);
+        ctx.fill();
+      }
+      ctx.fillStyle = hovered ? "#FFD700" : "#888";
+      ctx.fillText(btn.text, cx, btn.y);
+    });
 
     if (this.lastRejected) {
       ctx.font = "15px 'Courier New'";
       ctx.fillStyle = "#FF4444";
       ctx.fillText(`⚠ ${this.lastRejected}`, cx, bottomY + 90);
     }
+
+    canvas.style.cursor = this._hitAreas.some((a) =>
+      isHovered(a.x, a.y, a.w, a.h),
+    )
+      ? "pointer"
+      : "default";
   },
 
+  // Returns "back" when the caller should leave the screen, otherwise null.
   handleClick(screenX, screenY) {
-    if (!this._rows) return;
-    for (const row of this._rows) {
-      if (
-        screenX >= row.x &&
-        screenX <= row.x + row.w &&
-        screenY >= row.y &&
-        screenY <= row.y + row.h
-      ) {
-        this.startListening(row.action);
-        return;
-      }
+    const hit = (this._hitAreas || []).find(
+      (a) =>
+        screenX >= a.x &&
+        screenX <= a.x + a.w &&
+        screenY >= a.y &&
+        screenY <= a.y + a.h,
+    );
+
+    // Clicking empty space abandons a pending rebind
+    if (!hit) {
+      this.listening = null;
+      return null;
     }
+
+    switch (hit.kind) {
+      case "rebind":
+        // Clicking the listening row again cancels instead of re-arming
+        this.listening = this.listening === hit.action ? null : hit.action;
+        this.lastRejected = null;
+        return null;
+      case "reset":
+        this.reset();
+        this.listening = null;
+        this.lastRejected = null;
+        return null;
+      case "back":
+        this.listening = null;
+        return "back";
+    }
+    return null;
   },
 };

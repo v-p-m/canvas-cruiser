@@ -1,4 +1,4 @@
-# Canvas Cruiser v0.8.5
+# Canvas Cruiser v0.9.0
 A minimalist top-down racing game built with pure **HTML5 Canvas** and **JavaScript**.
 
 ## Controls
@@ -7,8 +7,8 @@ A minimalist top-down racing game built with pure **HTML5 Canvas** and **JavaScr
 | ↑ / ↓ | Accelerate / Brake & Reverse |
 | ← / → | Steer |
 | R | Reset race |
-| Q | Top 5 best laps |
-| C | Clear records (on best laps screen) |
+| Q | Records (best laps and race totals) |
+| C | Clear records (on records screen) |
 | ESC | Back to menu |
 
 ## Features

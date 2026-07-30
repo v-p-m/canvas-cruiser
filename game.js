@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.8.5";
+const GAME_VERSION = "0.9.0";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -45,6 +45,14 @@ let totalRaceTime = 0;
 let isRaceFinished = false;
 let leaderboardFrom = "game"; // "game" | "menu"
 let isKeyBindings = false;
+
+// Clickable regions of the start menu. Rebuilt by drawStartMenu() every frame
+// so the hit boxes always match what is on screen (resize, racePaused label).
+let menuHitAreas = [];
+// Same, for the records screen — rebuilt by drawLeaderboard().
+let leaderboardHitAreas = [];
+// Last known mouse position, used for menu hover highlighting.
+const mousePos = { x: -1, y: -1 };
 
 const MODES = [
   { id: "free", label: "Free Drive" },
@@ -410,6 +418,96 @@ function paintSkidMark(x, y, angle) {
   skidDirty = true;
 }
 
+// --- Menu actions (shared by keyboard and mouse) ---
+function startSelectedMode() {
+  resetRace();
+  racePaused = false;
+  savedSpeed = 0;
+  gameMode = MODES[selectedMode].id;
+  isMenu = false;
+  isRacing = false;
+  scheduleWeather();
+  StartLights.begin();
+}
+
+function openKeyBindings() {
+  isMenu = false;
+  isKeyBindings = true;
+  KeyBindings.lastRejected = null;
+}
+
+function openLeaderboardFromMenu() {
+  isMenu = false;
+  isLeaderboard = true;
+  leaderboardFrom = "menu";
+}
+
+function toggleDebug() {
+  DEBUG = !DEBUG;
+  console.log(`Debug ${DEBUG ? "ON" : "OFF"}`);
+  if (!DEBUG) WaypointEditor.active = false; // close editor when debug turns off
+}
+
+// Leaves the records screen, returning wherever it was opened from.
+function closeLeaderboard() {
+  isLeaderboard = false;
+  if (leaderboardFrom === "menu") {
+    isMenu = true;
+    isRacing = false;
+  } else {
+    isRacing = true;
+    car.speed = savedSpeed;
+    savedSpeed = 0;
+  }
+}
+
+function handleLeaderboardClick(x, y) {
+  const hit = leaderboardHitAreas.find(
+    (a) => x >= a.x && x <= a.x + a.w && y >= a.y && y <= a.y + a.h,
+  );
+  if (!hit) return;
+
+  if (hit.action === "back") closeLeaderboard();
+  else if (hit.action === "clear") clearHighScores();
+}
+
+function resumePausedRace() {
+  isMenu = false;
+  isRacing = true;
+  car.speed = savedSpeed;
+  savedSpeed = 0;
+  racePaused = false;
+}
+
+function handleMenuClick(x, y) {
+  const hit = menuHitAreas.find(
+    (a) => x >= a.x && x <= a.x + a.w && y >= a.y && y <= a.y + a.h,
+  );
+  if (!hit) return;
+
+  switch (hit.action) {
+    case "mode":
+      selectedMode = hit.index;
+      startSelectedMode();
+      break;
+    case "start":
+      startSelectedMode();
+      break;
+    case "keybindings":
+      openKeyBindings();
+      break;
+    case "leaderboard":
+      openLeaderboardFromMenu();
+      break;
+    case "debug":
+      toggleDebug();
+      break;
+    case "resume":
+      resumePausedRace();
+      break;
+  }
+}
+
 // --- Input ---
 window.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
@@ -419,26 +517,14 @@ window.addEventListener("keydown", (e) => {
 
   // Leaderboard ESC — first, before anything else
   if (key === "escape" && isLeaderboard) {
-    isLeaderboard = false;
-    if (leaderboardFrom === "menu") {
-      isMenu = true;
-      isRacing = false;
-    } else {
-      isRacing = true;
-      car.speed = savedSpeed;
-      savedSpeed = 0;
-    }
+    closeLeaderboard();
     return;
   }
 
   // Menu navigation
   if (isMenu) {
     if (key === "escape" && racePaused) {
-      isMenu = false;
-      isRacing = true;
-      car.speed = savedSpeed;
-      savedSpeed = 0;
-      racePaused = false;
+      resumePausedRace();
       return;
     }
     if (e.key === "ArrowUp") {
@@ -450,26 +536,19 @@ window.addEventListener("keydown", (e) => {
       return;
     }
     if (key === "k") {
-      isMenu = false;
-      isKeyBindings = true;
-      KeyBindings.lastRejected = null;
+      openKeyBindings();
       return;
     }
     if (key === "q") {
-      isMenu = false;
-      isLeaderboard = true;
-      leaderboardFrom = "menu";
+      openLeaderboardFromMenu();
+      return;
+    }
+    if (key === "b") {
+      toggleDebug();
       return;
     }
     if (key === "enter" || key === " ") {
-      resetRace();
-      racePaused = false;
-      savedSpeed = 0;
-      gameMode = MODES[selectedMode].id;
-      isMenu = false;
-      isRacing = false;
-      scheduleWeather();
-      StartLights.begin();
+      startSelectedMode();
       return;
     }
     return;
@@ -488,7 +567,7 @@ window.addEventListener("keydown", (e) => {
       KeyBindings.reset();
       return;
     }
-    if (key === "enter" && KeyBindings._rows) {
+    if (key === "enter" && KeyBindings._hitAreas) {
       // Enter selects the focused row — cycle through actions
       const actions = ["accelerate", "brake", "left", "right"];
       const cur = actions.indexOf(KeyBindings.listening);
@@ -539,21 +618,13 @@ window.addEventListener("keydown", (e) => {
 
   // Q key handler:
   if (key === "q") {
-    isLeaderboard = !isLeaderboard;
-
     if (isLeaderboard) {
+      closeLeaderboard();
+    } else {
+      isLeaderboard = true;
       leaderboardFrom = "game";
       savedSpeed = car.speed;
       car.speed = 0;
-    } else {
-      if (leaderboardFrom === "menu") {
-        isMenu = true;
-        isRacing = false;
-      } else {
-        isRacing = true;
-        car.speed = savedSpeed;
-        savedSpeed = 0;
-      }
     }
     return;
   }
@@ -569,9 +640,7 @@ window.addEventListener("keydown", (e) => {
   }
 
   if (key === "b") {
-    DEBUG = !DEBUG;
-    console.log(`Debug ${DEBUG ? "ON" : "OFF"}`);
-    if (!DEBUG) WaypointEditor.active = false; // close editor when debug turns off
+    toggleDebug();
     return;
   }
   if (key === "c" && DEBUG && !isLeaderboard) {
@@ -615,8 +684,22 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 canvas.addEventListener("mousedown", (e) => {
   canvas.focus();
+  if (isMenu) {
+    if (e.button === 0) handleMenuClick(e.clientX, e.clientY);
+    return;
+  }
+  if (isLeaderboard) {
+    if (e.button === 0) handleLeaderboardClick(e.clientX, e.clientY);
+    return;
+  }
   if (isKeyBindings) {
-    KeyBindings.handleClick(e.clientX, e.clientY);
+    if (
+      e.button === 0 &&
+      KeyBindings.handleClick(e.clientX, e.clientY) === "back"
+    ) {
+      isKeyBindings = false;
+      isMenu = true;
+    }
     return;
   }
   if (TrackEditor.active) {
@@ -627,6 +710,9 @@ canvas.addEventListener("mousedown", (e) => {
 });
 
 canvas.addEventListener("mousemove", (e) => {
+  mousePos.x = e.clientX;
+  mousePos.y = e.clientY;
+  if (isMenu || isKeyBindings || isLeaderboard) return;
   if (TrackEditor.active) {
     TrackEditor.handleMouseMove(e.clientX, e.clientY, e.buttons);
     return;
@@ -874,6 +960,13 @@ function drawStartMenu() {
   const cx = canvas.width / 2;
   const modesStartY = 260;
 
+  menuHitAreas = [];
+  const isHovered = (x, y, w, h) =>
+    mousePos.x >= x &&
+    mousePos.x <= x + w &&
+    mousePos.y >= y &&
+    mousePos.y <= y + h;
+
   ctx.font = "22px 'Courier New'";
   MODES.forEach((mode, i) => {
     const y = modesStartY + i * 52;
@@ -883,46 +976,107 @@ function drawStartMenu() {
     const boxH = 40;
     const boxX = cx - boxW / 2;
     const boxY = y - 28;
+    const hovered = isHovered(boxX, boxY, boxW, boxH);
+
+    menuHitAreas.push({
+      x: boxX,
+      y: boxY,
+      w: boxW,
+      h: boxH,
+      action: "mode",
+      index: i,
+    });
 
     // Highlight box
-    ctx.fillStyle = selected ? "#FFD700" : "rgba(255,255,255,0.08)";
+    ctx.fillStyle = selected
+      ? "#FFD700"
+      : hovered
+        ? "rgba(255,215,0,0.25)"
+        : "rgba(255,255,255,0.08)";
     ctx.beginPath();
     ctx.roundRect(boxX, boxY, boxW, boxH, 8);
     ctx.fill();
 
-    ctx.fillStyle = selected ? "#000" : "#AAA";
+    ctx.fillStyle = selected ? "#000" : hovered ? "#FFD700" : "#AAA";
     ctx.fillText(selected ? `▶  ${mode.label}` : mode.label, cx, y);
   });
 
-  // Controls
+  // Controls — clickable actions first, then the keyboard-only hints below a
+  // gap, so the two kinds never interleave. ESC swaps groups: it resumes a
+  // paused race (clickable) but is only an in-race reminder otherwise.
   const controlsY = modesStartY + MODES.length * 52 + 40;
   const lineSpacing = 32;
+  const groupGap = 18;
   const gutter = 20;
   ctx.font = "16px 'Courier New'";
 
-  const controls = [
-    { key: "UP / DOWN", action: "Select mode" },
-    { key: "ENTER", action: "Start" },
-    { key: "LEFT / RIGHT", action: "Steer" },
-    { key: "K", action: "Key bindings" },
-    { key: "R", action: "Reset" },
-    { key: "Q", action: "Top 5 Best Laps" },
-    { key: "B", action: "DEBUG" },
-    { key: "ESC", action: "Back to Menu" },
+  const actions = [
+    { key: "ENTER", action: "Start", id: "start" },
+    { key: "K", action: "Key bindings", id: "keybindings" },
+    { key: "Q", action: "Records", id: "leaderboard" },
+    { key: "B", action: "DEBUG", id: "debug" },
   ];
+  if (racePaused) {
+    actions.push({ key: "ESC", action: "Resume race", id: "resume" });
+  }
+
+  const hints = [
+    { key: "UP / DOWN", action: "Select mode" },
+    { key: "LEFT / RIGHT", action: "Steer" },
+    { key: "R", action: "Reset" },
+  ];
+  if (!racePaused) hints.push({ key: "ESC", action: "Back to Menu" });
+
+  const controls = [...actions, ...hints.map((h) => ({ ...h, hint: true }))];
 
   controls.forEach((item, i) => {
-    const y = controlsY + i * lineSpacing;
+    const y = controlsY + i * lineSpacing + (item.hint ? groupGap : 0);
+
+    // Hit box spans the whole "KEY : Action" line
+    const keyW = ctx.measureText(item.key).width;
+    const actionW = ctx.measureText(item.action).width;
+    const rowX = cx - gutter - keyW - 8;
+    const rowW = keyW + actionW + 2 * gutter + 16;
+    const rowY = y - 16;
+    const rowH = lineSpacing - 8;
+    const hovered = item.id && isHovered(rowX, rowY, rowW, rowH);
+
+    if (item.id) {
+      menuHitAreas.push({
+        x: rowX,
+        y: rowY,
+        w: rowW,
+        h: rowH,
+        action: item.id,
+      });
+    }
+
+    if (hovered) {
+      ctx.fillStyle = "rgba(255,215,0,0.12)";
+      ctx.beginPath();
+      ctx.roundRect(rowX, rowY, rowW, rowH, 6);
+      ctx.fill();
+    }
+
+    const keyColor = hovered ? "#FFD700" : item.hint ? "#666" : "#888";
+    const textColor = hovered ? "#FFD700" : item.hint ? "#888" : "white";
+
     ctx.textAlign = "right";
-    ctx.fillStyle = "#888";
+    ctx.fillStyle = keyColor;
     ctx.fillText(item.key, cx - gutter, y);
     ctx.textAlign = "center";
-    ctx.fillStyle = "white";
+    ctx.fillStyle = textColor;
     ctx.fillText(":", cx, y);
     ctx.textAlign = "left";
-    ctx.fillStyle = "white";
+    ctx.fillStyle = textColor;
     ctx.fillText(item.action, cx + gutter, y);
   });
+
+  canvas.style.cursor = menuHitAreas.some((a) =>
+    isHovered(a.x, a.y, a.w, a.h),
+  )
+    ? "pointer"
+    : "default";
 }
 
 function drawUI() {
@@ -993,17 +1147,65 @@ function drawLeaderboard() {
     }
   });
 
-  // Back hint
+  // Footer — both lines are clickable buttons
+  const cx = canvas.width / 2;
   ctx.font = "18px 'Courier New'";
-  ctx.fillStyle = "#AAA";
-  ctx.fillText(
-    leaderboardFrom === "menu"
-      ? "ESC / Q — Back to menu"
-      : "ESC / Q — Back to race",
-    canvas.width / 2,
-    420,
-  );
-  ctx.fillText("C — Clear records", canvas.width / 2, 450);
+
+  leaderboardHitAreas = [];
+  const buttons = [
+    {
+      action: "clear",
+      text: "C — Clear records",
+      y: 420,
+      color: "#AAA",
+      hoverColor: "#FF6666",
+      hoverFill: "rgba(255,68,68,0.15)",
+    },
+    {
+      action: "back",
+      text:
+        leaderboardFrom === "menu"
+          ? "ESC / Q — Back to menu"
+          : "ESC / Q — Back to race",
+      y: 460,
+      color: "#AAA",
+      hoverColor: "#FFD700",
+      hoverFill: "rgba(255,215,0,0.12)",
+    },
+  ];
+
+  buttons.forEach((btn) => {
+    const w = ctx.measureText(btn.text).width + 32;
+    const h = 28;
+    const x = cx - w / 2;
+    const y = btn.y - 20;
+    const hovered =
+      mousePos.x >= x &&
+      mousePos.x <= x + w &&
+      mousePos.y >= y &&
+      mousePos.y <= y + h;
+
+    leaderboardHitAreas.push({ action: btn.action, x, y, w, h });
+
+    if (hovered) {
+      ctx.fillStyle = btn.hoverFill;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, 6);
+      ctx.fill();
+    }
+    ctx.fillStyle = hovered ? btn.hoverColor : btn.color;
+    ctx.fillText(btn.text, cx, btn.y);
+  });
+
+  canvas.style.cursor = leaderboardHitAreas.some(
+    (a) =>
+      mousePos.x >= a.x &&
+      mousePos.x <= a.x + a.w &&
+      mousePos.y >= a.y &&
+      mousePos.y <= a.y + a.h,
+  )
+    ? "pointer"
+    : "default";
 }
 
 function drawRaceFinished() {
@@ -1275,8 +1477,18 @@ function gameLoop(timestamp) {
   if (DEBUG) TrackEditor.draw(ctx);
   if (DEBUG && !TrackEditor.active) DebugHUD.draw(ctx);
 
+  // The clickable overlays own the cursor; clear it everywhere else.
+  if (
+    !isMenu &&
+    !isKeyBindings &&
+    !isLeaderboard &&
+    canvas.style.cursor !== "default"
+  ) {
+    canvas.style.cursor = "default";
+  }
+
   if (isMenu) drawStartMenu();
-  else if (isKeyBindings) KeyBindings.draw(ctx, canvas);
+  else if (isKeyBindings) KeyBindings.draw(ctx, canvas, mousePos);
   else if (isRaceFinished) drawRaceFinished();
   else if (isLeaderboard) drawLeaderboard();
   else if (!TrackEditor.active) drawUI();
