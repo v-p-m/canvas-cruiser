@@ -25,8 +25,8 @@ const TrackEditor = (() => {
   // Tile palette — (id, label, colour for swatch preview)
   const TILES = [
     { id: 0, label: "Grass", color: "#2d5a27" },
-    { id: 1, label: "Wall", color: "#1a1a1a" },
-    { id: 2, label: "Road", color: "#3a3a3a" },
+    { id: 1, label: "Dirt", color: "#8a5a2b" },
+    { id: 2, label: "Road", color: "#a3a3a3" },
     { id: 8, label: "Finish A", color: "#ffffff" },
     { id: 9, label: "Finish B", color: "#000000" },
   ];

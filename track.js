@@ -22,9 +22,81 @@ const RUMBLE_WIDTH = 6;
 const RUMBLE_DASH = 14;
 const AO_SIZE = 6;
 
+// Finish line, in world pixels. The square must divide the tile size so
+// the checker stays in phase across a run of finish tiles.
+const FINISH_THICKNESS = 24;
+const FINISH_SQUARE = 8;
+
+// Dirt run-off. The tile grid only knows "dirt" or "not dirt", so the
+// coverage field is blurred wide and then pushed around by noise: the
+// 0.5 crossing wanders, strands patches of dirt out in the grass and
+// tufts of grass back into the dirt, and never lines up with a tile.
+const DIRT_BLUR_PASSES = 3;
+const DIRT_NOISE_SCALE = 46; // world px per noise cell
+const DIRT_NOISE_AMP = 0.72; // how far the noise drags the edge
+const DIRT_EDGE_SOFTNESS = 0.06; // field units of feathering
+const DIRT_COLOR = [138, 90, 43];
+const GRASS_COLOR = [45, 90, 39];
+
 function smoothstep(edge0, edge1, x) {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);
+}
+
+// Bilinear read of a coverage field at a world position, edges clamped.
+function sampleField(field, x, y) {
+  const w = field.w;
+  const h = field.h;
+
+  let gx = x / field.cell - 0.5;
+  let gy = y / field.cell - 0.5;
+  if (gx < 0) gx = 0;
+  else if (gx > w - 1) gx = w - 1;
+  if (gy < 0) gy = 0;
+  else if (gy > h - 1) gy = h - 1;
+
+  const x0 = gx | 0;
+  const y0 = gy | 0;
+  const x1 = Math.min(x0 + 1, w - 1);
+  const y1 = Math.min(y0 + 1, h - 1);
+  const fx = gx - x0;
+  const fy = gy - y0;
+
+  const f = field.data;
+  const top = f[y0 * w + x0] * (1 - fx) + f[y0 * w + x1] * fx;
+  const bot = f[y1 * w + x0] * (1 - fx) + f[y1 * w + x1] * fx;
+  return top * (1 - fy) + bot * fy;
+}
+
+// Deterministic 2D hash → [0,1), and the value noise built on it.
+function hash2(ix, iy) {
+  let h = (ix | 0) * 374761393 + (iy | 0) * 668265263;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function valueNoise(x, y) {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+
+  const a = hash2(ix, iy);
+  const b = hash2(ix + 1, iy);
+  const c = hash2(ix, iy + 1);
+  const d = hash2(ix + 1, iy + 1);
+
+  return (
+    (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy
+  );
+}
+
+// Two octaves is enough to keep the terrain edge from reading as a
+// single wobble without costing a third pass over every pixel.
+function fbm2(x, y) {
+  return valueNoise(x, y) * 0.65 + valueNoise(x * 2.7 + 31.4, y * 2.7 + 17.9) * 0.35;
 }
 
 // One separable box-blur pass with clamped edges, via a sliding sum.
@@ -77,61 +149,48 @@ class Track {
   // Field
   // ───────────────────────────────────────────────────────────────────
 
-  buildRoadField() {
+  // Rasterise the tiles matching `match` at sub-tile resolution and blur,
+  // giving a smooth 0..1 coverage field over the map.
+  buildField(match, passes) {
     const map = this.data.map;
-    const rows = map.length;
-    const cols = map[0].length;
     const sub = FIELD_SUBDIV;
-    const fw = cols * sub;
-    const fh = rows * sub;
+    const fw = map[0].length * sub;
+    const fh = map.length * sub;
 
-    let src = new Float32Array(fw * fh);
+    const src = new Float32Array(fw * fh);
     for (let cy = 0; cy < fh; cy++) {
       const row = map[(cy / sub) | 0];
       for (let cx = 0; cx < fw; cx++) {
-        const id = row[(cx / sub) | 0];
-        if (id >= 2 && id <= 9) src[cy * fw + cx] = 1;
+        if (match(row[(cx / sub) | 0])) src[cy * fw + cx] = 1;
       }
     }
 
     const dst = new Float32Array(fw * fh);
-    for (let p = 0; p < FIELD_BLUR_PASSES; p++) {
+    for (let p = 0; p < passes; p++) {
       boxBlurAxis(src, dst, fw, fh, FIELD_BLUR_RADIUS, true);
       boxBlurAxis(dst, src, fw, fh, FIELD_BLUR_RADIUS, false);
     }
 
-    this.field = src;
-    this.fieldW = fw;
-    this.fieldH = fh;
-    this.fieldCell = this.tileSize / sub;
+    return { data: src, w: fw, h: fh, cell: this.tileSize / sub };
+  }
+
+  buildRoadField() {
+    const f = this.buildField((id) => id >= 2 && id <= 9, FIELD_BLUR_PASSES);
+    this.field = f.data;
+    this.fieldW = f.w;
+    this.fieldH = f.h;
+    this.fieldCell = f.cell;
   }
 
   // Bilinear "roadness" at a world position. 1 = deep tarmac, 0 = well
   // clear of it, 0.5 = exactly on the visible edge.
   sampleRoad(x, y) {
     if (!this.field) return 1;
-    const w = this.fieldW;
-    const h = this.fieldH;
-    const cell = this.fieldCell;
-
-    let gx = x / cell - 0.5;
-    let gy = y / cell - 0.5;
-    if (gx < 0) gx = 0;
-    else if (gx > w - 1) gx = w - 1;
-    if (gy < 0) gy = 0;
-    else if (gy > h - 1) gy = h - 1;
-
-    const x0 = gx | 0;
-    const y0 = gy | 0;
-    const x1 = Math.min(x0 + 1, w - 1);
-    const y1 = Math.min(y0 + 1, h - 1);
-    const fx = gx - x0;
-    const fy = gy - y0;
-
-    const f = this.field;
-    const top = f[y0 * w + x0] * (1 - fx) + f[y0 * w + x1] * fx;
-    const bot = f[y1 * w + x0] * (1 - fx) + f[y1 * w + x1] * fx;
-    return top * (1 - fy) + bot * fy;
+    return sampleField(
+      { data: this.field, w: this.fieldW, h: this.fieldH, cell: this.fieldCell },
+      x,
+      y
+    );
   }
 
   // 0 = solidly on tarmac, 1 = fully off it. Ramps over roughly ±20px
@@ -311,43 +370,21 @@ class Track {
     this.paintEdgeShading(bCtx);
   }
 
-  // Grass and walls. Grass goes under every non-wall tile, including the
-  // road ones — the smoothed road is painted over the top, and rounding a
-  // corner exposes a little of the grass that was hiding beneath it.
+  // Grass, and dirt run-off on the border tiles. Terrain goes under every
+  // tile, including the road ones — the smoothed road is painted over the
+  // top, and rounding a corner exposes a little of what was hiding beneath.
+  //
+  // Tile 1 is dirt rather than a barrier: it's drivable, just slow. The
+  // map edge itself is the hard limit (see clampToWorld in game.js).
   paintTerrain(bCtx) {
     const ts = this.tileSize;
+
+    this.paintGround(bCtx);
 
     this.data.map.forEach((row, ty) => {
       row.forEach((tileID, tx) => {
         const posX = tx * ts;
         const posY = ty * ts;
-
-        // ─────────────────────────────────────────
-        // WALL (1)
-        // ─────────────────────────────────────────
-        if (tileID === 1) {
-          // Dark base
-          bCtx.fillStyle = "#1a1a1a";
-          bCtx.fillRect(posX, posY, ts, ts);
-
-          // Tyre barrier stripes — red/white alternating
-          const stripeW = ts / 4;
-          for (let i = 0; i < 4; i++) {
-            bCtx.fillStyle = i % 2 === 0 ? "#8B0000" : "#555";
-            bCtx.fillRect(posX + i * stripeW, posY, stripeW, ts);
-          }
-
-          // Dark overlay to tone it down
-          bCtx.fillStyle = "rgba(0,0,0,0.45)";
-          bCtx.fillRect(posX, posY, ts, ts);
-          return;
-        }
-
-        // ─────────────────────────────────────────
-        // GRASS (everything else)
-        // ─────────────────────────────────────────
-        bCtx.fillStyle = "#2d5a27";
-        bCtx.fillRect(posX, posY, ts, ts);
 
         // Subtle darker patches — seeded by position so stable
         const seed = tx * 7 + ty * 13;
@@ -371,6 +408,51 @@ class Track {
         }
       });
     });
+  }
+
+  // Grass and dirt as one continuous surface. Rather than filling tiles,
+  // every pixel picks its colour from the blurred dirt coverage nudged by
+  // noise, so the two meet along a ragged natural edge; a slow mottle over
+  // the top keeps both from reading as flat paint.
+  paintGround(bCtx) {
+    const w = this.bakedCanvas.width;
+    const h = this.bakedCanvas.height;
+    const dirt = this.buildField((id) => id === 1, DIRT_BLUR_PASSES);
+
+    const img = bCtx.createImageData(w, h);
+    const px = img.data;
+
+    const edgeScale = 1 / DIRT_NOISE_SCALE;
+    const lo = 0.5 - DIRT_EDGE_SOFTNESS;
+    const hi = 0.5 + DIRT_EDGE_SOFTNESS;
+
+    const [gr, gg, gb] = GRASS_COLOR;
+    const [dr, dg, db] = DIRT_COLOR;
+
+    let i = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++, i += 4) {
+        const d = sampleField(dirt, x, y);
+
+        // The noise only matters where the two surfaces actually meet.
+        let cover;
+        if (d <= 0.001) cover = 0;
+        else if (d >= 0.999) cover = 1;
+        else {
+          const n = (fbm2(x * edgeScale, y * edgeScale) - 0.5) * DIRT_NOISE_AMP;
+          cover = smoothstep(lo, hi, d + n);
+        }
+
+        const m = 0.92 + valueNoise(x * 0.02, y * 0.02) * 0.16;
+
+        px[i] = (gr + (dr - gr) * cover) * m;
+        px[i + 1] = (gg + (dg - gg) * cover) * m;
+        px[i + 2] = (gb + (db - gb) * cover) * m;
+        px[i + 3] = 255;
+      }
+    }
+
+    bCtx.putImageData(img, 0, 0);
   }
 
   // Deterministic speckle tile, repeated across the road as asphalt grain.
@@ -402,7 +484,7 @@ class Track {
   }
 
   paintRoad(bCtx) {
-    bCtx.fillStyle = "#3a3a3a";
+    bCtx.fillStyle = "#8b8b8b";
     bCtx.fill(this.roadPath);
 
     bCtx.save();
@@ -422,35 +504,71 @@ class Track {
     bCtx.lineCap = "butt";
     bCtx.setLineDash([RUMBLE_DASH, RUMBLE_DASH]);
 
-    bCtx.strokeStyle = "#CC0000";
+    bCtx.strokeStyle = "#D42A2A";
     bCtx.lineDashOffset = 0;
     bCtx.stroke(this.roadPath);
 
-    bCtx.strokeStyle = "#FFDD00";
+    bCtx.strokeStyle = "#F5F5F5";
     bCtx.lineDashOffset = RUMBLE_DASH;
     bCtx.stroke(this.roadPath);
 
     bCtx.restore();
   }
 
+  // The finish tiles are whole 64px cells, but the painted line is a thin
+  // band down the middle of them: it runs across the track, so it stays
+  // thin along whichever axis the run of finish tiles doesn't extend.
+  // Checker squares are placed on a world-aligned grid so consecutive
+  // tiles of the same run join up seamlessly.
   paintFinishLine(bCtx) {
     const ts = this.tileSize;
-    const half = ts / 2;
+    const map = this.data.map;
+    const isFinish = (tx, ty) =>
+      map[ty] !== undefined && (map[ty][tx] === 8 || map[ty][tx] === 9);
 
     bCtx.save();
     bCtx.clip(this.roadPath);
-    this.data.map.forEach((row, ty) => {
+
+    map.forEach((row, ty) => {
       row.forEach((tileID, tx) => {
         if (tileID !== 8 && tileID !== 9) return;
-        const posX = tx * ts;
-        const posY = ty * ts;
+
+        const across = isFinish(tx, ty - 1) || isFinish(tx, ty + 1);
+        const inset = (ts - FINISH_THICKNESS) / 2;
+        const x = tx * ts + (across ? inset : 0);
+        const y = ty * ts + (across ? 0 : inset);
+        const w = across ? FINISH_THICKNESS : ts;
+        const h = across ? ts : FINISH_THICKNESS;
+
+        bCtx.save();
+        bCtx.beginPath();
+        bCtx.rect(x, y, w, h);
+        bCtx.clip();
+
         bCtx.fillStyle = "#FFFFFF";
-        bCtx.fillRect(posX, posY, ts, ts);
+        bCtx.fillRect(x, y, w, h);
+
         bCtx.fillStyle = "#000000";
-        bCtx.fillRect(posX, posY, half, half);
-        bCtx.fillRect(posX + half, posY + half, half, half);
+        const i0 = Math.floor(x / FINISH_SQUARE);
+        const j0 = Math.floor(y / FINISH_SQUARE);
+        const i1 = Math.ceil((x + w) / FINISH_SQUARE);
+        const j1 = Math.ceil((y + h) / FINISH_SQUARE);
+        for (let j = j0; j < j1; j++) {
+          for (let i = i0; i < i1; i++) {
+            if ((i + j) % 2 !== 0) continue;
+            bCtx.fillRect(
+              i * FINISH_SQUARE,
+              j * FINISH_SQUARE,
+              FINISH_SQUARE,
+              FINISH_SQUARE
+            );
+          }
+        }
+
+        bCtx.restore();
       });
     });
+
     bCtx.restore();
   }
 

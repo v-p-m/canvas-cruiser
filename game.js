@@ -857,6 +857,34 @@ function resetRace() {
 }
 
 // --- Collision ---
+
+// The map edge is the only hard barrier — everything inside it, dirt
+// included, is drivable. Killing just the outward velocity component
+// lets a car slide along the edge instead of sticking to it.
+function clampToWorld(entity) {
+  if (!worldTrack.data || !worldTrack.data.map) return;
+  const ts = worldTrack.data.tileSize;
+  const maxX = worldTrack.data.map[0].length * ts;
+  const maxY = worldTrack.data.map.length * ts;
+  const r = Math.max(entity.width, entity.height) / 2;
+
+  if (entity.x < r) {
+    entity.x = r;
+    if (entity.velocityX < 0) entity.velocityX = 0;
+  } else if (entity.x > maxX - r) {
+    entity.x = maxX - r;
+    if (entity.velocityX > 0) entity.velocityX = 0;
+  }
+
+  if (entity.y < r) {
+    entity.y = r;
+    if (entity.velocityY < 0) entity.velocityY = 0;
+  } else if (entity.y > maxY - r) {
+    entity.y = maxY - r;
+    if (entity.velocityY > 0) entity.velocityY = 0;
+  }
+}
+
 function checkTileCollision(x, y) {
   if (!worldTrack.data || !worldTrack.data.map) return;
   const gridX = Math.floor(x / worldTrack.data.tileSize);
@@ -867,12 +895,6 @@ function checkTileCollision(x, y) {
     worldTrack.data.map[gridY][gridX] !== undefined
   ) {
     const tileID = worldTrack.data.map[gridY][gridX];
-
-    if (tileID === 1) {
-      car.speed *= -0.5;
-      car.x -= car.velocityX * 2;
-      car.y -= car.velocityY * 2;
-    }
 
     // Off-track drag, scaled by how far past the smoothed road edge we
     // are, so clipping a kerb costs a little and a full excursion costs
@@ -1400,6 +1422,7 @@ function gameLoop(timestamp) {
         delta,
       ),
     );
+    opponents.forEach(clampToWorld);
 
     // AI vs AI
     for (let i = 0; i < opponents.length; i++) {
@@ -1418,6 +1441,7 @@ function gameLoop(timestamp) {
 
     car.x += car.velocityX * delta;
     car.y += car.velocityY * delta;
+    clampToWorld(car);
     checkTileCollision(car.x, car.y);
   }
 
