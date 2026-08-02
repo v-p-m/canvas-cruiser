@@ -30,8 +30,17 @@ class AICar {
     this.grip = 0.15;
     this.lineOffset = (Math.random() - 0.5) * 40;
     this.startDelay = Math.random() * 400; // 0–800ms random delay
-    this.basMaxSpeed = 7.5 + Math.random() * 2.5; // fixed base
-    this.maxSpeed = this.basMaxSpeed;
+    this.baseMaxSpeed = 7.5 + Math.random() * 2.5; // fixed base
+    this.maxSpeed = this.baseMaxSpeed;
+
+    // Race state — counted by updateLapCounter in game.js, which drives
+    // both the player and every opponent through the same code
+    this.laps = 0;
+    this.onFinishLine = false;
+    this.finished = false;
+    this.finishPosition = 0;
+    this.finishTime = 0;
+    this.raceStart = 0;
   }
 
   applyRepulsion(others, delta = 1) {
@@ -72,8 +81,11 @@ class AICar {
     const dy = current.y - this.y;
     const distSq = dx * dx + dy * dy;
 
+    // Advance once, here. There used to be a second check at the bottom of
+    // this function testing the *same* distSq against a tighter radius, so
+    // any approach inside 80px burned two waypoints in one frame and the
+    // car cut the corner that followed.
     if (distSq < 120 * 120) {
-      const prev = this.currentWaypoint;
       this.currentWaypoint = (this.currentWaypoint + 1) % waypoints.length;
 
       // Recalculate current and next after advancing
@@ -107,10 +119,10 @@ class AICar {
       if (distToPlayer < 100) rubberBand = 0.88;
     }
 
-    // How far off the tarmac we are, 0..1 — smooth across the road edge
-    // instead of flipping at a tile boundary. Check this FIRST, before
-    // decaying the multiplier.
-    const offRoad = worldTrack.field ? worldTrack.offRoad(this.x, this.y) : 0;
+    // How far off the tarmac we are, 0..1 — averaged over the four wheels
+    // and smooth across the road edge, the same measure the player's drag
+    // uses. Check this FIRST, before decaying the multiplier.
+    const offRoad = wheelOffRoad(this);
 
     // Ceiling on speed: 1.0 on the racing surface, 0.45 fully into the
     // grass, and everything in between out at the edges.
@@ -131,22 +143,20 @@ class AICar {
       this.maxSpeed * cornerFactor * rubberBand * this.speedMultiplier;
     this.speed += (targetSpeed - this.speed) * 0.05 * delta;
 
-    // Velocity-based movement
+    // Velocity-based movement. Rain scales grip here rather than being
+    // written onto this.grip, so the tuning sliders stay in charge of the
+    // dry value.
+    const wetGrip = this.grip * Rain.gripScale();
     const targetVx = Math.sin(this.angle) * this.speed;
     const targetVy = -Math.cos(this.angle) * this.speed;
     // Blend toward stronger grip off-track so velocity catches down to
     // targetSpeed quickly once we're properly in the grass
-    const grassGrip = Math.min(this.grip * 4, 0.5);
-    const effectiveGrip = this.grip + (grassGrip - this.grip) * offRoad;
+    const grassGrip = Math.min(wetGrip * 4, 0.5);
+    const effectiveGrip = wetGrip + (grassGrip - wetGrip) * offRoad;
     this.velocityX += (targetVx - this.velocityX) * effectiveGrip * delta;
     this.velocityY += (targetVy - this.velocityY) * effectiveGrip * delta;
     this.x += this.velocityX * delta;
     this.y += this.velocityY * delta;
-
-    // Advance waypoint
-    if (distSq < 80 * 80) {
-      this.currentWaypoint = (this.currentWaypoint + 1) % waypoints.length;
-    }
 
     this.applyRepulsion(others, delta);
   }

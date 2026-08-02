@@ -14,6 +14,8 @@ const BLACKLISTED_KEYS = [
   "C",
   "e",
   "E",
+  "m",
+  "M",
   "z",
   "Z",
   "f2",
@@ -98,14 +100,16 @@ const KeyBindings = {
     return labels[key] || key;
   },
 
-  // `mouse` is the live pointer position, used for hover highlighting. Every
-  // clickable region is recorded in this._hitAreas as it is drawn, so the hit
-  // boxes always match what is on screen.
-  draw(ctx, canvas, mouse = { x: -1, y: -1 }) {
+  // `size` carries the viewport in CSS pixels (the camera) — not the canvas
+  // element, whose backing store is devicePixelRatio times larger. `mouse` is
+  // the live pointer position, used for hover highlighting. Every clickable
+  // region is recorded in this._hitAreas as it is drawn, so the hit boxes
+  // always match what is on screen.
+  draw(ctx, size, mouse = { x: -1, y: -1 }) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.88)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, size.width, size.height);
 
-    const cx = canvas.width / 2;
+    const cx = size.width / 2;
 
     this._hitAreas = [];
     const isHovered = (x, y, w, h) =>

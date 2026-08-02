@@ -1,4 +1,4 @@
-# Canvas Cruiser v0.9.0
+# Canvas Cruiser v0.10.0
 A minimalist top-down racing game built with pure **HTML5 Canvas** and **JavaScript**.
 
 Pick a mode in the menu — **Free Drive**, **5 Lap Race** or **10 Lap Race** —
@@ -23,6 +23,7 @@ python3 -m http.server 8123
 | Q | Records (best laps and race totals) |
 | C | Clear records (on the records screen) |
 | P | Toggle rain (Free Drive) |
+| M | Mute / unmute |
 | K | Remap the driving keys (from the menu) |
 | B | Debug overlay |
 
@@ -40,7 +41,16 @@ Steering and throttle keys are remappable and persist across reloads.
   window for 10)
 - Skid marks baked to an offscreen canvas
 - AI opponents with waypoint navigation, corner braking and mutual repulsion
+- A real race: opponents are lap-counted and ranked against you, your position
+  shows in the HUD, and finishing brings up the full classification. Cars still
+  circulating when you take the flag are placed where they stood
 - Car vs car collision resolution
+- Synthesised sound — a geared engine note, tire squeal that tracks how far the
+  car is sliding, and impact thuds. No audio files; it is all WebAudio
+- Minimap with live car positions and the current viewport
+- Grip is sampled under all four wheels, so dropping two onto the dirt costs
+  about half of what a full excursion does
+- Renders at the display's real pixel density
 - Lap timing with a top-5 leaderboard and best total times (persisted to localStorage)
 - Retro arcade countdown lights on race start
 - Built-in track and waypoint editors, plus live physics/AI tuning sliders

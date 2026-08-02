@@ -29,22 +29,30 @@ const DebugConfig = {
     countdownInterval: 1000,
     countdownGoTime: 400,
 
-    // Spawn — filled in from SPAWN_POSITIONS by seedSpawnDefaults()
+    // Render — maxDpr is seeded from game.js's MAX_DPR in seedDefaults(),
+    // since this file is parsed before that constant exists.
+
+    // Spawn — filled in from SPAWN_POSITIONS by seedDefaults()
   },
 
   // Bumped whenever the built-in grid in game.js changes, so a saved copy of
   // the old one can't quietly override it on the next load.
   spawnVersion: 2,
 
+  // Defaults that live in game.js. This file is parsed first, so they cannot
+  // be written into the `defaults` literal — SPAWN_POSITIONS and MAX_DPR do
+  // not exist yet at that point.
+  //
   // SPAWN_POSITIONS is the one source of truth for the starting grid; the
   // sliders only nudge it at runtime. Keeping a second copy of the numbers
   // here let the two drift apart, and this copy was the one that won.
-  seedSpawnDefaults() {
+  seedDefaults() {
     SPAWN_POSITIONS.forEach((pos, i) => {
       const name = i === 0 ? "Player" : `AI${i}`;
       this.defaults[`spawn${name}X`] = pos.x;
       this.defaults[`spawn${name}Y`] = pos.y;
     });
+    this.defaults.maxDpr = MAX_DPR;
   },
 
   schema: [
@@ -150,6 +158,8 @@ const DebugConfig = {
       max: 2000,
       step: 50,
     },
+    { group: "Render" },
+    { key: "maxDpr", label: "Max dpr", min: 1, max: 3, step: 0.25 },
     { group: "Spawn positions" },
     { key: "spawnPlayerX", label: "Player X", min: 0, max: 2048, step: 5 },
     { key: "spawnPlayerY", label: "Player Y", min: 0, max: 2048, step: 5 },
@@ -166,7 +176,7 @@ const DebugConfig = {
   values: {},
 
   load() {
-    this.seedSpawnDefaults();
+    this.seedDefaults();
     const saved = localStorage.getItem("debugConfig");
     this.values = { ...this.defaults };
     if (!saved) return;
@@ -192,6 +202,7 @@ const DebugConfig = {
 
   reset() {
     this.values = { ...this.defaults };
+    Quality.auto = true; // resetting the sliders gives the governor the wheel back
     localStorage.removeItem("debugConfig");
     localStorage.removeItem("debugConfigSpawnVersion");
     this.apply();
@@ -210,9 +221,9 @@ const DebugConfig = {
 
     // AI
     opponents.forEach((ai) => {
-      ai.basMaxSpeed =
+      ai.baseMaxSpeed =
         v.aiMaxSpeedMin + Math.random() * (v.aiMaxSpeedMax - v.aiMaxSpeedMin);
-      ai.maxSpeed = ai.basMaxSpeed;
+      ai.maxSpeed = ai.baseMaxSpeed;
       ai.turnSpeed = v.aiTurnSpeed;
       ai.grip = v.aiGrip;
       ai.lineOffset = (Math.random() - 0.5) * v.aiLineOffsetRange;
@@ -228,6 +239,18 @@ const DebugConfig = {
       pos.x = v[`spawn${name}X`];
       pos.y = v[`spawn${name}Y`];
     });
+
+    // Render — resizeCanvas reads the cap back out of values, and reallocates
+    // the backing store, so only call it when the number actually moved.
+    if (v.maxDpr !== this._appliedMaxDpr) {
+      // A hand-set cap takes the wheel off Quality for the session: the
+      // governor quietly overriding the slider a second after you drag it
+      // reads as the slider being broken. The first apply() of the session
+      // is the saved value being restored, not a decision, so it doesn't count.
+      if (this._appliedMaxDpr !== undefined) Quality.auto = false;
+      this._appliedMaxDpr = v.maxDpr;
+      resizeCanvas();
+    }
   },
 
   toggle() {

@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.9.0";
+const GAME_VERSION = "0.10.0";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -46,13 +46,10 @@ let isRaceFinished = false;
 let leaderboardFrom = "game"; // "game" | "menu"
 let isKeyBindings = false;
 
-// Clickable regions of the start menu. Rebuilt by drawStartMenu() every frame
-// so the hit boxes always match what is on screen (resize, racePaused label).
-let menuHitAreas = [];
-// Same, for the records screen — rebuilt by drawLeaderboard().
-let leaderboardHitAreas = [];
-// Last known mouse position, used for menu hover highlighting.
-const mousePos = { x: -1, y: -1 };
+// Final classification, built the moment the player crosses the line — see
+// finishRace(). Opponents still on track are classified where they stand.
+let finishOrder = [];
+let playerFinishPosition = 0;
 
 const MODES = [
   { id: "free", label: "Free Drive" },
@@ -77,15 +74,54 @@ const opponents = [];
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
 
+// The camera is also the authority on viewport size, in CSS pixels. Nothing
+// outside resizeCanvas() should read canvas.width/height: the backing store
+// is devicePixelRatio times larger, and mixing the two silently halves the
+// UI on a retina display.
 const camera = {
   x: 0,
   y: 0,
-  width: window.innerWidth,
-  height: window.innerHeight,
+  width: 0,
+  height: 0,
 };
+
+// Render at the display's real pixel density. The CSS keeps the element at
+// 100vw/100vh whatever the backing store is, so all we do is oversize the
+// buffer and scale the context to match — every draw call stays in CSS px.
+//
+// The cap is a framerate decision, not a memory one. Every frame repaints the
+// whole viewport from the baked track and the skid layer, and then hands a
+// backing store that size to the compositor, so cost is linear in dpr² — 1.5x
+// is 2.25x the pixels of 1x. How much a machine can afford varies enormously
+// with whether its browser rasterises canvas on the GPU, which is why `Quality`
+// gets to lower this on its own; the `C` panel's Max dpr slider overrides both
+// and the `B` overlay reports what it settled on.
+const MAX_DPR = 1.5;
+
+// The scale actually in force. Everything drawing to `ctx` works in CSS px and
+// should never need this — it is here for the two places that care about the
+// physical pixel ratio, resampling quality and the debug readout.
+let renderDpr = 1;
+
+function currentMaxDpr() {
+  // DebugConfig.values is empty until DebugConfig.load(), which runs well
+  // after the first resizeCanvas() call below.
+  const manual = DebugConfig.values.maxDpr || MAX_DPR;
+  return Quality.auto ? Math.min(manual, Quality.cap) : manual;
+}
+
+function resizeCanvas() {
+  renderDpr = Math.min(window.devicePixelRatio || 1, currentMaxDpr());
+  camera.width = window.innerWidth;
+  camera.height = window.innerHeight;
+  canvas.width = Math.round(camera.width * renderDpr);
+  canvas.height = Math.round(camera.height * renderDpr);
+  // setTransform, not scale — resize fires repeatedly and scale compounds.
+  ctx.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+}
+resizeCanvas();
 
 const car = {
   x: 0,
@@ -101,316 +137,62 @@ const car = {
   velocityY: 0,
   friction: 0.96,
   driftGrip: 0.1,
+
+  // Race state, shared in shape with AICar so updateLapCounter and the
+  // standings can treat the player as just another entry
+  laps: 0,
+  onFinishLine: false,
+  finished: false,
+  finishPosition: 0,
+  finishTime: 0,
+  raceStart: 0,
 };
 const carImage = new Image();
 carImage.src = "assets/car_player.png";
 
-const PersonalBest = {
-  active: false,
-  timer: 0,
-  duration: 3000, // ms to show the banner
-  lastBest: null,
-
-  trigger(time) {
-    this.active = true;
-    this.timer = this.duration;
-    this.lastBest = time;
-  },
-
-  update(dt) {
-    if (!this.active) return;
-    this.timer -= dt;
-    if (this.timer <= 0) {
-      this.active = false;
-    }
-  },
-
-  draw(ctx, canvasWidth) {
-    if (!this.active) return;
-
-    const alpha = Math.min(1, this.timer / 500); // fade out last 500ms
-    const cx = canvasWidth / 2;
-    const y = 120;
-
-    ctx.save();
-    ctx.globalAlpha = alpha;
-
-    // Banner
-    ctx.fillStyle = "#FFD700";
-    ctx.font = "bold 32px 'Courier New'";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(`🏆 NEW BEST: ${this.lastBest}s`, cx, y);
-
-    // Underline
-    const textWidth = ctx.measureText(`🏆 NEW BEST: ${this.lastBest}s`).width;
-    ctx.strokeStyle = "#FFD700";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx - textWidth / 2, y + 22);
-    ctx.lineTo(cx + textWidth / 2, y + 22);
-    ctx.stroke();
-
-    ctx.restore();
-  },
-};
-
 const keys = {};
 
 // --- Offscreen canvas for baked skid marks ---
+//
+// World-space, so a mark stays where it was laid down. It used to be
+// clamped to 2048px, which happens to be exactly the current track's width
+// — anything larger silently lost every mark past the cut. Oversized tracks
+// now drop the layer's resolution instead of its extent, and the context
+// transform keeps paintSkidMark working in plain world coordinates.
+const SKID_MAX_EDGE = 4096; // px
 const skidCanvas = document.createElement("canvas");
 const skidCtx = skidCanvas.getContext("2d");
+let skidScale = 1;
 
 function resizeSkidCanvas() {
-  if (worldTrack.data) {
-    // Cap at actual screen size — skid marks outside view
-    // are repainted when the player returns anyway
-    skidCanvas.width = Math.min(
-      worldTrack.data.map[0].length * worldTrack.data.tileSize,
-      2048,
-    );
-    skidCanvas.height = Math.min(
-      worldTrack.data.map.length * worldTrack.data.tileSize,
-      2048,
-    );
-  }
+  if (!worldTrack.data) return;
+  const w = worldTrack.data.map[0].length * worldTrack.data.tileSize;
+  const h = worldTrack.data.map.length * worldTrack.data.tileSize;
+  skidScale = Math.min(1, SKID_MAX_EDGE / Math.max(w, h));
+  skidCanvas.width = Math.round(w * skidScale);
+  skidCanvas.height = Math.round(h * skidScale);
+  skidCtx.setTransform(skidScale, 0, 0, skidScale, 0, 0);
 }
 
-let skidDirty = false;
-
-// ─────────────────────────────────────────
-// RAIN SYSTEM
-// ─────────────────────────────────────────
-const Rain = {
-  active: false,
-  intensity: 0, // 0→1, lerps toward targetIntensity
-  targetIntensity: 0,
-  drops: [],
-  MAX_DROPS: 600,
-  puddles: [], // static world-space puddles drawn on track
-  MAX_PUDDLES: 40,
-
-  // How much rain damps player grip / friction
-  GRIP_PENALTY: 0.55, // multiplied onto driftGrip when fully wet
-  FRICTION_BONUS: 0.015, // added to friction (closer to 1 = less slowdown)
-
-  toggle() {
-    if (this.targetIntensity === 0) {
-      this.targetIntensity = 1;
-      this.active = true;
-      this._spawnPuddles();
-    } else {
-      this.targetIntensity = 0;
-    }
-  },
-
-  _spawnPuddles() {
-    if (!worldTrack.data) return;
-    this.puddles = [];
-    const { map, tileSize } = worldTrack.data;
-    const roadTiles = [];
-    map.forEach((row, ty) =>
-      row.forEach((id, tx) => {
-        if (id >= 2 && id <= 9) roadTiles.push({ tx, ty });
-      }),
-    );
-    const count = Math.min(this.MAX_PUDDLES, roadTiles.length);
-    for (let i = 0; i < count; i++) {
-      const tile = roadTiles[Math.floor(Math.random() * roadTiles.length)];
-      const px =
-        tile.tx * tileSize + tileSize / 2 + (Math.random() - 0.5) * tileSize * 0.6;
-      const py =
-        tile.ty * tileSize + tileSize / 2 + (Math.random() - 0.5) * tileSize * 0.6;
-      // Corner tiles are only partly tarmac now — skip spots the smoothed
-      // road edge has cut away
-      if (worldTrack.sampleRoad(px, py) < 0.65) continue;
-      this.puddles.push({
-        x: px,
-        y: py,
-        rx: 10 + Math.random() * 22,
-        ry: 5 + Math.random() * 12,
-        alpha: 0.18 + Math.random() * 0.18,
-        ripple: Math.random() * Math.PI * 2,
-      });
-    }
-  },
-
-  _spawnDrop() {
-    return {
-      // screen-space — reposition each frame so they always fill viewport
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
-      len: 8 + Math.random() * 10,
-      speed: 14 + Math.random() * 10,
-      alpha: 0.25 + Math.random() * 0.35,
-    };
-  },
-
-  update(delta) {
-    // Lerp intensity
-    const step = 0.008 * delta;
-    if (this.intensity < this.targetIntensity)
-      this.intensity = Math.min(this.targetIntensity, this.intensity + step);
-    else if (this.intensity > this.targetIntensity)
-      this.intensity = Math.max(this.targetIntensity, this.intensity - step);
-
-    if (this.intensity <= 0) {
-      this.active = false;
-      return;
-    }
-    if (this.targetIntensity > 0) this.active = true;
-
-    // Maintain drop pool
-    const desiredDrops = Math.floor(this.intensity * this.MAX_DROPS);
-    while (this.drops.length < desiredDrops) this.drops.push(this._spawnDrop());
-    while (this.drops.length > desiredDrops) this.drops.pop();
-
-    // Move drops
-    this.drops.forEach((d) => {
-      d.y += d.speed * delta;
-      d.x += 2 * delta; // slight angle
-      if (d.y > canvas.height + 20) {
-        d.y = -20;
-        d.x = Math.random() * canvas.width;
-      }
-    });
-
-    // Animate puddle ripples
-    this.puddles.forEach((p) => {
-      p.ripple += 0.04 * delta;
-    });
-
-    // Apply wet handling to player
-    const wet = this.intensity;
-    const BASE_GRIP = 0.1;
-    const BASE_FRICTION = 0.96;
-    car.driftGrip = BASE_GRIP * (1 - wet * (1 - this.GRIP_PENALTY));
-    car.friction = BASE_FRICTION + wet * this.FRICTION_BONUS;
-
-    // Apply to AI
-    opponents.forEach((ai) => {
-      ai.grip = 0.15 * (1 - wet * (1 - this.GRIP_PENALTY));
-    });
-  },
-
-  drawPuddles() {
-    if (this.intensity <= 0) return;
-    this.puddles.forEach((p) => {
-      const sx = p.x - camera.x;
-      const sy = p.y - camera.y;
-      if (
-        sx < -60 ||
-        sx > canvas.width + 60 ||
-        sy < -40 ||
-        sy > canvas.height + 40
-      )
-        return;
-
-      ctx.save();
-      ctx.globalAlpha = p.alpha * this.intensity;
-      ctx.translate(sx, sy);
-
-      // Puddle ellipse
-      ctx.fillStyle = "#6aaccc";
-      ctx.beginPath();
-      ctx.ellipse(0, 0, p.rx, p.ry, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Ripple ring
-      const rScale = 0.5 + 0.5 * Math.abs(Math.sin(p.ripple));
-      ctx.strokeStyle = "rgba(150,200,230,0.5)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, p.rx * rScale, p.ry * rScale, 0, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.restore();
-    });
-  },
-
-  drawDrops() {
-    if (this.intensity <= 0) return;
-    ctx.save();
-    ctx.strokeStyle = `rgba(174, 214, 241, ${0.55 * this.intensity})`;
-    ctx.lineWidth = 1;
-    this.drops.forEach((d) => {
-      ctx.globalAlpha = d.alpha * this.intensity;
-      ctx.beginPath();
-      ctx.moveTo(d.x, d.y);
-      ctx.lineTo(d.x + 2, d.y + d.len);
-      ctx.stroke();
-    });
-    ctx.restore();
-  },
-
-  drawOverlay() {
-    if (this.intensity <= 0) return;
-    // Slight blue-grey tint over the whole scene
-    ctx.save();
-    ctx.globalAlpha = 0.1 * this.intensity;
-    ctx.fillStyle = "#6a9ab0";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
-  },
-
-  drawHUD() {
-    ctx.save();
-    ctx.font = "bold 16px 'Courier New'";
-    ctx.textAlign = "left";
-
-    // Active rain label
-    if (this.intensity > 0 || this.targetIntensity > 0) {
-      ctx.fillStyle =
-        this.intensity > 0.5
-          ? `rgba(174,214,241,${0.7 + 0.3 * this.intensity})`
-          : "#aaa";
-      ctx.fillText(
-        this.intensity > 0.05 ? `🌧  WET TRACK` : `🌤  DRYING...`,
-        16,
-        canvas.height - 48,
-      );
-    }
-
-    // Pre-race forecast hint (before hasStarted, in a race mode)
-    if (
-      !hasStarted &&
-      !isMenu &&
-      (gameMode === "race5" || gameMode === "race10")
-    ) {
-      const wet = weatherWetFromLap !== null;
-      if (gameMode === "race5") {
-        ctx.fillStyle = wet
-          ? "rgba(174,214,241,0.85)"
-          : "rgba(200,230,200,0.85)";
-        ctx.fillText(
-          wet ? `🌧  FORECAST: WET RACE` : `☀️  FORECAST: DRY RACE`,
-          16,
-          canvas.height - 48,
-        );
-      } else {
-        // race10 — show the wet window
-        if (wet) {
-          const to = weatherWetToLap ? `lap ${weatherWetToLap - 1}` : "end";
-          ctx.fillStyle = "rgba(174,214,241,0.85)";
-          ctx.fillText(
-            `🌧  RAIN: lap ${weatherWetFromLap} → ${to}`,
-            16,
-            canvas.height - 48,
-          );
-        } else {
-          ctx.fillStyle = "rgba(200,230,200,0.85)";
-          ctx.fillText(`☀️  FORECAST: DRY RACE`, 16, canvas.height - 48);
-        }
-      }
-    }
-
-    ctx.restore();
-  },
-};
+function clearSkidMarks() {
+  // clearRect goes through the scale transform, so these are world units
+  skidCtx.clearRect(
+    0,
+    0,
+    skidCanvas.width / skidScale,
+    skidCanvas.height / skidScale,
+  );
+}
 
 function paintSkidMark(x, y, angle) {
-  // Skip if outside skid canvas bounds
-  if (x < 0 || y < 0 || x > skidCanvas.width || y > skidCanvas.height) return;
+  // World coordinates — the layer's scale transform maps them onto it
+  if (
+    x < 0 ||
+    y < 0 ||
+    x > skidCanvas.width / skidScale ||
+    y > skidCanvas.height / skidScale
+  )
+    return;
 
   skidCtx.save();
   skidCtx.translate(x, y);
@@ -420,7 +202,6 @@ function paintSkidMark(x, y, angle) {
   skidCtx.fillRect(-offset, car.height / 4, 6, 10);
   skidCtx.fillRect(offset - 6, car.height / 4, 6, 10);
   skidCtx.restore();
-  skidDirty = true;
 }
 
 // --- Menu actions (shared by keyboard and mouse) ---
@@ -466,16 +247,6 @@ function closeLeaderboard() {
   }
 }
 
-function handleLeaderboardClick(x, y) {
-  const hit = leaderboardHitAreas.find(
-    (a) => x >= a.x && x <= a.x + a.w && y >= a.y && y <= a.y + a.h,
-  );
-  if (!hit) return;
-
-  if (hit.action === "back") closeLeaderboard();
-  else if (hit.action === "clear") clearHighScores();
-}
-
 function resumePausedRace() {
   isMenu = false;
   isRacing = true;
@@ -484,41 +255,22 @@ function resumePausedRace() {
   racePaused = false;
 }
 
-function handleMenuClick(x, y) {
-  const hit = menuHitAreas.find(
-    (a) => x >= a.x && x <= a.x + a.w && y >= a.y && y <= a.y + a.h,
-  );
-  if (!hit) return;
-
-  switch (hit.action) {
-    case "mode":
-      selectedMode = hit.index;
-      startSelectedMode();
-      break;
-    case "start":
-      startSelectedMode();
-      break;
-    case "keybindings":
-      openKeyBindings();
-      break;
-    case "leaderboard":
-      openLeaderboardFromMenu();
-      break;
-    case "debug":
-      toggleDebug();
-      break;
-    case "resume":
-      resumePausedRace();
-      break;
-  }
-}
-
 // --- Input ---
 window.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
 
+  // Browsers only allow an AudioContext to start from a user gesture
+  Sound.unlock();
+
   // Forward to track editor first
   if (TrackEditor.active && TrackEditor.handleKeyDown(e)) return;
+
+  // Mute works from every screen except the rebind one, which needs to see
+  // the key itself so it can report it as reserved.
+  if (key === "m" && !isKeyBindings) {
+    Sound.toggleMute();
+    return;
+  }
 
   // Leaderboard ESC — first, before anything else
   if (key === "escape" && isLeaderboard) {
@@ -679,16 +431,18 @@ window.addEventListener("blur", () => {
 });
 
 window.addEventListener("resize", () => {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  camera.width = canvas.width;
-  camera.height = canvas.height;
+  resizeCanvas();
+  // A different viewport is a different workload, and the resize itself
+  // costs a frame or two — judging the new size on samples from the old one
+  // is how dragging a window bigger would drop the resolution permanently.
+  Quality.viewportChanged();
 });
 
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 canvas.addEventListener("mousedown", (e) => {
   canvas.focus();
+  Sound.unlock();
   if (isMenu) {
     if (e.button === 0) handleMenuClick(e.clientX, e.clientY);
     return;
@@ -821,6 +575,9 @@ function resetRace() {
   isRaceFinished = false;
   totalRaceTime = 0;
   totalRaceStart = 0;
+  finishOrder = [];
+  playerFinishPosition = 0;
+  nextFinishPosition = 1;
 
   // Clear rain
   if (Rain.targetIntensity > 0) Rain.toggle();
@@ -832,20 +589,36 @@ function resetRace() {
   car.speed = 0;
   car.velocityX = 0;
   car.velocityY = 0;
+  car.laps = 0;
+  car.onFinishLine = false;
+  car.finished = false;
 
-  // AI — reset from same spawn list
+  // AI — reset from the same spawn list, and re-roll the traits that make
+  // one opponent feel different from another. These used to persist across
+  // a restart, so every rerun of a race played out the same way.
+  const cfg = DebugConfig.values;
   for (let i = 0; i < opponents.length; i++) {
     const s = SPAWN_POSITIONS[i + 1];
-    opponents[i].x = s.x;
-    opponents[i].y = s.y;
-    opponents[i].angle = s.angle;
-    opponents[i].speed = 0;
-    opponents[i].velocityX = 0;
-    opponents[i].velocityY = 0;
-    opponents[i].currentWaypoint = 0;
-    opponents[i].startDelay = Math.random() * 400;
-    opponents[i].basMaxSpeed = 7.5 + Math.random() * 2.5;
-    opponents[i].maxSpeed = opponents[i].basMaxSpeed;
+    const ai = opponents[i];
+    ai.x = s.x;
+    ai.y = s.y;
+    ai.angle = s.angle;
+    ai.speed = 0;
+    ai.velocityX = 0;
+    ai.velocityY = 0;
+    ai.speedMultiplier = 1;
+    ai.currentWaypoint = 0;
+    ai.startDelay = Math.random() * 400;
+    ai.lineOffset = (Math.random() - 0.5) * (cfg.aiLineOffsetRange ?? 40);
+    ai.baseMaxSpeed =
+      (cfg.aiMaxSpeedMin ?? 7.5) +
+      Math.random() * ((cfg.aiMaxSpeedMax ?? 9) - (cfg.aiMaxSpeedMin ?? 7.5));
+    ai.maxSpeed = ai.baseMaxSpeed;
+    ai.laps = 0;
+    ai.onFinishLine = false;
+    ai.finished = false;
+    ai.finishTime = 0;
+    ai.finishPosition = 0;
   }
 
   laps = 0;
@@ -853,7 +626,184 @@ function resetRace() {
   currentLapTime = 0;
   onFinishLine = false;
 
-  skidCtx.clearRect(0, 0, skidCanvas.width, skidCanvas.height);
+  clearSkidMarks();
+}
+
+// ─────────────────────────────────────────
+// RACE ORDER
+//
+// Opponents used to drive the track without ever being scored against it:
+// nothing counted their laps, so a "5 Lap Race" was really a time trial
+// with moving obstacles. Both the player and the AI now run through the
+// same lap counter, and are ranked by the same progress metric.
+// ─────────────────────────────────────────
+
+let nextFinishPosition = 1;
+
+function raceLapTarget() {
+  return gameMode === "race5" ? 5 : gameMode === "race10" ? 10 : null;
+}
+
+// How far around the lap a car is, as a fractional waypoint index. Found by
+// projecting onto every waypoint segment and keeping the nearest — with 11
+// waypoints and 6 cars that is 66 projections a frame, far cheaper than the
+// bookkeeping needed to track it incrementally, and it can't desync.
+//
+// Waypoint 0 sits just before the start line, so laps and this index step
+// over within ~30px of each other and `laps * n + progress` rises smoothly.
+function trackProgress(entity) {
+  const wps = worldTrack.data && worldTrack.data.waypoints;
+  if (!wps || wps.length === 0) return 0;
+
+  const n = wps.length;
+  let best = 0;
+  let bestDist = Infinity;
+
+  for (let i = 0; i < n; i++) {
+    const a = wps[i];
+    const b = wps[(i + 1) % n];
+    const abx = b.x - a.x;
+    const aby = b.y - a.y;
+    const len2 = abx * abx + aby * aby || 1;
+
+    let t = ((entity.x - a.x) * abx + (entity.y - a.y) * aby) / len2;
+    if (t < 0) t = 0;
+    else if (t > 1) t = 1;
+
+    const dx = entity.x - (a.x + abx * t);
+    const dy = entity.y - (a.y + aby * t);
+    const d = dx * dx + dy * dy;
+
+    if (d < bestDist) {
+      bestDist = d;
+      best = i + t;
+    }
+  }
+
+  return best;
+}
+
+function raceScore(entity) {
+  const n = (worldTrack.data.waypoints || []).length || 1;
+  return (entity.laps || 0) * n + trackProgress(entity);
+}
+
+// Every car, most advanced first. Cars that have taken the flag are locked
+// to the order they finished in; the rest are sorted live by progress.
+function raceStandings() {
+  const entries = [
+    { entity: car, isPlayer: true, name: "YOU", color: "#ff2222" },
+    ...opponents.map((ai, i) => ({
+      entity: ai,
+      isPlayer: false,
+      name: `CPU ${i + 1}`,
+      color: ai.color,
+    })),
+  ];
+
+  for (const e of entries) {
+    e.finished = !!e.entity.finished;
+    e.laps = e.entity.laps || 0;
+    e.score = e.finished ? Infinity : raceScore(e.entity);
+  }
+
+  entries.sort((a, b) => {
+    if (a.finished && b.finished)
+      return a.entity.finishPosition - b.entity.finishPosition;
+    if (a.finished !== b.finished) return a.finished ? -1 : 1;
+    return b.score - a.score;
+  });
+
+  entries.forEach((e, i) => (e.position = i + 1));
+  return entries;
+}
+
+function playerPosition() {
+  return raceStandings().find((e) => e.isPlayer).position;
+}
+
+// Called once the player takes the flag. Everyone still circulating is
+// classified where they stand rather than being left to finish — waiting
+// out four CPU cars after your own race is over is nobody's idea of fun.
+function finishRace() {
+  const target = raceLapTarget();
+  finishOrder = raceStandings().map((e) => ({
+    position: e.position,
+    name: e.name,
+    color: e.color,
+    isPlayer: e.isPlayer,
+    dnf: !e.finished,
+    laps: Math.min(e.laps, target),
+    time: e.entity.finishTime,
+  }));
+
+  playerFinishPosition = finishOrder.find((e) => e.isPlayer).position;
+  isRaceFinished = true;
+  isRacing = false;
+}
+
+// Shared lap counter. `entity` needs .x/.y/.laps/.onFinishLine/.finished;
+// everything player-specific hangs off the isPlayer branch.
+function updateLapCounter(entity, isPlayer) {
+  if (entity.finished) return;
+
+  const map = worldTrack.data.map;
+  const ts = worldTrack.data.tileSize;
+  const gx = Math.floor(entity.x / ts);
+  const gy = Math.floor(entity.y / ts);
+  const onLine = map[gy] !== undefined && map[gy][gx] === 9;
+
+  if (!onLine) {
+    entity.onFinishLine = false;
+    if (isPlayer) onFinishLine = false;
+    return;
+  }
+  if (entity.onFinishLine) return;
+  entity.onFinishLine = true;
+  if (isPlayer) onFinishLine = true;
+
+  const now = performance.now();
+  const target = raceLapTarget();
+
+  // First crossing arms the race rather than completing a lap. Every car
+  // times from its own first crossing, which is what the player's total has
+  // always meant — keeping it that way leaves saved records comparable.
+  if (entity.laps === 0) {
+    entity.laps = 1;
+    entity.raceStart = now;
+    if (isPlayer) {
+      hasStarted = true;
+      laps = 1;
+      totalRaceStart = now;
+      lapStartTime = now;
+      applyWeatherForLap(1);
+    }
+    return;
+  }
+
+  entity.laps++;
+
+  if (target && entity.laps > target) {
+    entity.finished = true;
+    entity.finishPosition = nextFinishPosition++;
+    entity.finishTime = ((now - entity.raceStart) / 1000).toFixed(2);
+
+    if (isPlayer) {
+      totalRaceTime = entity.finishTime;
+      saveTotalTime(gameMode, totalRaceTime);
+      laps = target;
+      finishRace();
+    }
+    return;
+  }
+
+  if (isPlayer) {
+    const lapTime = ((now - lapStartTime) / 1000).toFixed(2);
+    lapStartTime = now;
+    laps = entity.laps;
+    applyWeatherForLap(laps);
+    saveLapTime(lapTime);
+  }
 }
 
 // --- Collision ---
@@ -885,60 +835,78 @@ function clampToWorld(entity) {
   }
 }
 
-function checkTileCollision(x, y) {
-  if (!worldTrack.data || !worldTrack.data.map) return;
-  const gridX = Math.floor(x / worldTrack.data.tileSize);
-  const gridY = Math.floor(y / worldTrack.data.tileSize);
+// Average "offroadness" under the four wheels rather than at the car's
+// centre. A 34×56 car sampled at one point can hang half its body over the
+// grass at zero cost, and then loses grip all at once when the centre
+// finally crosses; per-wheel, dropping two wheels onto the dirt costs about
+// half of what going fully off does, and a clipped kerb costs a little.
+const WHEEL_INSET_X = 0.36; // of half-width
+const WHEEL_INSET_Y = 0.34; // of half-height
 
-  if (
-    worldTrack.data.map[gridY] &&
-    worldTrack.data.map[gridY][gridX] !== undefined
-  ) {
-    const tileID = worldTrack.data.map[gridY][gridX];
+function wheelOffRoad(entity) {
+  if (!worldTrack.field) return 0;
 
-    // Off-track drag, scaled by how far past the smoothed road edge we
-    // are, so clipping a kerb costs a little and a full excursion costs
-    // the old flat 0.92.
-    const offRoad = worldTrack.offRoad(x, y);
-    if (offRoad > 0) car.speed *= 1 - 0.08 * offRoad;
+  const cos = Math.cos(entity.angle);
+  const sin = Math.sin(entity.angle);
+  const hw = (entity.width / 2) * WHEEL_INSET_X * 2;
+  const hh = (entity.height / 2) * WHEEL_INSET_Y * 2;
 
-    if (tileID === 9) {
-      if (!onFinishLine) {
-        onFinishLine = true;
-        if (!hasStarted) {
-          hasStarted = true;
-          laps = 1;
-          totalRaceStart = Date.now();
-          lapStartTime = Date.now();
-          applyWeatherForLap(1); // apply scheduled weather from lap 1
-        } else {
-          const lapTime = ((Date.now() - lapStartTime) / 1000).toFixed(2);
-          lapStartTime = Date.now();
-          laps++;
-          applyWeatherForLap(laps); // check weather schedule each lap
-
-          const targetLaps =
-            gameMode === "race5" ? 5 : gameMode === "race10" ? 10 : null;
-
-          if (targetLaps && laps > targetLaps) {
-            // Race complete
-            totalRaceTime = ((Date.now() - totalRaceStart) / 1000).toFixed(2);
-            saveTotalTime(gameMode, totalRaceTime);
-            isRaceFinished = true;
-            isRacing = false;
-          } else {
-            // Normal lap save
-            saveLapTime(lapTime);
-          }
-        }
-      }
-    } else {
-      onFinishLine = false;
-    }
+  let sum = 0;
+  for (let i = 0; i < 4; i++) {
+    const lx = i & 1 ? hw : -hw;
+    const ly = i & 2 ? hh : -hh;
+    sum += worldTrack.offRoad(
+      entity.x + lx * cos - ly * sin,
+      entity.y + lx * sin + ly * cos,
+    );
   }
+  return sum / 4;
+}
+
+function updatePlayerSurface() {
+  if (!worldTrack.data || !worldTrack.data.map) return;
+
+  const offRoad = wheelOffRoad(car);
+  if (offRoad > 0) car.speed *= 1 - 0.08 * offRoad;
+
+  updateLapCounter(car, true);
 }
 
 // --- Draw helpers ---
+
+// The slice of the baked world that lands on screen this frame, in CSS px,
+// or null when none of it does. Both world layers share it, and so does the
+// decision about whether the frame still needs clearing.
+function worldViewRect() {
+  if (!worldTrack.bakedCanvas) return null;
+
+  const view = TrackEditor.getViewOffset() || camera;
+  const srcX = Math.max(0, Math.floor(view.x));
+  const srcY = Math.max(0, Math.floor(view.y));
+  const dstX = Math.max(0, Math.floor(-view.x));
+  const dstY = Math.max(0, Math.floor(-view.y));
+  const srcW = Math.min(
+    worldTrack.bakedCanvas.width - srcX,
+    camera.width - dstX,
+  );
+  const srcH = Math.min(
+    worldTrack.bakedCanvas.height - srcY,
+    camera.height - dstY,
+  );
+
+  return srcW > 0 && srcH > 0 ? { srcX, srcY, dstX, dstY, srcW, srcH } : null;
+}
+
+function worldCoversViewport(rect) {
+  return (
+    !!rect &&
+    rect.dstX === 0 &&
+    rect.dstY === 0 &&
+    rect.srcW >= camera.width &&
+    rect.srcH >= camera.height
+  );
+}
+
 function drawCar() {
   ctx.save();
   ctx.translate(car.x - camera.x, car.y - camera.y); // screen space
@@ -971,302 +939,6 @@ function drawCar() {
   ctx.restore();
 }
 
-function drawStartMenu() {
-  ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.textBaseline = "alphabetic";
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#FFD700";
-  ctx.font = "bold 50px 'Courier New'";
-  ctx.fillText("🏎️ CANVAS CRUISER 🏎️", canvas.width / 2, 150);
-  ctx.font = "bold 12px 'Courier New'";
-  ctx.fillText("v" + GAME_VERSION, canvas.width / 2, 200);
-
-  // Mode selector
-  const cx = canvas.width / 2;
-  const modesStartY = 260;
-
-  menuHitAreas = [];
-  const isHovered = (x, y, w, h) =>
-    mousePos.x >= x &&
-    mousePos.x <= x + w &&
-    mousePos.y >= y &&
-    mousePos.y <= y + h;
-
-  ctx.font = "22px 'Courier New'";
-  MODES.forEach((mode, i) => {
-    const y = modesStartY + i * 52;
-    const selected = i === selectedMode;
-
-    const boxW = 300;
-    const boxH = 40;
-    const boxX = cx - boxW / 2;
-    const boxY = y - 28;
-    const hovered = isHovered(boxX, boxY, boxW, boxH);
-
-    menuHitAreas.push({
-      x: boxX,
-      y: boxY,
-      w: boxW,
-      h: boxH,
-      action: "mode",
-      index: i,
-    });
-
-    // Highlight box
-    ctx.fillStyle = selected
-      ? "#FFD700"
-      : hovered
-        ? "rgba(255,215,0,0.25)"
-        : "rgba(255,255,255,0.08)";
-    ctx.beginPath();
-    ctx.roundRect(boxX, boxY, boxW, boxH, 8);
-    ctx.fill();
-
-    ctx.fillStyle = selected ? "#000" : hovered ? "#FFD700" : "#AAA";
-    ctx.fillText(selected ? `▶  ${mode.label}` : mode.label, cx, y);
-  });
-
-  // Controls — clickable actions first, then the keyboard-only hints below a
-  // gap, so the two kinds never interleave. ESC swaps groups: it resumes a
-  // paused race (clickable) but is only an in-race reminder otherwise.
-  const controlsY = modesStartY + MODES.length * 52 + 40;
-  const lineSpacing = 32;
-  const groupGap = 18;
-  const gutter = 20;
-  ctx.font = "16px 'Courier New'";
-
-  const actions = [
-    { key: "ENTER", action: "Start", id: "start" },
-    { key: "K", action: "Key bindings", id: "keybindings" },
-    { key: "Q", action: "Records", id: "leaderboard" },
-    { key: "B", action: "DEBUG", id: "debug" },
-  ];
-  if (racePaused) {
-    actions.push({ key: "ESC", action: "Resume race", id: "resume" });
-  }
-
-  const hints = [
-    { key: "UP / DOWN", action: "Select mode" },
-    { key: "LEFT / RIGHT", action: "Steer" },
-    { key: "R", action: "Reset" },
-  ];
-  if (!racePaused) hints.push({ key: "ESC", action: "Back to Menu" });
-
-  const controls = [...actions, ...hints.map((h) => ({ ...h, hint: true }))];
-
-  controls.forEach((item, i) => {
-    const y = controlsY + i * lineSpacing + (item.hint ? groupGap : 0);
-
-    // Hit box spans the whole "KEY : Action" line
-    const keyW = ctx.measureText(item.key).width;
-    const actionW = ctx.measureText(item.action).width;
-    const rowX = cx - gutter - keyW - 8;
-    const rowW = keyW + actionW + 2 * gutter + 16;
-    const rowY = y - 16;
-    const rowH = lineSpacing - 8;
-    const hovered = item.id && isHovered(rowX, rowY, rowW, rowH);
-
-    if (item.id) {
-      menuHitAreas.push({
-        x: rowX,
-        y: rowY,
-        w: rowW,
-        h: rowH,
-        action: item.id,
-      });
-    }
-
-    if (hovered) {
-      ctx.fillStyle = "rgba(255,215,0,0.12)";
-      ctx.beginPath();
-      ctx.roundRect(rowX, rowY, rowW, rowH, 6);
-      ctx.fill();
-    }
-
-    const keyColor = hovered ? "#FFD700" : item.hint ? "#666" : "#888";
-    const textColor = hovered ? "#FFD700" : item.hint ? "#888" : "white";
-
-    ctx.textAlign = "right";
-    ctx.fillStyle = keyColor;
-    ctx.fillText(item.key, cx - gutter, y);
-    ctx.textAlign = "center";
-    ctx.fillStyle = textColor;
-    ctx.fillText(":", cx, y);
-    ctx.textAlign = "left";
-    ctx.fillStyle = textColor;
-    ctx.fillText(item.action, cx + gutter, y);
-  });
-
-  canvas.style.cursor = menuHitAreas.some((a) =>
-    isHovered(a.x, a.y, a.w, a.h),
-  )
-    ? "pointer"
-    : "default";
-}
-
-function drawUI() {
-  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-  ctx.fillRect(0, 0, canvas.width, 60);
-  ctx.fillStyle = "#00FF00";
-  ctx.font = "bold 20px 'Courier New'";
-  ctx.textAlign = "left";
-
-  const lapCount = gameMode === "race5" ? 5 : gameMode === "race10" ? 10 : null;
-  const lapLabel = !hasStarted
-    ? "Let's compete!"
-    : lapCount
-      ? `LAP ${laps} / ${lapCount}`
-      : `LAP ${laps}`;
-
-  ctx.fillText(lapLabel, 20, 35);
-  ctx.textAlign = "right";
-  ctx.fillText(
-    `${Math.round(Math.abs(car.speed) * 10)} KM/H`,
-    canvas.width - 20,
-    35,
-  );
-  ctx.textAlign = "center";
-  if (hasStarted) {
-    currentLapTime = ((Date.now() - lapStartTime) / 1000).toFixed(2);
-    ctx.fillText(`TIME: ${currentLapTime}s`, canvas.width / 2, 35);
-  }
-}
-
-function drawLeaderboard() {
-  ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.textAlign = "center";
-
-  const colX = [
-    canvas.width * 0.2,
-    canvas.width * 0.5,
-    canvas.width * 0.8,
-  ];
-  const columns = [
-    { title: "🏁 TOP 5 LAPS 🏁", entries: Array.isArray(highScores) ? highScores : [] },
-    {
-      title: "🏆 TOP 3 · 5-LAP 🏆",
-      entries: Array.isArray(bestTotalTimes.race5) ? bestTotalTimes.race5 : [],
-    },
-    {
-      title: "🏆 TOP 3 · 10-LAP 🏆",
-      entries: Array.isArray(bestTotalTimes.race10) ? bestTotalTimes.race10 : [],
-    },
-  ];
-
-  columns.forEach((col, ci) => {
-    const x = colX[ci];
-    ctx.fillStyle = "#FFD700";
-    ctx.font = "bold 26px 'Courier New'";
-    ctx.fillText(col.title, x, 150);
-
-    ctx.fillStyle = "white";
-    ctx.font = "22px 'Courier New'";
-    if (col.entries.length === 0) {
-      ctx.fillStyle = "#888";
-      ctx.fillText("— no times yet —", x, 220);
-    } else {
-      col.entries.forEach((score, i) =>
-        ctx.fillText(`${i + 1}. ${score}s`, x, 220 + i * 36),
-      );
-    }
-  });
-
-  // Footer — both lines are clickable buttons
-  const cx = canvas.width / 2;
-  ctx.font = "18px 'Courier New'";
-
-  leaderboardHitAreas = [];
-  const buttons = [
-    {
-      action: "clear",
-      text: "C — Clear records",
-      y: 420,
-      color: "#AAA",
-      hoverColor: "#FF6666",
-      hoverFill: "rgba(255,68,68,0.15)",
-    },
-    {
-      action: "back",
-      text:
-        leaderboardFrom === "menu"
-          ? "ESC / Q — Back to menu"
-          : "ESC / Q — Back to race",
-      y: 460,
-      color: "#AAA",
-      hoverColor: "#FFD700",
-      hoverFill: "rgba(255,215,0,0.12)",
-    },
-  ];
-
-  buttons.forEach((btn) => {
-    const w = ctx.measureText(btn.text).width + 32;
-    const h = 28;
-    const x = cx - w / 2;
-    const y = btn.y - 20;
-    const hovered =
-      mousePos.x >= x &&
-      mousePos.x <= x + w &&
-      mousePos.y >= y &&
-      mousePos.y <= y + h;
-
-    leaderboardHitAreas.push({ action: btn.action, x, y, w, h });
-
-    if (hovered) {
-      ctx.fillStyle = btn.hoverFill;
-      ctx.beginPath();
-      ctx.roundRect(x, y, w, h, 6);
-      ctx.fill();
-    }
-    ctx.fillStyle = hovered ? btn.hoverColor : btn.color;
-    ctx.fillText(btn.text, cx, btn.y);
-  });
-
-  canvas.style.cursor = leaderboardHitAreas.some(
-    (a) =>
-      mousePos.x >= a.x &&
-      mousePos.x <= a.x + a.w &&
-      mousePos.y >= a.y &&
-      mousePos.y <= a.y + a.h,
-  )
-    ? "pointer"
-    : "default";
-}
-
-function drawRaceFinished() {
-  ctx.fillStyle = "rgba(0, 0, 0, 0.88)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const cx = canvas.width / 2;
-
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#FFD700";
-  ctx.font = "bold 48px 'Courier New'";
-  ctx.fillText("🏁 RACE FINISHED 🏁", cx, 160);
-
-  const lapCount = gameMode === "race5" ? 5 : 10;
-  ctx.fillStyle = "white";
-  ctx.font = "28px 'Courier New'";
-  ctx.fillText(`${lapCount} laps completed`, cx, 230);
-
-  ctx.font = "bold 36px 'Courier New'";
-  ctx.fillStyle = "#00FF88";
-  ctx.fillText(`Total: ${totalRaceTime}s`, cx, 300);
-
-  // Personal best indicator
-  if (isNewBestTotal) {
-    ctx.fillStyle = "#FFD700";
-    ctx.font = "bold 24px 'Courier New'";
-    ctx.fillText("🏆 New Best Total!", cx, 350);
-  }
-
-  ctx.font = "20px 'Courier New'";
-  ctx.fillStyle = "#AAA";
-  ctx.fillText("R  — Race again", cx, 420);
-  ctx.fillText("ESC — Main menu", cx, 455);
-}
 
 let lastTime = 0;
 
@@ -1347,6 +1019,8 @@ function resolveCollision(a, b) {
       b.velocityX += finalPushX * finalBRatio * nudge;
       b.velocityY += finalPushY * finalBRatio * nudge;
 
+      Sound.impact(impactForce);
+
       // Only punish very hard impacts
       if (impactForce > 3) {
         if (a.speedMultiplier !== undefined)
@@ -1370,6 +1044,9 @@ function gameLoop(timestamp) {
 
   StartLights.update(timestamp);
   PersonalBest.update(dt);
+  // Raw dt, not the clamped delta — a frame that took 40ms is the whole
+  // signal here, and `delta` throws that away above 50ms.
+  Quality.sample(dt);
   DebugHUD.update(timestamp);
   Rain.update(delta);
 
@@ -1382,15 +1059,22 @@ function gameLoop(timestamp) {
   }
 
   // UPDATE
+  let throttle = false;
+  let slip = 0;
+
   if (isRacing && !inOverlay) {
     const accel = keys[KeyBindings.bindings.accelerate];
     const braking = keys[KeyBindings.bindings.brake];
     const left = keys[KeyBindings.bindings.left];
     const right = keys[KeyBindings.bindings.right];
+    throttle = !!accel;
 
+    // car.friction, not a second hardcoded constant — it is what the rain's
+    // FRICTION_BONUS has always meant to raise, and never could while the
+    // coast rate was written out separately here.
     if (accel) car.speed += car.acceleration * delta;
     else if (braking) car.speed -= car.acceleration * delta;
-    else car.speed *= Math.pow(0.95, delta);
+    else car.speed *= Math.pow(car.friction + Rain.frictionBonus(), delta);
 
     if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
     if (car.speed < -car.maxSpeed / 2) car.speed = -car.maxSpeed / 2;
@@ -1436,63 +1120,81 @@ function gameLoop(timestamp) {
 
     const targetVx = Math.sin(car.angle) * car.speed;
     const targetVy = -Math.cos(car.angle) * car.speed;
-    car.velocityX += (targetVx - car.velocityX) * car.driftGrip * delta;
-    car.velocityY += (targetVy - car.velocityY) * car.driftGrip * delta;
+    const grip = car.driftGrip * Rain.gripScale();
+    car.velocityX += (targetVx - car.velocityX) * grip * delta;
+    car.velocityY += (targetVy - car.velocityY) * grip * delta;
 
     car.x += car.velocityX * delta;
     car.y += car.velocityY * delta;
     clampToWorld(car);
-    checkTileCollision(car.x, car.y);
+    updatePlayerSurface();
+    opponents.forEach((ai) => updateLapCounter(ai, false));
+
+    // Sideways component of the velocity — what the tires are scrubbing off
+    slip = Math.abs(
+      car.velocityX * Math.cos(car.angle) + car.velocityY * Math.sin(car.angle),
+    );
   }
+
+  Sound.update(
+    car.speed,
+    car.maxSpeed,
+    throttle,
+    slip,
+    isRacing && !inOverlay && !TrackEditor.active,
+  );
 
   // Camera always follows — runs during countdown too
   camera.x = car.x - camera.width / 2;
   camera.y = car.y - camera.height / 2;
 
   // DRAW
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const world = worldViewRect();
 
-  if (worldTrack.bakedCanvas) {
-    const view = TrackEditor.getViewOffset() || camera;
-    const srcX = Math.max(0, Math.floor(view.x));
-    const srcY = Math.max(0, Math.floor(view.y));
-    const dstX = Math.max(0, Math.floor(-view.x));
-    const dstY = Math.max(0, Math.floor(-view.y));
-    const srcW = Math.min(
-      worldTrack.bakedCanvas.width - srcX,
-      camera.width - dstX,
+  // The baked track is opaque, so wherever it reaches all four edges the
+  // clear underneath it is dead work — and it is a full-viewport pass.
+  if (!worldCoversViewport(world)) {
+    ctx.clearRect(0, 0, camera.width, camera.height);
+  }
+
+  if (world) {
+    const { srcX, srcY, dstX, dstY, srcW, srcH } = world;
+
+    // Both world layers span the viewport, and the devicePixelRatio scale on
+    // the context makes each drawImage a resample of every pixel on screen —
+    // the two of them were the whole frame budget at 2x. Nearest neighbour is
+    // about twice as fast, and when magnifying it is sharper than the smoothed
+    // version rather than worse. Below 1x it is not: dropping pixels out of the
+    // baked track makes the kerbs crawl, so that rung pays for the filter.
+    ctx.imageSmoothingEnabled = renderDpr < 1;
+    ctx.drawImage(
+      worldTrack.bakedCanvas,
+      srcX,
+      srcY,
+      srcW,
+      srcH,
+      dstX,
+      dstY,
+      srcW,
+      srcH,
     );
-    const srcH = Math.min(
-      worldTrack.bakedCanvas.height - srcY,
-      camera.height - dstY,
-    );
-    if (srcW > 0 && srcH > 0) {
+    if (!TrackEditor.active)
+      // hide skid marks while editing. The skid layer may be at a lower
+      // resolution than the world, so its source rect is scaled.
       ctx.drawImage(
-        worldTrack.bakedCanvas,
-        srcX,
-        srcY,
-        srcW,
-        srcH,
+        skidCanvas,
+        srcX * skidScale,
+        srcY * skidScale,
+        srcW * skidScale,
+        srcH * skidScale,
         dstX,
         dstY,
         srcW,
         srcH,
       );
-      if (!TrackEditor.active)
-        // hide skid marks while editing
-        ctx.drawImage(
-          skidCanvas,
-          srcX,
-          srcY,
-          srcW,
-          srcH,
-          dstX,
-          dstY,
-          srcW,
-          srcH,
-        );
-      Rain.drawPuddles(); // world-space puddles, before cars
-    }
+    ctx.imageSmoothingEnabled = true; // sprites and the minimap still want it
+
+    Rain.drawPuddles(); // world-space puddles, before cars
   }
 
   // Cars — screen space
@@ -1517,15 +1219,22 @@ function gameLoop(timestamp) {
   }
 
   if (isMenu) drawStartMenu();
-  else if (isKeyBindings) KeyBindings.draw(ctx, canvas, mousePos);
+  else if (isKeyBindings) KeyBindings.draw(ctx, camera, mousePos);
   else if (isRaceFinished) drawRaceFinished();
   else if (isLeaderboard) drawLeaderboard();
   else if (!TrackEditor.active) drawUI();
 
-  StartLights.draw(ctx, canvas.width, canvas.height);
-  PersonalBest.draw(ctx, canvas.width);
-  Rain.drawHUD();
+  StartLights.draw(ctx, camera.width, camera.height);
 
+  // Race-only overlays. These sit on top of everything, so they have to be
+  // held back on the screens that own the display — a "WET TRACK" label
+  // across the results table reads as part of the results.
+  if (!inOverlay && !TrackEditor.active) {
+    PersonalBest.draw(ctx);
+    Rain.drawHUD();
+  }
+
+  DebugHUD.endFrame();
   requestAnimationFrame(gameLoop);
 }
 
@@ -1536,20 +1245,21 @@ async function initGame() {
   } catch (err) {
     console.error("Failed to initialize game:", err);
     ctx.fillStyle = "#111";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, camera.width, camera.height);
     ctx.fillStyle = "#FF4444";
     ctx.font = "bold 24px 'Courier New'";
     ctx.textAlign = "center";
     ctx.fillText(
       "Failed to load the game. Please refresh the page.",
-      canvas.width / 2,
-      canvas.height / 2,
+      camera.width / 2,
+      camera.height / 2,
     );
   }
 }
 
 async function initGameUnsafe() {
   KeyBindings.load();
+  Sound.load();
   await worldTrack.load("track.json");
   WaypointEditor.init(worldTrack.data.waypoints);
   resizeSkidCanvas();

@@ -218,7 +218,7 @@ const TrackEditor = (() => {
   const SWATCH_PAD = 6;
 
   function _paletteY() {
-    return canvas.height - PALETTE_H;
+    return camera.height - PALETTE_H;
   }
 
   function _inPaletteUI(sx, sy) {
@@ -232,12 +232,12 @@ const TrackEditor = (() => {
 
   function _maxPanX() {
     const worldW = worldTrack.data.map[0].length * worldTrack.data.tileSize;
-    return Math.max(0, worldW - canvas.width);
+    return Math.max(0, worldW - camera.width);
   }
 
   function _maxPanY() {
     const worldH = worldTrack.data.map.length * worldTrack.data.tileSize;
-    return Math.max(0, worldH - canvas.height);
+    return Math.max(0, worldH - camera.height);
   }
 
   // ── Draw ───────────────────────────────────────────────────────────────────
@@ -272,23 +272,23 @@ const TrackEditor = (() => {
 
     // Vertical lines
     const startCol = Math.floor(panX / ts);
-    const endCol = Math.ceil((panX + canvas.width) / ts);
+    const endCol = Math.ceil((panX + camera.width) / ts);
     for (let c = startCol; c <= Math.min(endCol, cols); c++) {
       const sx = c * ts - panX;
       ctx.beginPath();
       ctx.moveTo(sx, 0);
-      ctx.lineTo(sx, canvas.height - PALETTE_H);
+      ctx.lineTo(sx, camera.height - PALETTE_H);
       ctx.stroke();
     }
 
     // Horizontal lines
     const startRow = Math.floor(panY / ts);
-    const endRow = Math.ceil((panY + canvas.height) / ts);
+    const endRow = Math.ceil((panY + camera.height) / ts);
     for (let r = startRow; r <= Math.min(endRow, rows); r++) {
       const sy = r * ts - panY;
       ctx.beginPath();
       ctx.moveTo(0, sy);
-      ctx.lineTo(canvas.width, sy);
+      ctx.lineTo(camera.width, sy);
       ctx.stroke();
     }
 
@@ -325,7 +325,7 @@ const TrackEditor = (() => {
 
     // Background strip
     ctx.fillStyle = "rgba(0,0,0,0.82)";
-    ctx.fillRect(0, py, canvas.width, PALETTE_H);
+    ctx.fillRect(0, py, camera.width, PALETTE_H);
 
     TILES.forEach((tile, i) => {
       const x = i * (SWATCH_W + SWATCH_PAD) + SWATCH_PAD;
@@ -367,7 +367,7 @@ const TrackEditor = (() => {
     ctx.textBaseline = "middle";
     ctx.fillText(
       "RMB: erase  |  Wheel / Tab: cycle  |  Z: undo  |  P: export  |  T/ESC: close",
-      canvas.width - 12,
+      camera.width - 12,
       py + PALETTE_H / 2,
     );
   }
@@ -375,7 +375,7 @@ const TrackEditor = (() => {
   function _drawStatusBar(ctx) {
     // Top banner
     ctx.fillStyle = "rgba(0,0,0,0.65)";
-    ctx.fillRect(0, 0, canvas.width, 36);
+    ctx.fillRect(0, 0, camera.width, 36);
 
     ctx.fillStyle = "#FFD700";
     ctx.font = "bold 14px monospace";
@@ -390,7 +390,7 @@ const TrackEditor = (() => {
     ctx.textAlign = "center";
     ctx.fillText(
       `pan (${Math.floor(panX / ts)}, ${Math.floor(panY / ts)})  |  undo stack: ${undoStack.length}`,
-      canvas.width / 2,
+      camera.width / 2,
       18,
     );
 
@@ -399,7 +399,7 @@ const TrackEditor = (() => {
     ctx.fillStyle = "#FFD700";
     ctx.fillText(
       `Tile: ${TILES[selectedTileIndex].label} [${TILES[selectedTileIndex].id}]`,
-      canvas.width - 14,
+      camera.width - 14,
       18,
     );
   }
