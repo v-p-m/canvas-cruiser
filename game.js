@@ -160,6 +160,7 @@ const keys = {};
 // now drop the layer's resolution instead of its extent, and the context
 // transform keeps paintSkidMark working in plain world coordinates.
 const SKID_MAX_EDGE = 4096; // px
+const SKID_SLIP = 2.4; // world px/frame of lateral slide before a mark is laid
 const skidCanvas = document.createElement("canvas");
 const skidCtx = skidCanvas.getContext("2d");
 let skidScale = 1;
@@ -184,24 +185,37 @@ function clearSkidMarks() {
   );
 }
 
-function paintSkidMark(x, y, angle) {
+// Takes the whole entity, not loose coordinates: the wheel offsets come from
+// its own body, so an opponent lays its own track width rather than the
+// player's.
+function paintSkidMark(entity) {
   // World coordinates — the layer's scale transform maps them onto it
   if (
-    x < 0 ||
-    y < 0 ||
-    x > skidCanvas.width / skidScale ||
-    y > skidCanvas.height / skidScale
+    entity.x < 0 ||
+    entity.y < 0 ||
+    entity.x > skidCanvas.width / skidScale ||
+    entity.y > skidCanvas.height / skidScale
   )
     return;
 
   skidCtx.save();
-  skidCtx.translate(x, y);
-  skidCtx.rotate(angle);
+  skidCtx.translate(entity.x, entity.y);
+  skidCtx.rotate(entity.angle);
   skidCtx.fillStyle = "rgba(0, 0, 0, 0.15)";
-  const offset = car.width / 2 - 4;
-  skidCtx.fillRect(-offset, car.height / 4, 6, 10);
-  skidCtx.fillRect(offset - 6, car.height / 4, 6, 10);
+  const offset = entity.width / 2 - 4;
+  skidCtx.fillRect(-offset, entity.height / 4, 6, 10);
+  skidCtx.fillRect(offset - 6, entity.height / 4, 6, 10);
   skidCtx.restore();
+}
+
+// Sideways component of the velocity — what the tires are scrubbing off.
+// Shared, so an opponent is judged sliding by exactly the same measure as
+// the player.
+function lateralSlip(entity) {
+  return Math.abs(
+    entity.velocityX * Math.cos(entity.angle) +
+      entity.velocityY * Math.sin(entity.angle),
+  );
 }
 
 // --- Menu actions (shared by keyboard and mouse) ---
@@ -1091,10 +1105,6 @@ function gameLoop(timestamp) {
       const scrubFactor =
         0.94 + 0.04 * (1 - Math.abs(car.speed) / car.maxSpeed);
       car.speed *= Math.pow(scrubFactor, delta);
-
-      if (Math.abs(car.speed) > 5) {
-        paintSkidMark(car.x, car.y, car.angle);
-      }
     }
 
     // AI update
@@ -1132,10 +1142,19 @@ function gameLoop(timestamp) {
     updatePlayerSurface(delta);
     opponents.forEach((ai) => updateLapCounter(ai, false));
 
-    // Sideways component of the velocity — what the tires are scrubbing off
-    slip = Math.abs(
-      car.velocityX * Math.cos(car.angle) + car.velocityY * Math.sin(car.angle),
-    );
+    slip = lateralSlip(car);
+
+    // Marks come from the tires actually sliding, not from the steering key
+    // being down. Slip builds over ~10 frames after the wheel goes over, so a
+    // tap or a mid-straight correction never reaches the threshold while a
+    // committed corner does — and a shove from another car marks the tarmac
+    // even though nothing was steered. The opponents run the same rule off
+    // the same threshold; they slide under their own steering, so the corners
+    // rubber up whether or not the player is the one abusing them.
+    if (slip > SKID_SLIP) paintSkidMark(car);
+    opponents.forEach((ai) => {
+      if (lateralSlip(ai) > SKID_SLIP) paintSkidMark(ai);
+    });
   }
 
   Sound.update(
