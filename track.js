@@ -136,6 +136,10 @@ class Track {
     this.roadPath = null;
 
     this.grainTile = null;
+
+    // Cached ground artwork, and the dirt layout it was rendered for
+    this.groundCanvas = null;
+    this.groundKey = null;
   }
 
   async load(url) {
@@ -414,12 +418,40 @@ class Track {
   // every pixel picks its colour from the blurred dirt coverage nudged by
   // noise, so the two meet along a ragged natural edge; a slow mottle over
   // the top keeps both from reading as flat paint.
+  //
+  // This is ~95% of the cost of a bake and depends on nothing but the dirt
+  // tiles, so the result is kept and re-blitted. The track editor re-bakes on
+  // every painted tile; without the cache, each one costs a full re-render.
   paintGround(bCtx) {
-    const w = this.bakedCanvas.width;
-    const h = this.bakedCanvas.height;
+    const key = this.dirtKey();
+    if (!this.groundCanvas || this.groundKey !== key) {
+      this.groundCanvas = this.renderGround();
+      this.groundKey = key;
+    }
+    bCtx.drawImage(this.groundCanvas, 0, 0);
+  }
+
+  // Identifies the only input the ground artwork has: which tiles are dirt,
+  // and how big the map is.
+  dirtKey() {
+    const rows = this.data.map.map((row) =>
+      row.map((id) => (id === 1 ? "1" : "0")).join("")
+    );
+    return `${this.tileSize}|${rows.join(",")}`;
+  }
+
+  renderGround() {
+    const w = this.data.map[0].length * this.tileSize;
+    const h = this.data.map.length * this.tileSize;
+
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const g = c.getContext("2d");
+
     const dirt = this.buildField((id) => id === 1, DIRT_BLUR_PASSES);
 
-    const img = bCtx.createImageData(w, h);
+    const img = g.createImageData(w, h);
     const px = img.data;
 
     const edgeScale = 1 / DIRT_NOISE_SCALE;
@@ -429,21 +461,77 @@ class Track {
     const [gr, gg, gb] = GRASS_COLOR;
     const [dr, dg, db] = DIRT_COLOR;
 
+    // Three million iterations, so the two samplers are unrolled by hand
+    // rather than called: the dirt field's row indices and vertical weights
+    // are fixed per scanline, and the mottle noise only needs re-hashing when
+    // it crosses a lattice cell — every 50px, not every pixel. The arithmetic
+    // is in the same order as sampleField/valueNoise, so the output is
+    // bit-identical to calling them.
+    const fd = dirt.data;
+    const fw = dirt.w;
+    const fh = dirt.h;
+    const cell = dirt.cell;
+
     let i = 0;
     for (let y = 0; y < h; y++) {
+      let gy = y / cell - 0.5;
+      if (gy < 0) gy = 0;
+      else if (gy > fh - 1) gy = fh - 1;
+      const y0 = gy | 0;
+      const y1 = Math.min(y0 + 1, fh - 1);
+      const fy = gy - y0;
+      const rowTop = y0 * fw;
+      const rowBot = y1 * fw;
+
+      const ny = y * edgeScale;
+
+      const my = y * 0.02;
+      const miy = Math.floor(my);
+      const mfy = my - miy;
+      const muy = mfy * mfy * (3 - 2 * mfy);
+      let mix = NaN; // forces a hash on the first pixel of every row
+      let ma = 0;
+      let mb = 0;
+      let mc = 0;
+      let md = 0;
+
       for (let x = 0; x < w; x++, i += 4) {
-        const d = sampleField(dirt, x, y);
+        let gx = x / cell - 0.5;
+        if (gx < 0) gx = 0;
+        else if (gx > fw - 1) gx = fw - 1;
+        const x0 = gx | 0;
+        const x1 = Math.min(x0 + 1, fw - 1);
+        const fx = gx - x0;
+
+        const top = fd[rowTop + x0] * (1 - fx) + fd[rowTop + x1] * fx;
+        const bot = fd[rowBot + x0] * (1 - fx) + fd[rowBot + x1] * fx;
+        const d = top * (1 - fy) + bot * fy;
 
         // The noise only matters where the two surfaces actually meet.
         let cover;
         if (d <= 0.001) cover = 0;
         else if (d >= 0.999) cover = 1;
         else {
-          const n = (fbm2(x * edgeScale, y * edgeScale) - 0.5) * DIRT_NOISE_AMP;
+          const n = (fbm2(x * edgeScale, ny) - 0.5) * DIRT_NOISE_AMP;
           cover = smoothstep(lo, hi, d + n);
         }
 
-        const m = 0.92 + valueNoise(x * 0.02, y * 0.02) * 0.16;
+        const mx = x * 0.02;
+        const mixNow = Math.floor(mx);
+        if (mixNow !== mix) {
+          mix = mixNow;
+          ma = hash2(mixNow, miy);
+          mb = hash2(mixNow + 1, miy);
+          mc = hash2(mixNow, miy + 1);
+          md = hash2(mixNow + 1, miy + 1);
+        }
+        const mfx = mx - mixNow;
+        const mux = mfx * mfx * (3 - 2 * mfx);
+        const m =
+          0.92 +
+          ((ma * (1 - mux) + mb * mux) * (1 - muy) +
+            (mc * (1 - mux) + md * mux) * muy) *
+            0.16;
 
         px[i] = (gr + (dr - gr) * cover) * m;
         px[i + 1] = (gg + (dg - gg) * cover) * m;
@@ -452,7 +540,8 @@ class Track {
       }
     }
 
-    bCtx.putImageData(img, 0, 0);
+    g.putImageData(img, 0, 0);
+    return c;
   }
 
   // Deterministic speckle tile, repeated across the road as asphalt grain.
