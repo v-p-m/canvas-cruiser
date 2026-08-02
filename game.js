@@ -863,11 +863,13 @@ function wheelOffRoad(entity) {
   return sum / 4;
 }
 
-function updatePlayerSurface() {
+function updatePlayerSurface(delta) {
   if (!worldTrack.data || !worldTrack.data.map) return;
 
   const offRoad = wheelOffRoad(car);
-  if (offRoad > 0) car.speed *= 1 - 0.08 * offRoad;
+  // Per-frame decay has to be raised to `delta`, like the friction above —
+  // applied straight it would drag twice as hard at 120fps as at 60.
+  if (offRoad > 0) car.speed *= Math.pow(1 - 0.08 * offRoad, delta);
 
   updateLapCounter(car, true);
 }
@@ -1127,7 +1129,7 @@ function gameLoop(timestamp) {
     car.x += car.velocityX * delta;
     car.y += car.velocityY * delta;
     clampToWorld(car);
-    updatePlayerSurface();
+    updatePlayerSurface(delta);
     opponents.forEach((ai) => updateLapCounter(ai, false));
 
     // Sideways component of the velocity — what the tires are scrubbing off
