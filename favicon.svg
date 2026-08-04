@@ -1,0 +1,22 @@
+<!-- Top-down player car on asphalt, in the game's own palette: road #8b8b8b
+     darkened so the red pops, rumble red #D42A2A, windshield #add8e6.
+     Sized for 16px: the road is full-bleed rather than a band between grass
+     verges, because at that size the verges collapse into 1px noise, and no
+     feature is thinner than 2/64 of the viewBox. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" fill="#6e6e6e"/>
+  <rect x="0" y="0" width="4" height="64" fill="#D42A2A"/>
+  <rect x="60" y="0" width="4" height="64" fill="#D42A2A"/>
+
+  <g fill="#141414">
+    <rect x="9" y="13" width="9" height="12" rx="2"/>
+    <rect x="46" y="13" width="9" height="12" rx="2"/>
+    <rect x="9" y="39" width="9" height="12" rx="2"/>
+    <rect x="46" y="39" width="9" height="12" rx="2"/>
+  </g>
+
+  <rect x="13" y="5" width="38" height="54" rx="10" fill="#e01b1b"
+        stroke="#6b0d0d" stroke-width="2"/>
+  <path d="M20 20h24l-3 9H23z" fill="#add8e6"/>
+  <path d="M21 46h22l-2.5 7h-17z" fill="#add8e6"/>
+</svg>
