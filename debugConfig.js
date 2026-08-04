@@ -11,10 +11,10 @@ const DebugConfig = {
     playerDriftGrip: 0.1,
 
     // AI
-    aiMaxSpeedMin: 7.5,
-    aiMaxSpeedMax: 9.0,
+    aiMaxSpeedMin: 8.3,
+    aiMaxSpeedMax: 9.6,
     aiTurnSpeed: 0.08,
-    aiGrip: 0.15,
+    aiGrip: 0.2,
     aiLineOffsetRange: 40,
     aiRepulsionRadius: 120,
     aiRepulsionForce: 0.3,
@@ -38,6 +38,11 @@ const DebugConfig = {
   // Bumped whenever the built-in grid in game.js changes, so a saved copy of
   // the old one can't quietly override it on the next load.
   spawnVersion: 2,
+
+  // Same idea for the opponent tuning: anyone who has ever opened the panel
+  // has an `ai*` block in localStorage, and it would otherwise pin them to
+  // whatever the balance was on the day they opened it.
+  aiVersion: 2,
 
   // Defaults that live in game.js. This file is parsed first, so they cannot
   // be written into the `defaults` literal — SPAWN_POSITIONS and MAX_DPR do
@@ -189,6 +194,11 @@ const DebugConfig = {
         for (const key of Object.keys(parsed))
           if (key.startsWith("spawn")) delete parsed[key];
       }
+      const savedAiVersion = +localStorage.getItem("debugConfigAiVersion");
+      if (savedAiVersion !== this.aiVersion) {
+        for (const key of Object.keys(parsed))
+          if (key.startsWith("ai")) delete parsed[key];
+      }
       Object.assign(this.values, parsed);
     } catch {
       localStorage.removeItem("debugConfig");
@@ -198,6 +208,7 @@ const DebugConfig = {
   save() {
     localStorage.setItem("debugConfig", JSON.stringify(this.values));
     localStorage.setItem("debugConfigSpawnVersion", this.spawnVersion);
+    localStorage.setItem("debugConfigAiVersion", this.aiVersion);
   },
 
   reset() {
@@ -205,6 +216,7 @@ const DebugConfig = {
     Quality.auto = true; // resetting the sliders gives the governor the wheel back
     localStorage.removeItem("debugConfig");
     localStorage.removeItem("debugConfigSpawnVersion");
+    localStorage.removeItem("debugConfigAiVersion");
     this.apply();
     this.buildPanel();
   },

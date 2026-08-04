@@ -634,8 +634,8 @@ function resetRace() {
     ai.startDelay = Math.random() * 400;
     ai.lineOffset = (Math.random() - 0.5) * (cfg.aiLineOffsetRange ?? 40);
     ai.baseMaxSpeed =
-      (cfg.aiMaxSpeedMin ?? 7.5) +
-      Math.random() * ((cfg.aiMaxSpeedMax ?? 9) - (cfg.aiMaxSpeedMin ?? 7.5));
+      (cfg.aiMaxSpeedMin ?? 8.3) +
+      Math.random() * ((cfg.aiMaxSpeedMax ?? 9.6) - (cfg.aiMaxSpeedMin ?? 8.3));
     ai.maxSpeed = ai.baseMaxSpeed;
     ai.laps = 0;
     ai.onFinishLine = false;

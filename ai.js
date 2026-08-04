@@ -1,3 +1,43 @@
+// Lift for being mis-pointed. This is a recovery term, not a racing line: a
+// car that has been shoved or has run wide is aimed somewhere it can't reach
+// at speed, and backing off is how it gets its nose round. It used to be 0.5,
+// which throttled every ordinary corner entry as well.
+//
+// Anticipatory corner braking — lifting for the turn angle at the waypoint
+// ahead, before arriving — was tried here and is not worth it on this track.
+// Every setting of it traded pace against time on the grass at roughly one for
+// one, with no knee: measured over a stint, going from no lift at all to a
+// full one moved average speed 9.08 to 8.63 px/frame and off-road frames 0.128
+// to 0.091. At the grip below the cars hold the line flat out, so there is
+// nothing to anticipate. 0.15 keeps the recovery case for about a 1% cost.
+const HEADING_BRAKE = 0.15;
+
+// Catch-up, measured as a gap in waypoints along the track rather than in
+// straight-line pixels — two cars either side of a hairpin are close in pixels
+// and half a corner apart in the race. It only ever adds speed: an opponent
+// level with the player no longer lifts off, which is what made them concede
+// every overtake the moment the player drew alongside.
+const CATCHUP_GAIN = 0.15; // max fraction added to top speed
+const CATCHUP_FULL = 2.5; // waypoints behind at which the gain is maxed
+
+// Index of the waypoint nearest a point. Both cars are measured the same way
+// so the systematic offset between "closest marker" and "marker being chased"
+// cancels out of the gap.
+function nearestWaypoint(x, y, waypoints) {
+  let best = 0;
+  let bestSq = Infinity;
+  for (let i = 0; i < waypoints.length; i++) {
+    const dx = waypoints[i].x - x;
+    const dy = waypoints[i].y - y;
+    const dSq = dx * dx + dy * dy;
+    if (dSq < bestSq) {
+      bestSq = dSq;
+      best = i;
+    }
+  }
+  return best;
+}
+
 const aiCarImages = {};
 const aiImageSources = {
   "#0077ff": "assets/car_blue.png",
@@ -27,10 +67,10 @@ class AICar {
     this.turnSpeed = 0.08;
     this.velocityX = 0;
     this.velocityY = 0;
-    this.grip = 0.15;
+    this.grip = 0.2;
     this.lineOffset = (Math.random() - 0.5) * 40;
-    this.startDelay = Math.random() * 400; // 0–800ms random delay
-    this.baseMaxSpeed = 7.5 + Math.random() * 2.5; // fixed base
+    this.startDelay = Math.random() * 400; // ms
+    this.baseMaxSpeed = 8.3 + Math.random() * 1.3; // fixed base
     this.maxSpeed = this.baseMaxSpeed;
 
     // Race state — counted by updateLapCounter in game.js, which drives
@@ -93,7 +133,10 @@ class AICar {
       next = waypoints[(this.currentWaypoint + 1) % waypoints.length];
     }
 
-    // Perpendicular offset for varied racing line
+    // Perpendicular offset for varied racing line. Aiming anywhere between
+    // this marker and the next one was tried, to make the cars turn in early;
+    // on a track this narrow it just cuts the apex onto the inside grass and
+    // trebled the time they spent off the road.
     const perpX = -(current.y - next.y);
     const perpY = current.x - next.x;
     const perpLen = Math.sqrt(perpX * perpX + perpY * perpY) || 1;
@@ -112,11 +155,14 @@ class AICar {
     // Rubber banding — must be declared before use
     let rubberBand = 1.0;
     if (playerX !== undefined && playerY !== undefined) {
-      const dxP = playerX - this.x;
-      const dyP = playerY - this.y;
-      const distToPlayer = Math.sqrt(dxP * dxP + dyP * dyP);
-      if (distToPlayer > 400) rubberBand = 1.15;
-      if (distToPlayer < 100) rubberBand = 0.88;
+      const n = waypoints.length;
+      const mine = nearestWaypoint(this.x, this.y, waypoints);
+      const theirs = nearestWaypoint(playerX, playerY, waypoints);
+      let gap = (((mine - theirs) % n) + n) % n;
+      if (gap > n / 2) gap -= n; // signed — negative is behind the player
+      if (gap < 0) {
+        rubberBand = 1 + Math.min(-gap / CATCHUP_FULL, 1) * CATCHUP_GAIN;
+      }
     }
 
     // How far off the tarmac we are, 0..1 — averaged over the four wheels
@@ -136,12 +182,18 @@ class AICar {
       );
     }
 
-    // Speed — ease off on sharp corners, apply rubber band and multiplier
-    const cornerFactor = 1 - Math.min(Math.abs(angleDiff) / Math.PI, 1) * 0.5;
+    // Speed — lift only for being mis-pointed, then apply rubber band and
+    // multiplier.
+    const headingErr = Math.min(Math.abs(angleDiff) / Math.PI, 1);
+    const cornerFactor = 1 - headingErr * HEADING_BRAKE;
 
     const targetSpeed =
       this.maxSpeed * cornerFactor * rubberBand * this.speedMultiplier;
-    this.speed += (targetSpeed - this.speed) * 0.05 * delta;
+    // Asymmetric: shedding speed is a reaction to something that has already
+    // happened — grass under the wheels, a shove dropping the multiplier — so
+    // it settles quickly, while the pickup stays gradual enough to look driven.
+    const rate = targetSpeed < this.speed ? 0.12 : 0.05;
+    this.speed += (targetSpeed - this.speed) * rate * delta;
 
     // Velocity-based movement. Rain scales grip here rather than being
     // written onto this.grip, so the tuning sliders stay in charge of the
