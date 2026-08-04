@@ -1067,17 +1067,20 @@ function gameLoop(timestamp) {
   // Normalised delta — 1.0 at 60fps, 0.5 at 120fps, 2.0 at 30fps
   const delta = Math.min(dt / (1000 / 60), 3); // cap at 3 to prevent huge jumps after tab switch
 
-  StartLights.update(timestamp);
+  // True whenever a menu/overlay screen owns input — the race must not
+  // auto-resume or keep updating physics in the background while shown.
+  const inOverlay = isMenu || isKeyBindings || isLeaderboard || isRaceFinished;
+
+  // Escape during the countdown drops to the menu with the sequence still
+  // running, so it has to be held rather than left to tick — otherwise it
+  // counts down behind the menu and now beeps over it too.
+  StartLights.update(timestamp, inOverlay);
   PersonalBest.update(dt);
   // Raw dt, not the clamped delta — a frame that took 40ms is the whole
   // signal here, and `delta` throws that away above 50ms.
   Quality.sample(dt);
   DebugHUD.update(timestamp);
   Rain.update(delta);
-
-  // True whenever a menu/overlay screen owns input — the race must not
-  // auto-resume or keep updating physics in the background while shown.
-  const inOverlay = isMenu || isKeyBindings || isLeaderboard || isRaceFinished;
 
   if (!StartLights.active && !isRacing && !inOverlay) {
     isRacing = true;
@@ -1255,7 +1258,9 @@ function gameLoop(timestamp) {
   else if (isLeaderboard) drawLeaderboard();
   else if (!TrackEditor.active) drawUI();
 
-  StartLights.draw(ctx, camera.width, camera.height);
+  // Same reason the countdown is frozen above: a held sequence must not leave
+  // its lights sitting on the menu.
+  if (!inOverlay) StartLights.draw(ctx, camera.width, camera.height);
 
   // Race-only overlays. These sit on top of everything, so they have to be
   // held back on the screens that own the display — a "WET TRACK" label

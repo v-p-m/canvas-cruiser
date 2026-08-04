@@ -1,16 +1,21 @@
 // startLights.js
 
+const LEAD_IN = 700; // ms of dark lights before the countdown starts
+
 const StartLights = {
   active: false,
-  count: null, // 3, 2, 1, 0 (0 = GO!)
+  count: null, // null = lead-in, then 3, 2, 1, 0 (0 = GO!)
   timer: 0,
   interval: 1000, // ms per step
   goDisplayTime: 800,
   _lastTick: 0,
 
+  // Starts on the lead-in rather than on the first red light: the frame that
+  // calls this is also the one that first paints the grid, and a beep landing
+  // in the same instant the track appears reads as part of the transition.
   begin() {
     this.active = true;
-    this.count = 3;
+    this.count = null;
     this._lastTick = performance.now();
   },
 
@@ -19,10 +24,26 @@ const StartLights = {
     return this.active;
   },
 
-  update(timestamp) {
+  // `held` freezes the sequence — the clock is dragged along with the frame
+  // so it resumes where it stopped instead of firing every remaining step at
+  // once on the frame after.
+  update(timestamp, held) {
     if (!this.active) return;
+    if (held) {
+      this._lastTick = timestamp;
+      return;
+    }
 
     const elapsed = timestamp - this._lastTick;
+
+    if (this.count === null) {
+      if (elapsed >= LEAD_IN) {
+        this._lastTick = timestamp;
+        this.count = 3;
+        Sound.beep(false);
+      }
+      return;
+    }
 
     // Use shorter duration when showing GO
     const duration = this.count === 0 ? 400 : 1000;
@@ -34,6 +55,8 @@ const StartLights = {
       if (this.count < 0) {
         this.active = false;
         this.count = null;
+      } else {
+        Sound.beep(this.count === 0);
       }
     }
   },

@@ -2,7 +2,7 @@
 // Sound
 //
 // Everything here is synthesised at runtime — no audio files, nothing to
-// load, nothing to keep in sync with the repo. Three voices:
+// load, nothing to keep in sync with the repo. Four voices:
 //
 //   engine  two detuned oscillators through a lowpass, pitched off a fake
 //           gearbox so accelerating sweeps and drops instead of sliding up
@@ -10,6 +10,7 @@
 //   tires   looping white noise through a bandpass, opened by how far the
 //           car's velocity has diverged from where it is pointing
 //   impact  a filtered noise burst, one-shot, scaled by collision force
+//   beep    a plain tone with a hard envelope, for the start lights
 //
 // Browsers refuse to start an AudioContext before a user gesture, so the
 // graph is built lazily by unlock() from the first key or click. Every
@@ -24,6 +25,9 @@ const ENGINE_MAX_GAIN = 0.16;
 const TIRE_MAX_GAIN = 0.2;
 const SLIP_THRESHOLD = 1.4; // world px/frame of lateral slide before squeal
 const IMPACT_MIN_GAP = 0.05; // seconds between impact voices
+const BEEP_COUNT_HZ = 440; // start lights, one per red light
+const BEEP_GO_HZ = 880; // start lights, GO
+const BEEP_GAIN = 0.18;
 
 const Sound = {
   ctx: null,
@@ -213,5 +217,37 @@ const Sound = {
     src.connect(filter).connect(gain).connect(this.master);
     src.start(t);
     src.stop(t + 0.3);
+  },
+
+  // Start-light tone. `go` picks the higher, longer pitch for lights-out.
+  //
+  // A square through a lowpass rather than a sine: the harmonics are what
+  // make it cut through the engine, and the filter keeps them from turning
+  // into the shrill beep of a reversing truck.
+  beep(go) {
+    if (!this.ctx || this.muted) return;
+    const ac = this.ctx;
+    const t = ac.currentTime;
+    const dur = go ? 0.5 : 0.14;
+
+    const osc = ac.createOscillator();
+    osc.type = "square";
+    osc.frequency.value = go ? BEEP_GO_HZ : BEEP_COUNT_HZ;
+
+    const filter = ac.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = go ? 2600 : 1600;
+    filter.Q.value = 0.7;
+
+    const gain = ac.createGain();
+    // Ramp in over a couple of ms — starting at full gain clicks
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(BEEP_GAIN, t + 0.005);
+    gain.gain.setValueAtTime(BEEP_GAIN, t + dur * 0.6);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+    osc.connect(filter).connect(gain).connect(this.master);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
   },
 };
