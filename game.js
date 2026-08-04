@@ -261,6 +261,22 @@ function closeLeaderboard() {
   }
 }
 
+// The two ways off the results screen, shared by the keys and the buttons.
+function restartRace() {
+  resetRace();
+  racePaused = false;
+  scheduleWeather();
+  isMenu = false;
+  isRacing = false;
+  StartLights.begin();
+}
+
+function exitRaceToMenu() {
+  isMenu = true;
+  racePaused = false;
+  resetRace();
+}
+
 function resumePausedRace() {
   isMenu = false;
   isRacing = true;
@@ -349,19 +365,8 @@ window.addEventListener("keydown", (e) => {
   }
   // Race finished screen
   if (isRaceFinished) {
-    if (key === "r") {
-      resetRace();
-      racePaused = false;
-      scheduleWeather();
-      isMenu = false;
-      isRacing = false;
-      StartLights.begin();
-    }
-    if (key === "escape") {
-      isMenu = true;
-      racePaused = false;
-      resetRace();
-    }
+    if (key === "r") restartRace();
+    if (key === "escape") exitRaceToMenu();
     return;
   }
 
@@ -465,6 +470,10 @@ canvas.addEventListener("mousedown", (e) => {
     if (e.button === 0) handleLeaderboardClick(e.clientX, e.clientY);
     return;
   }
+  if (isRaceFinished) {
+    if (e.button === 0) handleRaceFinishedClick(e.clientX, e.clientY);
+    return;
+  }
   if (isKeyBindings) {
     if (
       e.button === 0 &&
@@ -485,7 +494,7 @@ canvas.addEventListener("mousedown", (e) => {
 canvas.addEventListener("mousemove", (e) => {
   mousePos.x = e.clientX;
   mousePos.y = e.clientY;
-  if (isMenu || isKeyBindings || isLeaderboard) return;
+  if (isMenu || isKeyBindings || isLeaderboard || isRaceFinished) return;
   if (TrackEditor.active) {
     TrackEditor.handleMouseMove(e.clientX, e.clientY, e.buttons);
     return;
@@ -1234,6 +1243,7 @@ function gameLoop(timestamp) {
     !isMenu &&
     !isKeyBindings &&
     !isLeaderboard &&
+    !isRaceFinished &&
     canvas.style.cursor !== "default"
   ) {
     canvas.style.cursor = "default";

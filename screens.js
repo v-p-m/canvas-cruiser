@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────
 // Screens — every pixel of UI the game draws onto the canvas: the start
 // menu, the in-race HUD, the records screen and the results screen, plus
-// the hit-testing that makes the first and third of those clickable.
+// the hit-testing that makes their buttons clickable.
 //
 // Each draw function rebuilds its own hit areas from the same numbers it
 // draws with, so the boxes can't drift out of step with the text when the
@@ -17,6 +17,7 @@ const mousePos = { x: -1, y: -1 };
 // Clickable regions, rebuilt every frame by the screen that owns them.
 let menuHitAreas = [];
 let leaderboardHitAreas = [];
+let raceFinishedHitAreas = [];
 
 const hitTest = (areas, x, y) =>
   areas.find((a) => x >= a.x && x <= a.x + a.w && y >= a.y && y <= a.y + a.h);
@@ -537,9 +538,46 @@ function drawRaceFinished() {
     y += 38;
   }
 
+  // Footer — both lines are clickable buttons
   ctx.textAlign = "center";
   ctx.font = "18px 'Courier New'";
-  ctx.fillStyle = "#AAA";
-  ctx.fillText("R  — Race again", cx, y);
-  ctx.fillText("ESC — Main menu", cx, y + 30);
+
+  raceFinishedHitAreas = [];
+  const buttons = [
+    { action: "again", text: "R  — Race again", y, hoverColor: "#FFD700" },
+    { action: "menu", text: "ESC — Main menu", y: y + 34, hoverColor: "#FFD700" },
+  ];
+
+  buttons.forEach((btn) => {
+    const w = ctx.measureText(btn.text).width + 32;
+    const h = 28;
+    const bx = cx - w / 2;
+    const by = btn.y - 20;
+    const hovered = isHovered(bx, by, w, h);
+
+    raceFinishedHitAreas.push({ action: btn.action, x: bx, y: by, w, h });
+
+    if (hovered) {
+      ctx.fillStyle = "rgba(255,215,0,0.12)";
+      ctx.beginPath();
+      ctx.roundRect(bx, by, w, h, 6);
+      ctx.fill();
+    }
+    ctx.fillStyle = hovered ? btn.hoverColor : "#AAA";
+    ctx.fillText(btn.text, cx, btn.y);
+  });
+
+  canvas.style.cursor = raceFinishedHitAreas.some((a) =>
+    isHovered(a.x, a.y, a.w, a.h),
+  )
+    ? "pointer"
+    : "default";
+}
+
+function handleRaceFinishedClick(x, y) {
+  const hit = hitTest(raceFinishedHitAreas, x, y);
+  if (!hit) return;
+
+  if (hit.action === "again") restartRace();
+  else if (hit.action === "menu") exitRaceToMenu();
 }
