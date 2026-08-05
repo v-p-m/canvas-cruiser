@@ -3,8 +3,8 @@
   "sections": [
     { "role": "Created by", "names": ["v-p-m"] },
     { "role": "Code assistance", "names": ["Claude (Anthropic)"] },
-    { "role": "Testing", "names": [] },
-    { "role": "With thanks to", "names": [] }
+    { "role": "Testing", "names": ["jauhku","nasse","op"] },
+    { "role": "With thanks to", "names": ["keijo"] }
   ],
   "footer": "Pure HTML5 Canvas · no engine, no dependencies"
 }
