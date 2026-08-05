@@ -165,6 +165,7 @@ const keys = {};
 // transform keeps paintSkidMark working in plain world coordinates.
 const SKID_MAX_EDGE = 4096; // px
 const SKID_SLIP = 2.4; // world px/frame of lateral slide before a mark is laid
+const SKID_REF_GRIP = 0.1; // the grip SKID_SLIP was measured at — car.driftGrip
 const skidCanvas = document.createElement("canvas");
 const skidCtx = skidCanvas.getContext("2d");
 let skidScale = 1;
@@ -220,6 +221,20 @@ function lateralSlip(entity) {
     entity.velocityX * Math.cos(entity.angle) +
       entity.velocityY * Math.sin(entity.angle),
   );
+}
+
+// Slip is the velocity grip has not pulled onto the heading yet, so it scales
+// as 1/grip — the same corner leaves a grippier car sliding proportionally
+// less. A single absolute threshold therefore quietly asks more of whoever
+// grips harder, and that is how the opponents stopped marking: aiGrip went
+// 0.15 → 0.2 for the racing, their slip fell under a 2.4 tuned at 0.15, and
+// four cars laid two scuffs a race. Scaling the threshold by grip asks both
+// for the same manoeuvre instead of the same number, and keeps doing so when
+// either grip slider moves. Rain is deliberately not in here: it lowers grip
+// to make the cars slide, and dividing that back out would erase the point.
+function skidThreshold(entity) {
+  const grip = entity.driftGrip ?? entity.grip; // player / opponent
+  return SKID_SLIP * (SKID_REF_GRIP / grip);
 }
 
 // --- Menu actions (shared by keyboard and mouse) ---
@@ -1186,12 +1201,12 @@ function gameLoop(timestamp) {
     // being down. Slip builds over ~10 frames after the wheel goes over, so a
     // tap or a mid-straight correction never reaches the threshold while a
     // committed corner does — and a shove from another car marks the tarmac
-    // even though nothing was steered. The opponents run the same rule off
-    // the same threshold; they slide under their own steering, so the corners
+    // even though nothing was steered. The opponents run the same rule, scaled
+    // to their own grip; they slide under their own steering, so the corners
     // rubber up whether or not the player is the one abusing them.
-    if (slip > SKID_SLIP) paintSkidMark(car);
+    if (slip > skidThreshold(car)) paintSkidMark(car);
     opponents.forEach((ai) => {
-      if (lateralSlip(ai) > SKID_SLIP) paintSkidMark(ai);
+      if (lateralSlip(ai) > skidThreshold(ai)) paintSkidMark(ai);
     });
   }
 
