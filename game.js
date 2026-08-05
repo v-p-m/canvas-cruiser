@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.10.0";
+const GAME_VERSION = "0.11.0";
 
 // --- Debug flag ---
 let DEBUG = false;

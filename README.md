@@ -1,4 +1,4 @@
-# Canvas Cruiser v0.10.0
+# Canvas Cruiser v0.11.0
 A minimalist top-down racing game built with pure **HTML5 Canvas** and **JavaScript**.
 
 Pick a mode in the menu — **Free Drive**, **5 Lap Race** or **10 Lap Race** —
