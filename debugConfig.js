@@ -37,7 +37,7 @@ const DebugConfig = {
 
   // Bumped whenever the built-in grid in game.js changes, so a saved copy of
   // the old one can't quietly override it on the next load.
-  spawnVersion: 2,
+  spawnVersion: 3,
 
   // Same idea for the opponent tuning: anyone who has ever opened the panel
   // has an `ai*` block in localStorage, and it would otherwise pin them to
@@ -176,6 +176,8 @@ const DebugConfig = {
     { key: "spawnAI3Y", label: "AI 3 Y", min: 0, max: 2048, step: 5 },
     { key: "spawnAI4X", label: "AI 4 X", min: 0, max: 2048, step: 5 },
     { key: "spawnAI4Y", label: "AI 4 Y", min: 0, max: 2048, step: 5 },
+    { key: "spawnAI5X", label: "AI 5 X", min: 0, max: 2048, step: 5 },
+    { key: "spawnAI5Y", label: "AI 5 Y", min: 0, max: 2048, step: 5 },
   ],
 
   values: {},

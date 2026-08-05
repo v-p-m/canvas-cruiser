@@ -61,6 +61,8 @@ const MODES = [
 ];
 
 // Staggered starting grid on the top straight, behind the finish line.
+// The field is six so it divides into three complete rows of two rather than
+// leaving one car alone at the back of a lane.
 // The straight runs y 128–320, so the two lanes sit at 190 and 258 — a car
 // is 34 wide across the grid and 56 long along it, which leaves both lanes
 // clear of the kerbs and every pair far enough apart that the collision
@@ -71,6 +73,7 @@ const SPAWN_POSITIONS = [
   { x: 440, y: 190, angle: Math.PI / 2, color: "#ff7700" }, // AI 2
   { x: 380, y: 258, angle: Math.PI / 2, color: "#00cc44" }, // AI 3
   { x: 320, y: 190, angle: Math.PI / 2, color: "#cc00cc" }, // AI 4
+  { x: 260, y: 258, angle: Math.PI / 2, color: "#ffd400" }, // AI 5
 ];
 
 const opponents = [];
@@ -804,7 +807,8 @@ const FINISH_HOLD_MS = 3000; // ms between taking the flag and the results
 
 // Called once the player takes the flag. Everyone still circulating is
 // classified where they stand rather than being left to finish — waiting
-// out four CPU cars after your own race is over is nobody's idea of fun.
+// out the rest of the field after your own race is over is nobody's idea of
+// fun.
 function finishRace() {
   const target = raceLapTarget();
   finishOrder = raceStandings().map((e) => ({
