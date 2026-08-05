@@ -28,16 +28,25 @@ const isHovered = (x, y, w, h) =>
   mousePos.y >= y &&
   mousePos.y <= y + h;
 
-const PersonalBest = {
+// One banner, two weights. Every completed lap flashes its time; a lap that
+// beat the record keeps the trophy, the gold and twice as long on screen.
+// Giving an ordinary lap the full treatment would spend it — a lap comes
+// round every 13 seconds or so and the banner sits over the racing line.
+const LapBanner = {
   active: false,
   timer: 0,
-  duration: 3000, // ms to show the banner
-  lastBest: null,
+  time: null,
+  best: false,
 
-  trigger(time) {
+  BEST_MS: 3000, // ms a personal best holds
+  LAP_MS: 1600, // ms an ordinary lap holds
+  FADE_MS: 500, // ms of fade at the tail
+
+  show(time, isBest) {
     this.active = true;
-    this.timer = this.duration;
-    this.lastBest = time;
+    this.time = time;
+    this.best = isBest;
+    this.timer = isBest ? this.BEST_MS : this.LAP_MS;
   },
 
   update(dt) {
@@ -51,28 +60,29 @@ const PersonalBest = {
   draw(ctx) {
     if (!this.active) return;
 
-    const alpha = Math.min(1, this.timer / 500); // fade out last 500ms
+    const text = this.best ? `🏆 NEW BEST: ${this.time}s` : `LAP: ${this.time}s`;
     const cx = camera.width / 2;
     const y = 120;
 
     ctx.save();
-    ctx.globalAlpha = alpha;
+    ctx.globalAlpha = Math.min(1, this.timer / this.FADE_MS);
 
-    // Banner
-    ctx.fillStyle = "#FFD700";
-    ctx.font = "bold 32px 'Courier New'";
+    ctx.fillStyle = this.best ? "#FFD700" : "#FFFFFF";
+    ctx.font = this.best ? "bold 32px 'Courier New'" : "bold 24px 'Courier New'";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(`🏆 NEW BEST: ${this.lastBest}s`, cx, y);
+    ctx.fillText(text, cx, y);
 
-    // Underline
-    const textWidth = ctx.measureText(`🏆 NEW BEST: ${this.lastBest}s`).width;
-    ctx.strokeStyle = "#FFD700";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx - textWidth / 2, y + 22);
-    ctx.lineTo(cx + textWidth / 2, y + 22);
-    ctx.stroke();
+    // Underline — part of what makes a best read as more than a lap time
+    if (this.best) {
+      const textWidth = ctx.measureText(text).width;
+      ctx.strokeStyle = "#FFD700";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - textWidth / 2, y + 22);
+      ctx.lineTo(cx + textWidth / 2, y + 22);
+      ctx.stroke();
+    }
 
     ctx.restore();
   },
@@ -245,6 +255,8 @@ function handleMenuClick(x, y) {
 // ─────────────────────────────────────────
 // In-race HUD
 // ─────────────────────────────────────────
+const HUD_GAP = 20; // px between readouts in the top bar
+
 function drawUI() {
   ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
   ctx.fillRect(0, 0, camera.width, 60);
@@ -262,11 +274,14 @@ function drawUI() {
   ctx.fillText(lapLabel, 20, 35);
 
   // Position, next to the lap counter. Free Drive has nothing to place.
+  let leftBlockEnd = 20 + ctx.measureText(lapLabel).width;
   if (lapCount) {
     const pos = playerPosition();
+    const posText = `P${pos}/${opponents.length + 1}`;
     ctx.fillStyle = pos === 1 ? "#FFD700" : "#00FF00";
-    ctx.fillText(`P${pos}/${opponents.length + 1}`, 20 + 190, 35);
+    ctx.fillText(posText, 20 + 190, 35);
     ctx.fillStyle = "#00FF00";
+    leftBlockEnd = 20 + 190 + ctx.measureText(posText).width;
   }
 
   ctx.textAlign = "right";
@@ -277,8 +292,35 @@ function drawUI() {
   );
   ctx.textAlign = "center";
   if (hasStarted) {
-    currentLapTime = ((performance.now() - lapStartTime) / 1000).toFixed(2);
-    ctx.fillText(`TIME: ${currentLapTime}s`, camera.width / 2, 35);
+    // Past the flag the running clock is timing a lap that will never be
+    // completed, so it gives way to the total the player actually earned.
+    let timeText;
+    if (finishHoldTimer > 0) {
+      timeText = `TOTAL: ${totalRaceTime}s`;
+    } else {
+      currentLapTime = ((performance.now() - lapStartTime) / 1000).toFixed(2);
+      timeText = `TIME: ${currentLapTime}s`;
+    }
+    ctx.fillText(timeText, camera.width / 2, 35);
+
+    // The last lap sits immediately left of the running clock: the two are
+    // read against each other, so they belong side by side rather than at
+    // opposite ends of the bar. Dimmer than the live time, gold when that lap
+    // is the record. Narrow windows drop it instead of overlapping the lap
+    // and position block — those two are load-bearing, this is reference.
+    if (lastLapTime !== null) {
+      const lastText = `LAST: ${lastLapTime}s`;
+      const right =
+        camera.width / 2 - ctx.measureText(timeText).width / 2 - HUD_GAP;
+      if (right - ctx.measureText(lastText).width > leftBlockEnd + HUD_GAP) {
+        ctx.textAlign = "right";
+        ctx.fillStyle =
+          parseFloat(lastLapTime) === highScores[0] ? "#FFD700" : "#00AA44";
+        ctx.fillText(lastText, right, 35);
+        ctx.fillStyle = "#00FF00";
+        ctx.textAlign = "center";
+      }
+    }
   }
 
   drawMinimap();

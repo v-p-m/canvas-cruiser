@@ -8,6 +8,7 @@ let hasStarted = false;
 let onFinishLine = false;
 let lapStartTime = 0;
 let currentLapTime = 0;
+let lastLapTime = null; // the previous lap's time, or null before one is done
 let bestLapTime = 0;
 let isMenu = true;
 let isRacing = false;
@@ -43,6 +44,7 @@ let weatherWetToLap = null;
 let totalRaceStart = 0;
 let totalRaceTime = 0;
 let isRaceFinished = false;
+let finishHoldTimer = 0; // ms left of the roll-out before the results appear
 let leaderboardFrom = "game"; // "game" | "menu"
 let isKeyBindings = false;
 
@@ -532,9 +534,8 @@ function saveLapTime(time) {
   highScores = highScores.slice(0, 5);
   localStorage.setItem("highScores", JSON.stringify(highScores));
 
-  if (highScores[0] === parsed && parsed !== previousBest) {
-    PersonalBest.trigger(time);
-  }
+  lastLapTime = time;
+  LapBanner.show(time, highScores[0] === parsed && parsed !== previousBest);
 }
 
 function saveTotalTime(mode, time) {
@@ -598,6 +599,7 @@ function applyWeatherForLap(lap) {
 function resetRace() {
   isLeaderboard = false;
   isRaceFinished = false;
+  finishHoldTimer = 0;
   totalRaceTime = 0;
   totalRaceStart = 0;
   finishOrder = [];
@@ -649,6 +651,7 @@ function resetRace() {
   laps = 0;
   hasStarted = false;
   currentLapTime = 0;
+  lastLapTime = null;
   onFinishLine = false;
 
   clearSkidMarks();
@@ -747,6 +750,13 @@ function playerPosition() {
   return raceStandings().find((e) => e.isPlayer).position;
 }
 
+// The flag does not cut straight to the results: the car brakes itself to a
+// stop and the last lap's time gets its moment on screen first. The table is
+// still built here, at the instant of crossing, so nothing in it can drift
+// while the hold plays out — an opponent gaining a place after the player has
+// already finished would read as the results reordering themselves.
+const FINISH_HOLD_MS = 3000; // ms between taking the flag and the results
+
 // Called once the player takes the flag. Everyone still circulating is
 // classified where they stand rather than being left to finish — waiting
 // out four CPU cars after your own race is over is nobody's idea of fun.
@@ -763,8 +773,7 @@ function finishRace() {
   }));
 
   playerFinishPosition = finishOrder.find((e) => e.isPlayer).position;
-  isRaceFinished = true;
-  isRacing = false;
+  finishHoldTimer = FINISH_HOLD_MS;
 }
 
 // Shared lap counter. `entity` needs .x/.y/.laps/.onFinishLine/.finished;
@@ -808,6 +817,15 @@ function updateLapCounter(entity, isPlayer) {
 
   entity.laps++;
 
+  // The crossing that takes the flag completed a lap like any other, and it
+  // is usually the quickest one. Recording it below the finish branch meant a
+  // 5-lap race only ever offered four of its laps to the records.
+  if (isPlayer) {
+    const lapTime = ((now - lapStartTime) / 1000).toFixed(2);
+    lapStartTime = now;
+    saveLapTime(lapTime);
+  }
+
   if (target && entity.laps > target) {
     entity.finished = true;
     entity.finishPosition = nextFinishPosition++;
@@ -823,11 +841,8 @@ function updateLapCounter(entity, isPlayer) {
   }
 
   if (isPlayer) {
-    const lapTime = ((now - lapStartTime) / 1000).toFixed(2);
-    lapStartTime = now;
     laps = entity.laps;
     applyWeatherForLap(laps);
-    saveLapTime(lapTime);
   }
 }
 
@@ -1062,12 +1077,23 @@ function gameLoop(timestamp) {
   // running, so it has to be held rather than left to tick — otherwise it
   // counts down behind the menu and now beeps over it too.
   StartLights.update(timestamp, inOverlay);
-  PersonalBest.update(dt);
+  LapBanner.update(dt);
   // Raw dt, not the clamped delta — a frame that took 40ms is the whole
   // signal here, and `delta` throws that away above 50ms.
   Quality.sample(dt);
   DebugHUD.update(timestamp);
   Rain.update(delta);
+
+  // Same reason the countdown is held above: a hold left running behind the
+  // menu would drop the player onto the results the moment they came back.
+  if (finishHoldTimer > 0 && !inOverlay) {
+    finishHoldTimer -= dt;
+    if (finishHoldTimer <= 0) {
+      finishHoldTimer = 0;
+      isRaceFinished = true;
+      isRacing = false;
+    }
+  }
 
   if (!StartLights.active && !isRacing && !inOverlay) {
     isRacing = true;
@@ -1078,16 +1104,29 @@ function gameLoop(timestamp) {
   let slip = 0;
 
   if (isRacing && !inOverlay) {
-    const accel = keys[KeyBindings.bindings.accelerate];
-    const braking = keys[KeyBindings.bindings.brake];
-    const left = keys[KeyBindings.bindings.left];
-    const right = keys[KeyBindings.bindings.right];
+    // Past the flag the player is a passenger — the keys do nothing and the
+    // car brakes itself down. The opponents are deliberately left racing:
+    // they are still on their own lap, and the table was already taken.
+    const rollingOut = finishHoldTimer > 0;
+
+    const accel = !rollingOut && keys[KeyBindings.bindings.accelerate];
+    const braking = !rollingOut && keys[KeyBindings.bindings.brake];
+    const left = !rollingOut && keys[KeyBindings.bindings.left];
+    const right = !rollingOut && keys[KeyBindings.bindings.right];
     throttle = !!accel;
 
     // car.friction, not a second hardcoded constant — it is what the rain's
     // FRICTION_BONUS has always meant to raise, and never could while the
     // coast rate was written out separately here.
-    if (accel) car.speed += car.acceleration * delta;
+    if (rollingOut) {
+      // Toward zero from either side, and stopping there — braking straight
+      // through it would back the car over its own finish line.
+      const drop = car.acceleration * delta;
+      car.speed =
+        Math.abs(car.speed) <= drop
+          ? 0
+          : car.speed - Math.sign(car.speed) * drop;
+    } else if (accel) car.speed += car.acceleration * delta;
     else if (braking) car.speed -= car.acceleration * delta;
     else car.speed *= Math.pow(car.friction + Rain.frictionBonus(), delta);
 
@@ -1253,7 +1292,7 @@ function gameLoop(timestamp) {
   // held back on the screens that own the display — a "WET TRACK" label
   // across the results table reads as part of the results.
   if (!inOverlay && !TrackEditor.active) {
-    PersonalBest.draw(ctx);
+    LapBanner.draw(ctx);
     Rain.drawHUD();
   }
 
