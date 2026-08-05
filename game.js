@@ -120,6 +120,7 @@ function resizeCanvas() {
   // setTransform, not scale — resize fires repeatedly and scale compounds.
   ctx.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
   ctx.imageSmoothingEnabled = true;
+  CarSprites.invalidate(); // the sprites are baked at the old renderDpr
 }
 resizeCanvas();
 
@@ -147,8 +148,9 @@ const car = {
   finishTime: 0,
   raceStart: 0,
 };
-const carImage = new Image();
-carImage.src = "assets/car_player.png";
+// One source of truth for the player's livery: it paints the sprite and the
+// colour chip beside "YOU" in the standings, which have to agree.
+const PLAYER_COLOR = "#e01b1b";
 
 const keys = {};
 
@@ -715,7 +717,7 @@ function raceScore(entity) {
 // to the order they finished in; the rest are sorted live by progress.
 function raceStandings() {
   const entries = [
-    { entity: car, isPlayer: true, name: "YOU", color: "#ff2222" },
+    { entity: car, isPlayer: true, name: "YOU", color: PLAYER_COLOR },
     ...opponents.map((ai, i) => ({
       entity: ai,
       isPlayer: false,
@@ -937,29 +939,14 @@ function drawCar() {
   ctx.translate(car.x - camera.x, car.y - camera.y); // screen space
   ctx.rotate(car.angle);
 
-  if (carImage.complete && carImage.naturalWidth > 0) {
-    // Draw the sprite centered on the car's position
-    ctx.drawImage(
-      carImage,
-      -car.width / 2,
-      -car.height / 2,
-      car.width,
-      car.height,
-    );
-  } else {
-    // Fallback: original rectangle car while image loads
-    const w = car.width;
-    const h = car.height;
-    ctx.fillStyle = "#333";
-    ctx.fillRect(-w / 2 - 2, -h / 2 + 5, 8, 12);
-    ctx.fillRect(w / 2 - 6, -h / 2 + 5, 8, 12);
-    ctx.fillRect(-w / 2 - 2, h / 2 - 15, 8, 12);
-    ctx.fillRect(w / 2 - 6, h / 2 - 15, 8, 12);
-    ctx.fillStyle = "#d00";
-    ctx.fillRect(-w / 2, -h / 2, w, h);
-    ctx.fillStyle = "#add8e6";
-    ctx.fillRect(-w / 2 + 4, -h / 2 + 10, w - 8, 12);
-  }
+  // Centred on the car's position, so rotation turns it about its middle
+  ctx.drawImage(
+    CarSprites.get(PLAYER_COLOR),
+    -car.width / 2,
+    -car.height / 2,
+    car.width,
+    car.height,
+  );
 
   ctx.restore();
 }

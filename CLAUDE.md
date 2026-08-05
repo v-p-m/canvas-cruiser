@@ -7,8 +7,8 @@ reloading the page is the whole dev loop.
 ## Layout
 
 Scripts are plain `<script>` tags in [index.html](index.html) — everything is a
-global, and **load order matters** (`track.js` → editors → `ai.js` → helpers →
-`game.js` last). There are no modules; don't add `import`/`export` without
+global, and **load order matters** (`track.js` → editors → `carSprites.js` →
+`ai.js` → helpers → `game.js` last). There are no modules; don't add `import`/`export` without
 converting the page to `type="module"`.
 
 | File | Role |
@@ -19,6 +19,7 @@ converting the page to `type="module"`.
 | [sound.js](sound.js) | WebAudio, synthesised — engine, tire squeal, impacts. No audio files. `Sound.unlock()` must be called from a user gesture or nothing plays. |
 | [quality.js](quality.js) | Render-scale governor. Probes WebGL for a software rasteriser before the first frame, then watches the frame interval and moves the dpr cap down a ladder. Owns `Quality.cap`; `resizeCanvas()` in `game.js` is what reads it. |
 | [track.js](track.js) | `Track` class. Loads `track.json` (tile grid), rasterises + blurs it into a "road field"; both the baked artwork and the physics sample that one field, so visuals and collision can't disagree. |
+| [carSprites.js](carSprites.js) | The one open-wheel car, as a pixel grid baked to a canvas per livery — no PNGs. Body colour is substituted at bake time and its shade/highlight derived, so a new rival is just a hex. Bakes in device pixels; `resizeCanvas()` must call `CarSprites.invalidate()` when the render scale moves. |
 | [ai.js](ai.js) | Opponent waypoint following, corner braking, mutual repulsion. Laps and race position are *not* here — `updateLapCounter` in `game.js` drives the player and every opponent through the same code. |
 | [trackEditor.js](trackEditor.js) | Tile map editor. DEBUG on (`B`), then `T`. `P` exports `track.json`. |
 | [waypointEditor.js](waypointEditor.js) | Drag AI waypoints. DEBUG on, then `E`. |

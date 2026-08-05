@@ -340,7 +340,7 @@ function drawMinimap() {
   // Player last and ringed, so it stays findable in a pack
   ctx.strokeStyle = "#fff";
   ctx.lineWidth = 1.5;
-  dot(car.x, car.y, "#ff2222", 3.5);
+  dot(car.x, car.y, PLAYER_COLOR, 3.5);
   ctx.beginPath();
   ctx.arc(x + car.x * scale, y + car.y * scale, 5, 0, Math.PI * 2);
   ctx.stroke();
