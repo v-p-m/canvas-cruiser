@@ -14,7 +14,7 @@ converting the page to `type="module"`.
 | File | Role |
 |---|---|
 | [game.js](game.js) | Game state, input, physics, collisions, lap counting, race order, the single `gameLoop`. Everything not owned by a file below lives here. |
-| [screens.js](screens.js) | Every pixel of canvas UI: start menu, HUD, minimap, records, results — plus the hit-testing that makes them clickable. |
+| [screens.js](screens.js) | Every pixel of canvas UI: start menu, HUD, minimap, records, results, the credits popup — plus the hit-testing that makes them clickable. The credits roll is data, not code: it is fetched from `credits.json` (built-in fallback if that 404s or is malformed), wrapped to the panel width and scrolled if it outgrows the window. |
 | [rain.js](rain.js) | Weather: drop pool, puddles, screen tint. Exposes `gripScale()`/`frictionBonus()`; it must never assign to `car.driftGrip` etc. directly or it overwrites the tuning sliders. |
 | [sound.js](sound.js) | WebAudio, synthesised — engine, tire squeal, impacts. No audio files. `Sound.unlock()` must be called from a user gesture or nothing plays. |
 | [quality.js](quality.js) | Render-scale governor. Probes WebGL for a software rasteriser before the first frame, then watches the frame interval and moves the dpr cap down a ladder. Owns `Quality.cap`; `resizeCanvas()` in `game.js` is what reads it. |

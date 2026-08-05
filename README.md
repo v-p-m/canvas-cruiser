@@ -25,9 +25,23 @@ python3 -m http.server 8123
 | P | Toggle rain (Free Drive) |
 | M | Mute / unmute |
 | K | Remap the driving keys (from the menu) |
+| I | Credits (from the menu) |
 | B | Debug overlay |
 
 Steering and throttle keys are remappable and persist across reloads.
+
+## Credits
+`I` on the menu opens the credits popup. The roll lives in
+[credits.json](credits.json) — add testers or supporters there and reload; no
+code change is needed. Each section is a heading plus any number of names:
+
+```json
+{ "role": "Testing", "names": ["Aino K.", "Bertil", "Cheng Wei"] }
+```
+
+Long lists wrap and, if they outgrow the window, scroll on the mouse wheel or
+the arrow keys. Sections with no names yet are skipped, and if the file is
+missing or malformed the game falls back to a built-in roll.
 
 ## Features
 - Tile-based track loaded from `track.json`, rasterised and blurred into a

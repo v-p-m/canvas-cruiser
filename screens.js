@@ -18,6 +18,8 @@ const mousePos = { x: -1, y: -1 };
 let menuHitAreas = [];
 let leaderboardHitAreas = [];
 let raceFinishedHitAreas = [];
+let creditsHitAreas = [];
+let creditsPanel = null; // credits modal frame, for click-away dismissal
 
 const hitTest = (areas, x, y) =>
   areas.find((a) => x >= a.x && x <= a.x + a.w && y >= a.y && y <= a.y + a.h);
@@ -92,6 +94,10 @@ const LapBanner = {
 // Start menu
 // ─────────────────────────────────────────
 function drawStartMenu() {
+  // The credits popup takes the input; highlighting rows under it would light
+  // them up through the dim as if they were still live.
+  const live = !isCredits;
+
   ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
   ctx.fillRect(0, 0, camera.width, camera.height);
 
@@ -118,7 +124,7 @@ function drawStartMenu() {
     const boxH = 40;
     const boxX = cx - boxW / 2;
     const boxY = y - 28;
-    const hovered = isHovered(boxX, boxY, boxW, boxH);
+    const hovered = live && isHovered(boxX, boxY, boxW, boxH);
 
     menuHitAreas.push({
       x: boxX,
@@ -156,6 +162,7 @@ function drawStartMenu() {
     { key: "ENTER", action: "Start", id: "start" },
     { key: "K", action: "Key bindings", id: "keybindings" },
     { key: "Q", action: "Records", id: "leaderboard" },
+    { key: "I", action: "Credits", id: "credits" },
     { key: "M", action: Sound.muted ? "Sound: OFF" : "Sound: ON", id: "mute" },
     { key: "B", action: "DEBUG", id: "debug" },
   ];
@@ -182,7 +189,7 @@ function drawStartMenu() {
     const rowW = keyW + actionW + 2 * gutter + 16;
     const rowY = y - 16;
     const rowH = lineSpacing - 8;
-    const hovered = item.id && isHovered(rowX, rowY, rowW, rowH);
+    const hovered = live && item.id && isHovered(rowX, rowY, rowW, rowH);
 
     if (item.id) {
       menuHitAreas.push({
@@ -240,6 +247,9 @@ function handleMenuClick(x, y) {
     case "leaderboard":
       openLeaderboardFromMenu();
       break;
+    case "credits":
+      openCredits();
+      break;
     case "mute":
       Sound.toggleMute();
       break;
@@ -250,6 +260,276 @@ function handleMenuClick(x, y) {
       resumePausedRace();
       break;
   }
+}
+
+// ─────────────────────────────────────────
+// Credits
+// ─────────────────────────────────────────
+
+// The roll lives in credits.json so adding a tester is a data edit, not a code
+// edit. This copy is the fallback the game shows if that file is missing or
+// unparseable — the same "bad data is dropped, never trusted" rule the
+// localStorage readers in game.js follow.
+const CREDITS_FALLBACK = {
+  sections: [
+    { role: "Created by", names: ["v-p-m"] },
+    { role: "Code assistance", names: ["Claude (Anthropic)"] },
+  ],
+  footer: "Pure HTML5 Canvas · no engine, no dependencies",
+};
+let Credits = CREDITS_FALLBACK;
+
+// Never throws and never rejects: the credits are decoration, and initGame()
+// treats anything thrown out of startup as a fatal "failed to load".
+async function loadCredits() {
+  try {
+    const res = await fetch("credits.json");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const sections = (Array.isArray(data.sections) ? data.sections : [])
+      .filter((s) => s && typeof s.role === "string" && Array.isArray(s.names))
+      .map((s) => ({
+        role: s.role,
+        names: s.names.filter((n) => typeof n === "string" && n.trim() !== ""),
+      }))
+      // A section nobody has been added to yet is a placeholder, not a blank
+      // heading to draw — credits.json ships with two of them.
+      .filter((s) => s.names.length > 0);
+
+    if (sections.length === 0) return; // keep the fallback rather than draw nothing
+    Credits = {
+      sections,
+      footer:
+        typeof data.footer === "string" ? data.footer : CREDITS_FALLBACK.footer,
+    };
+  } catch (err) {
+    console.warn("credits.json unavailable, using the built-in roll:", err);
+  }
+}
+
+const CREDITS_PANEL_W = 480; // px, before the small-window clamp
+const CREDITS_ROLE_H = 22; // px per role heading
+const CREDITS_NAME_H = 28; // px per name line
+const CREDITS_SECTION_GAP = 20; // px between sections
+const CREDITS_MARGIN = 30; // px of viewport left around the panel
+const CREDITS_HEAD_H = 96; // px of title block, fixed above the scroll
+const CREDITS_FOOT_H = 96; // px of footer + close button, fixed below it
+const CREDITS_LEAD = 20; // px above the first line, inside the scroll window
+
+let creditsScroll = 0; // px the name list is scrolled down by
+
+function scrollCredits(dy) {
+  creditsScroll += dy;
+}
+
+// Breaks a section's names into lines that fit `maxW`, keeping each name
+// whole — wrapping mid-name would read as two people. Assumes the caller has
+// already set the name font on ctx.
+function wrapNames(names, maxW) {
+  const lines = [];
+  let line = "";
+  names.forEach((name, i) => {
+    const piece = i < names.length - 1 ? `${name},` : name;
+    const merged = line ? `${line} ${piece}` : piece;
+    if (line && ctx.measureText(merged).width > maxW) {
+      lines.push(line);
+      line = piece;
+    } else {
+      line = merged;
+    }
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+// A modal, not a screen: the menu keeps drawing underneath and the backdrop
+// only dims it, so it reads as a popup over the game rather than a page the
+// menu navigated away to.
+function drawCredits() {
+  creditsHitAreas = [];
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+  ctx.fillRect(0, 0, camera.width, camera.height);
+
+  const w = Math.min(CREDITS_PANEL_W, camera.width - 2 * CREDITS_MARGIN);
+  const cx = camera.width / 2;
+
+  // Lay the roll out before the panel is sized: how many lines a section takes
+  // depends on the wrap, and the wrap depends on the width, so the height can
+  // only be known once. Rebuilt every frame like every other hit area here —
+  // this is a static modal, and a stale layout is worse than a few measureText
+  // calls.
+  const textW = w - 48;
+  ctx.font = "bold 20px 'Courier New'";
+  const lines = [];
+  Credits.sections.forEach((section, i) => {
+    if (i > 0) lines.push({ kind: "gap", h: CREDITS_SECTION_GAP });
+    lines.push({ kind: "role", text: section.role.toUpperCase(), h: CREDITS_ROLE_H });
+    wrapNames(section.names, textW).forEach((text) =>
+      lines.push({ kind: "name", text, h: CREDITS_NAME_H }),
+    );
+  });
+
+  // The scroll window opens CREDITS_LEAD above the first baseline, so the top
+  // role's ascenders aren't shaved off; that lead is part of the content, and
+  // both the panel height and the scroll range have to count it or the last
+  // line gets clipped with nothing to scroll to.
+  const contentH = lines.reduce((sum, l) => sum + l.h, CREDITS_LEAD);
+  const fullH = CREDITS_HEAD_H + contentH + CREDITS_FOOT_H;
+  const h = Math.min(fullH, camera.height - 2 * CREDITS_MARGIN);
+  const x = (camera.width - w) / 2;
+  const y = (camera.height - h) / 2;
+  creditsPanel = { x, y, w, h };
+
+  const bodyTop = y + CREDITS_HEAD_H - CREDITS_LEAD;
+  const bodyBottom = y + h - CREDITS_FOOT_H;
+  const viewH = Math.max(0, bodyBottom - bodyTop);
+
+  // Only the name list scrolls; the title and the way out stay put.
+  const maxScroll = Math.max(0, contentH - viewH);
+  creditsScroll = Math.max(0, Math.min(creditsScroll, maxScroll));
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.7)";
+  ctx.shadowBlur = 30;
+  ctx.fillStyle = "rgba(14, 14, 20, 0.97)";
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 14);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = "#FFD700";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 14);
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#FFD700";
+  ctx.font = "bold 30px 'Courier New'";
+  ctx.fillText("CREDITS", cx, y + 52);
+
+  ctx.strokeStyle = "rgba(255,215,0,0.35)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + 40, y + 74);
+  ctx.lineTo(x + w - 40, y + 74);
+  ctx.stroke();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x + 1, bodyTop, w - 2, viewH);
+  ctx.clip();
+
+  let ty = bodyTop + CREDITS_LEAD - creditsScroll;
+  lines.forEach((line) => {
+    if (line.kind === "role") {
+      ctx.fillStyle = "#777";
+      ctx.font = "14px 'Courier New'";
+      ctx.fillText(line.text, cx, ty);
+    } else if (line.kind === "name") {
+      ctx.fillStyle = "#FFF";
+      ctx.font = "bold 20px 'Courier New'";
+      ctx.fillText(line.text, cx, ty + 18);
+    }
+    ty += line.h;
+  });
+  ctx.restore();
+
+  // Fade the clipped edges rather than slicing a name in half, and only on the
+  // side there is actually more roll to reach.
+  const fade = (top) => {
+    const gy = top ? bodyTop : bodyBottom;
+    const g = ctx.createLinearGradient(0, gy, 0, gy + (top ? 22 : -22));
+    g.addColorStop(0, "rgba(14, 14, 20, 0.97)");
+    g.addColorStop(1, "rgba(14, 14, 20, 0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(x + 1, top ? gy : gy - 22, w - 2, 22);
+  };
+  if (creditsScroll > 0) fade(true);
+  if (creditsScroll < maxScroll) fade(false);
+
+  if (maxScroll > 0) {
+    const trackH = viewH - 8;
+    const thumbH = Math.max(24, trackH * (viewH / contentH));
+    const thumbY = bodyTop + 4 + (trackH - thumbH) * (creditsScroll / maxScroll);
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillRect(x + w - 12, bodyTop + 4, 4, trackH);
+    ctx.fillStyle = "rgba(255,215,0,0.45)";
+    ctx.fillRect(x + w - 12, thumbY, 4, thumbH);
+  }
+
+  const footTop = y + h - CREDITS_FOOT_H;
+  ctx.fillStyle = "#666";
+  ctx.font = "14px 'Courier New'";
+  ctx.fillText(Credits.footer, cx, footTop + 26);
+  ctx.fillText("v" + GAME_VERSION, cx, footTop + 46);
+
+  // Corner ×, the affordance a popup is expected to carry
+  const closeSize = 26;
+  const closeX = x + w - closeSize - 14;
+  const closeY = y + 14;
+  const closeHot = isHovered(closeX, closeY, closeSize, closeSize);
+  creditsHitAreas.push({
+    x: closeX,
+    y: closeY,
+    w: closeSize,
+    h: closeSize,
+    action: "close",
+  });
+
+  if (closeHot) {
+    ctx.fillStyle = "rgba(255,215,0,0.15)";
+    ctx.beginPath();
+    ctx.roundRect(closeX, closeY, closeSize, closeSize, 6);
+    ctx.fill();
+  }
+  ctx.fillStyle = closeHot ? "#FFD700" : "#888";
+  ctx.font = "bold 20px 'Courier New'";
+  ctx.textBaseline = "middle";
+  ctx.fillText("×", closeX + closeSize / 2, closeY + closeSize / 2 + 1);
+  ctx.textBaseline = "alphabetic";
+
+  // Footer button, worded like every other way out of a screen
+  const label = "ESC — Close";
+  ctx.font = "18px 'Courier New'";
+  const bw = ctx.measureText(label).width + 32;
+  const bh = 30;
+  const bx = cx - bw / 2;
+  const by = y + h - 48;
+  const bHot = isHovered(bx, by, bw, bh);
+  creditsHitAreas.push({ x: bx, y: by, w: bw, h: bh, action: "close" });
+
+  if (bHot) {
+    ctx.fillStyle = "rgba(255,215,0,0.12)";
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 6);
+    ctx.fill();
+  }
+  ctx.fillStyle = bHot ? "#FFD700" : "#AAA";
+  ctx.fillText(label, cx, by + 21);
+
+  canvas.style.cursor = creditsHitAreas.some((a) =>
+    isHovered(a.x, a.y, a.w, a.h),
+  )
+    ? "pointer"
+    : "default";
+}
+
+function handleCreditsClick(x, y) {
+  const hit = hitTest(creditsHitAreas, x, y);
+  if (hit) {
+    if (hit.action === "close") closeCredits();
+    return;
+  }
+  // Click-away dismisses; a click that lands on the panel itself is swallowed,
+  // or dragging a selection across the names would close the popup.
+  const p = creditsPanel;
+  const onPanel =
+    p && x >= p.x && x <= p.x + p.w && y >= p.y && y <= p.y + p.h;
+  if (!onPanel) closeCredits();
 }
 
 // ─────────────────────────────────────────

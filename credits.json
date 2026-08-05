@@ -1,0 +1,10 @@
+{
+  "_comment": "The credits roll. Edit this file and reload — no code change needed. Each section is a heading plus any number of names; the popup wraps long lists and scrolls if they outgrow the window. If this file is missing or malformed the game falls back to the built-in roll in screens.js.",
+  "sections": [
+    { "role": "Created by", "names": ["v-p-m"] },
+    { "role": "Code assistance", "names": ["Claude (Anthropic)"] },
+    { "role": "Testing", "names": [] },
+    { "role": "With thanks to", "names": [] }
+  ],
+  "footer": "Pure HTML5 Canvas · no engine, no dependencies"
+}

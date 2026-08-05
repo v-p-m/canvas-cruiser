@@ -47,6 +47,7 @@ let isRaceFinished = false;
 let finishHoldTimer = 0; // ms left of the roll-out before the results appear
 let leaderboardFrom = "game"; // "game" | "menu"
 let isKeyBindings = false;
+let isCredits = false; // modal over the menu, so `isMenu` stays true with it
 
 // Final classification, built the moment the player crosses the line — see
 // finishRace(). Opponents still on track are classified where they stand.
@@ -261,6 +262,15 @@ function openLeaderboardFromMenu() {
   leaderboardFrom = "menu";
 }
 
+function openCredits() {
+  isCredits = true;
+  creditsScroll = 0; // always opens on the top of the roll
+}
+
+function closeCredits() {
+  isCredits = false;
+}
+
 function toggleDebug() {
   DEBUG = !DEBUG;
   console.log(`Debug ${DEBUG ? "ON" : "OFF"}`);
@@ -329,6 +339,18 @@ window.addEventListener("keydown", (e) => {
 
   // Menu navigation
   if (isMenu) {
+    // The credits popup is modal: it eats every menu key while it is up, so
+    // ESC can't resume a paused race and Enter can't start one behind it.
+    if (isCredits) {
+      if (key === "escape" || key === "i" || key === "enter") closeCredits();
+      else if (e.key === "ArrowDown") scrollCredits(40);
+      else if (e.key === "ArrowUp") scrollCredits(-40);
+      return;
+    }
+    if (key === "i") {
+      openCredits();
+      return;
+    }
     if (key === "escape" && racePaused) {
       resumePausedRace();
       return;
@@ -482,7 +504,10 @@ canvas.addEventListener("mousedown", (e) => {
   canvas.focus();
   Sound.unlock();
   if (isMenu) {
-    if (e.button === 0) handleMenuClick(e.clientX, e.clientY);
+    if (e.button === 0) {
+      if (isCredits) handleCreditsClick(e.clientX, e.clientY);
+      else handleMenuClick(e.clientX, e.clientY);
+    }
     return;
   }
   if (isLeaderboard) {
@@ -532,6 +557,11 @@ canvas.addEventListener("mouseup", () => {
 canvas.addEventListener(
   "wheel",
   (e) => {
+    if (isMenu && isCredits) {
+      scrollCredits(e.deltaY);
+      e.preventDefault(); // don't rubber-band the page behind the popup
+      return;
+    }
     TrackEditor.handleWheel(e);
   },
   { passive: false },
@@ -1293,8 +1323,12 @@ function gameLoop(timestamp) {
     canvas.style.cursor = "default";
   }
 
-  if (isMenu) drawStartMenu();
-  else if (isKeyBindings) KeyBindings.draw(ctx, camera, mousePos);
+  if (isMenu) {
+    drawStartMenu();
+    // Drawn after the menu, so the menu's own hover pass can't take the cursor
+    // back off the popup's buttons.
+    if (isCredits) drawCredits();
+  } else if (isKeyBindings) KeyBindings.draw(ctx, camera, mousePos);
   else if (isRaceFinished) drawRaceFinished();
   else if (isLeaderboard) drawLeaderboard();
   else if (!TrackEditor.active) drawUI();
@@ -1337,6 +1371,7 @@ async function initGame() {
 async function initGameUnsafe() {
   KeyBindings.load();
   Sound.load();
+  await loadCredits();
   await worldTrack.load("track.json");
   WaypointEditor.init(worldTrack.data.waypoints);
   resizeSkidCanvas();
