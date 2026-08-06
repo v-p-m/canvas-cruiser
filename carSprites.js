@@ -19,6 +19,18 @@
 const CAR_SPRITE_W = 34; // px, matches car.width / AICar.width
 const CAR_SPRITE_H = 56; // px, matches car.height / AICar.height
 
+// The two front tyres, as boxes in the pixel grid below. They are lifted out
+// of the body bake and drawn as their own images so they can be rotated on
+// top of it — an open-wheeler whose front wheels never move reads as a decal.
+// The suspension arms are deliberately outside the boxes: they stay welded to
+// the tub while the wheel turns, which is what the real linkage does.
+const FRONT_WHEELS = [
+  { x: 1, y: 6, w: 6, h: 12 },
+  { x: 27, y: 6, w: 6, h: 12 },
+];
+
+const MAX_STEER_ANGLE = 0.42; // rad — visual lock, not a physics quantity
+
 // Nose up, because that is the orientation ctx.rotate(entity.angle) expects.
 //
 //   B body (per-car colour)   D its shade, flanks and seams   L its highlight
@@ -107,8 +119,15 @@ function mixColor(hex, amount) {
   return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
 }
 
+function inFrontWheel(x, y) {
+  return FRONT_WHEELS.some(
+    (b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h,
+  );
+}
+
 const CarSprites = {
   cache: new Map(),
+  wheelSprite: null,
 
   get(color) {
     let sprite = this.cache.get(color);
@@ -119,36 +138,52 @@ const CarSprites = {
     return sprite;
   },
 
+  // One wheel serves every car and both sides: the tyre carries no body
+  // colour, and the grid is symmetric about the car's centreline.
+  wheel() {
+    if (!this.wheelSprite) {
+      const b = FRONT_WHEELS[0];
+      this.wheelSprite = this.bakeRegion(null, b.x, b.y, b.w, b.h);
+    }
+    return this.wheelSprite;
+  },
+
   bake(color) {
+    return this.bakeRegion(color, 0, 0, CAR_SPRITE_W, CAR_SPRITE_H, true);
+  },
+
+  // Bakes the slice of the grid inside (ox, oy, w, h). `skipWheels` blanks
+  // the front-tyre boxes so the body and the wheels are never drawn twice.
+  bakeRegion(color, ox, oy, w, h, skipWheels = false) {
     const scale = renderDpr;
     const c = document.createElement("canvas");
-    c.width = Math.round(CAR_SPRITE_W * scale);
-    c.height = Math.round(CAR_SPRITE_H * scale);
+    c.width = Math.round(w * scale);
+    c.height = Math.round(h * scale);
     const g = c.getContext("2d");
 
     const palette = {
       ...CAR_PALETTE,
       B: color,
-      D: mixColor(color, -0.55),
-      L: mixColor(color, 0.3),
+      D: mixColor(color || "#888888", -0.55),
+      L: mixColor(color || "#888888", 0.3),
     };
 
     // Runs of the same colour go out as one fillRect: at 34 px wide most
     // rows are three or four spans, not thirty-four cells.
-    for (let y = 0; y < CAR_PIXELS.length; y++) {
+    for (let y = oy; y < oy + h; y++) {
       const row = CAR_PIXELS[y];
-      let x = 0;
-      while (x < row.length) {
+      let x = ox;
+      while (x < ox + w) {
         const ch = row[x];
         let end = x;
-        while (end < row.length && row[end] === ch) end++;
-        if (ch !== ".") {
+        while (end < ox + w && row[end] === ch) end++;
+        if (ch !== "." && !(skipWheels && inFrontWheel(x, y))) {
           g.fillStyle = palette[ch];
           g.fillRect(
-            Math.round(x * scale),
-            Math.round(y * scale),
-            Math.round(end * scale) - Math.round(x * scale),
-            Math.round((y + 1) * scale) - Math.round(y * scale),
+            Math.round((x - ox) * scale),
+            Math.round((y - oy) * scale),
+            Math.round((end - ox) * scale) - Math.round((x - ox) * scale),
+            Math.round((y + 1 - oy) * scale) - Math.round((y - oy) * scale),
           );
         }
         x = end;
@@ -157,9 +192,69 @@ const CarSprites = {
     return c;
   },
 
+  // The whole car, centred on (entity.x, entity.y) in world space and turned
+  // to entity.angle. Body and steered wheels are one call so no draw site can
+  // ship a car missing its front tyres.
+  draw(ctx, entity, color) {
+    const sx = entity.width / CAR_SPRITE_W;
+    const sy = entity.height / CAR_SPRITE_H;
+    const steer = (entity.steer || 0) * MAX_STEER_ANGLE;
+
+    ctx.save();
+    ctx.translate(entity.x - camera.x, entity.y - camera.y); // screen space
+    ctx.rotate(entity.angle);
+
+    ctx.drawImage(
+      this.get(color),
+      -entity.width / 2,
+      -entity.height / 2,
+      entity.width,
+      entity.height,
+    );
+
+    const wheel = this.wheel();
+    for (const b of FRONT_WHEELS) {
+      const cx = (b.x + b.w / 2 - CAR_SPRITE_W / 2) * sx;
+      const cy = (b.y + b.h / 2 - CAR_SPRITE_H / 2) * sy;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(steer);
+      ctx.drawImage(
+        wheel,
+        (-b.w / 2) * sx,
+        (-b.h / 2) * sy,
+        b.w * sx,
+        b.h * sy,
+      );
+      ctx.restore();
+    }
+
+    ctx.restore();
+  },
+
   // The bakes are sized against renderDpr, so they are wrong the moment it
   // moves — a window resize, the Quality ladder, or the Max dpr slider.
   invalidate() {
     this.cache.clear();
+    this.wheelSprite = null;
   },
 };
+
+// Steering angle for the artwork, from the yaw the entity actually produced
+// this frame — the player and the AI turn through completely different code
+// but both end up moving `angle`, so reading the result covers both and
+// nothing has to be plumbed through the input handler or the waypoint follower.
+function updateSteerVisual(entity, delta) {
+  const STEER_RETURN = 0.25; // per frame, toward the new lock
+  const prev = entity.prevAngle === undefined ? entity.angle : entity.prevAngle;
+  const turned = Math.atan2(
+    Math.sin(entity.angle - prev),
+    Math.cos(entity.angle - prev),
+  );
+  entity.prevAngle = entity.angle;
+
+  const rate = delta > 0 ? turned / delta : 0;
+  const target = Math.max(-1, Math.min(1, rate / (entity.turnSpeed || 0.06)));
+  const steer = entity.steer || 0;
+  entity.steer = steer + (target - steer) * Math.min(1, STEER_RETURN * delta);
+}

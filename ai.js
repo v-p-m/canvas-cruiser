@@ -215,19 +215,7 @@ class AICar {
   }
 
   draw() {
-    this.ctx.save();
-    this.ctx.translate(this.x - camera.x, this.y - camera.y);
-    this.ctx.rotate(this.angle);
-
-    this.ctx.drawImage(
-      CarSprites.get(this.color),
-      -this.width / 2,
-      -this.height / 2,
-      this.width,
-      this.height,
-    );
-
-    this.ctx.restore();
+    CarSprites.draw(this.ctx, this, this.color);
 
     if (DEBUG) this.drawCollisionBox(this.ctx);
   }

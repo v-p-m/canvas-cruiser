@@ -661,6 +661,8 @@ function resetRace() {
   car.x = SPAWN_POSITIONS[0].x;
   car.y = SPAWN_POSITIONS[0].y;
   car.angle = SPAWN_POSITIONS[0].angle;
+  car.prevAngle = car.angle;
+  car.steer = 0;
   car.speed = 0;
   car.velocityX = 0;
   car.velocityY = 0;
@@ -678,6 +680,8 @@ function resetRace() {
     ai.x = s.x;
     ai.y = s.y;
     ai.angle = s.angle;
+    ai.prevAngle = s.angle;
+    ai.steer = 0;
     ai.speed = 0;
     ai.velocityX = 0;
     ai.velocityY = 0;
@@ -999,20 +1003,7 @@ function worldCoversViewport(rect) {
 }
 
 function drawCar() {
-  ctx.save();
-  ctx.translate(car.x - camera.x, car.y - camera.y); // screen space
-  ctx.rotate(car.angle);
-
-  // Centred on the car's position, so rotation turns it about its middle
-  ctx.drawImage(
-    CarSprites.get(PLAYER_COLOR),
-    -car.width / 2,
-    -car.height / 2,
-    car.width,
-    car.height,
-  );
-
-  ctx.restore();
+  CarSprites.draw(ctx, car, PLAYER_COLOR);
 }
 
 
@@ -1206,6 +1197,10 @@ function gameLoop(timestamp) {
       ),
     );
     opponents.forEach(clampToWorld);
+
+    // Front-wheel artwork, off the yaw both of them just produced
+    updateSteerVisual(car, delta);
+    opponents.forEach((ai) => updateSteerVisual(ai, delta));
 
     // AI vs AI
     for (let i = 0; i < opponents.length; i++) {
