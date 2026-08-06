@@ -83,6 +83,19 @@ const DebugHUD = {
       152,
     );
 
+    // Ring position and gate state — the two numbers behind both the lap
+    // counter and the race order
+    if (!isMenu && worldTrack.data && worldTrack.data.waypoints) {
+      const n = worldTrack.data.waypoints.length;
+      ctx.fillStyle = car.passedGate ? "#00FF88" : "#FF8844";
+      ctx.fillText(
+        `lap ${(trackProgress(car) * 100).toFixed(0)}%  ${n} wps  gate ${car.passedGate ? "armed" : "spent"}`,
+        camera.width - 12,
+        168,
+      );
+      ctx.fillStyle = "#AAA";
+    }
+
     // Banner
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";

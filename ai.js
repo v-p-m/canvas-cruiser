@@ -63,6 +63,7 @@ class AICar {
     // both the player and every opponent through the same code
     this.laps = 0;
     this.onFinishLine = false;
+    this.passedGate = false;
     this.finished = false;
     this.finishPosition = 0;
     this.finishTime = 0;

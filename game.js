@@ -149,6 +149,7 @@ const car = {
   // standings can treat the player as just another entry
   laps: 0,
   onFinishLine: false,
+  passedGate: false,
   finished: false,
   finishPosition: 0,
   finishTime: 0,
@@ -668,6 +669,7 @@ function resetRace() {
   car.velocityY = 0;
   car.laps = 0;
   car.onFinishLine = false;
+  car.passedGate = false;
   car.finished = false;
 
   // AI — reset from the same spawn list, and re-roll the traits that make
@@ -695,6 +697,7 @@ function resetRace() {
     ai.maxSpeed = ai.baseMaxSpeed;
     ai.laps = 0;
     ai.onFinishLine = false;
+    ai.passedGate = false;
     ai.finished = false;
     ai.finishTime = 0;
     ai.finishPosition = 0;
@@ -724,18 +727,25 @@ function raceLapTarget() {
   return gameMode === "race5" ? 5 : gameMode === "race10" ? 10 : null;
 }
 
-// How far around the lap a car is, as a fractional waypoint index. Found by
-// projecting onto every waypoint segment and keeping the nearest — with 11
+// How far around the lap a car is, as a fraction of the lap's length. Found
+// by projecting onto every waypoint segment and keeping the nearest — with 11
 // waypoints and 6 cars that is 66 projections a frame, far cheaper than the
 // bookkeeping needed to track it incrementally, and it can't desync.
 //
-// Waypoint 0 sits just before the start line, so laps and this index step
-// over within ~30px of each other and `laps * n + progress` rises smoothly.
+// The answer is in lap distance rather than waypoint index because waypoints
+// are not evenly spaced: this track's segments run 248px to 1040px, so
+// "waypoint 4 of 11" is not "36% of the way round". Anything that reasons
+// about position on the lap — the gate, the standings — has to mean distance,
+// or it says something different on every track laid out.
+//
+// Waypoint 0 sits just before the start line, so laps and this fraction step
+// over within ~30px of each other and `laps + progress` rises smoothly.
 function trackProgress(entity) {
   const wps = worldTrack.data && worldTrack.data.waypoints;
   if (!wps || wps.length === 0) return 0;
 
   const n = wps.length;
+  let total = 0;
   let best = 0;
   let bestDist = Infinity;
 
@@ -754,18 +764,19 @@ function trackProgress(entity) {
     const dy = entity.y - (a.y + aby * t);
     const d = dx * dx + dy * dy;
 
+    const len = Math.sqrt(len2);
     if (d < bestDist) {
       bestDist = d;
-      best = i + t;
+      best = total + len * t;
     }
+    total += len;
   }
 
-  return best;
+  return total > 0 ? best / total : 0;
 }
 
 function raceScore(entity) {
-  const n = (worldTrack.data.waypoints || []).length || 1;
-  return (entity.laps || 0) * n + trackProgress(entity);
+  return (entity.laps || 0) + trackProgress(entity);
 }
 
 // Every car, most advanced first. Cars that have taken the flag are locked
@@ -829,10 +840,158 @@ function finishRace() {
   finishHoldTimer = FINISH_HOLD_MS;
 }
 
+// A crossing only counts once the car has been round the far side of the
+// circuit. Rolling back and forth over the start line used to score a lap
+// per pass, which beat driving the track. The gate is a stretch of lap rather
+// than a single point so it can't be jumped, and it is deliberately nowhere
+// near the start line — anything close to it would be re-armed by the same
+// reversing it exists to stop.
+//
+// Measured in lap distance, so it means the same stretch of road whatever a
+// track's waypoint count or spacing: four waypoints or two hundred, the gate
+// is still the run between two fifths and two thirds of the way round.
+const LAP_GATE_FROM = 0.4; // fraction of the lap, by distance
+const LAP_GATE_TO = 0.65;
+
+function updateLapGate(entity) {
+  if (!(worldTrack.data.waypoints || []).length) {
+    entity.passedGate = true; // no waypoints to check against; don't block laps
+    return;
+  }
+  const p = trackProgress(entity);
+  if (p >= LAP_GATE_FROM && p <= LAP_GATE_TO) entity.passedGate = true;
+}
+
+// World position at a fraction of the lap — the inverse of trackProgress, so
+// anything measured in lap distance can be drawn back onto the track.
+function ringPoint(f) {
+  const wps = worldTrack.data.waypoints;
+  const n = wps.length;
+  const seg = [];
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    const a = wps[i];
+    const b = wps[(i + 1) % n];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    seg.push(len);
+    total += len;
+  }
+
+  let want = total * (((f % 1) + 1) % 1);
+  for (let i = 0; i < n; i++) {
+    if (want <= seg[i] || i === n - 1) {
+      const a = wps[i];
+      const b = wps[(i + 1) % n];
+      const t = seg[i] > 0 ? Math.min(want / seg[i], 1) : 0;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    want -= seg[i];
+  }
+  return { x: wps[0].x, y: wps[0].y };
+}
+
+// Debug overlay for the waypoint ring: the arc that arms a lap, and where each
+// car projects onto the ring. The projection is the interesting half — the
+// gate and the standings both run on it, so a car latched to the wrong segment
+// explains a wrong race position or a lap that won't count far quicker than
+// either symptom does on its own.
+const GATE_ARC_STEPS = 40; // segments the gate arc is drawn in
+
+function drawLapGate(ctx) {
+  const wps = worldTrack.data && worldTrack.data.waypoints;
+  if (!wps || wps.length < 2) return;
+
+  ctx.save();
+
+  // The whole ring first, so the gate reads as a slice of it
+  ctx.beginPath();
+  wps.forEach((wp, i) => {
+    const x = wp.x - camera.x;
+    const y = wp.y - camera.y;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.strokeStyle = "rgba(255,255,255,0.2)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Gate arc, walked in even slices of lap distance so corners inside it bend
+  const from = LAP_GATE_FROM;
+  const to = LAP_GATE_TO;
+  ctx.beginPath();
+  for (let k = 0; k <= GATE_ARC_STEPS; k++) {
+    const q = ringPoint(from + ((to - from) * k) / GATE_ARC_STEPS);
+    const x = q.x - camera.x;
+    const y = q.y - camera.y;
+    if (k === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = "rgba(0, 255, 136, 0.55)";
+  ctx.lineWidth = 14;
+  ctx.lineCap = "butt";
+  ctx.stroke();
+
+  // Small type over track art and over the band itself; outline it or half
+  // the labels land on something the same colour as they are
+  const label = (text, x, y, color) => {
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.lineWidth = 3;
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+  };
+
+  const mid = ringPoint((from + to) / 2);
+  ctx.font = "bold 11px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  label("LAP GATE", mid.x - camera.x, mid.y - camera.y - 16, "#00FF88");
+
+  if (!isMenu) {
+    const cars = [{ e: car, name: "YOU" }].concat(
+      opponents.map((ai, i) => ({ e: ai, name: `${i + 1}` })),
+    );
+
+    for (const { e, name } of cars) {
+      const p = trackProgress(e);
+      const q = ringPoint(p);
+      const sx = q.x - camera.x;
+      const sy = q.y - camera.y;
+      const tint = e.passedGate ? "#00FF88" : "#FF8844";
+
+      // Tie the marker to the car it belongs to — with six of them on one
+      // ring the dots are meaningless on their own
+      ctx.beginPath();
+      ctx.moveTo(e.x - camera.x, e.y - camera.y);
+      ctx.lineTo(sx, sy);
+      ctx.strokeStyle = tint;
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+
+      ctx.beginPath();
+      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.fillStyle = tint;
+      ctx.fill();
+
+      ctx.font = "bold 10px monospace";
+      label(`${name} ${(p * 100).toFixed(0)}% L${e.laps}`, sx, sy - 12, tint);
+    }
+  }
+
+  ctx.restore();
+}
+
 // Shared lap counter. `entity` needs .x/.y/.laps/.onFinishLine/.finished;
 // everything player-specific hangs off the isPlayer branch.
 function updateLapCounter(entity, isPlayer) {
   if (entity.finished) return;
+
+  updateLapGate(entity);
 
   const map = worldTrack.data.map;
   const ts = worldTrack.data.tileSize;
@@ -857,6 +1016,7 @@ function updateLapCounter(entity, isPlayer) {
   // always meant — keeping it that way leaves saved records comparable.
   if (entity.laps === 0) {
     entity.laps = 1;
+    entity.passedGate = false;
     entity.raceStart = now;
     if (isPlayer) {
       hasStarted = true;
@@ -867,6 +1027,12 @@ function updateLapCounter(entity, isPlayer) {
     }
     return;
   }
+
+  // Crossing the line the wrong way, or without having been round, is not a
+  // lap — the car still gets its onFinishLine latch above so the next honest
+  // crossing counts normally.
+  if (!entity.passedGate) return;
+  entity.passedGate = false;
 
   entity.laps++;
 
@@ -1307,6 +1473,7 @@ function gameLoop(timestamp) {
   Rain.drawOverlay(); // scene tint
   Rain.drawDrops(); // screen-space streaks
 
+  if (DEBUG && !TrackEditor.active) drawLapGate(ctx);
   if (DEBUG && !TrackEditor.active) WaypointEditor.draw(ctx);
   if (DEBUG) TrackEditor.draw(ctx);
   if (DEBUG && !TrackEditor.active) DebugHUD.draw(ctx);

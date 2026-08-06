@@ -13,7 +13,7 @@ converting the page to `type="module"`.
 
 | File | Role |
 |---|---|
-| [game.js](game.js) | Game state, input, physics, collisions, lap counting, race order, the single `gameLoop`. Everything not owned by a file below lives here. |
+| [game.js](game.js) | Game state, input, physics, collisions, lap counting, race order, the single `gameLoop`. Everything not owned by a file below lives here. Laps and standings both run on `trackProgress()` — see [Laying out a track](#laying-out-a-track). |
 | [screens.js](screens.js) | Every pixel of canvas UI: start menu, HUD, minimap, records, results, the credits popup — plus the hit-testing that makes them clickable. The credits roll is data, not code: it is fetched from `credits.json` (built-in fallback if that 404s or is malformed), wrapped to the panel width and scrolled if it outgrows the window. |
 | [rain.js](rain.js) | Weather: drop pool, puddles, screen tint. Exposes `gripScale()`/`frictionBonus()`; it must never assign to `car.driftGrip` etc. directly or it overwrites the tuning sliders. |
 | [sound.js](sound.js) | WebAudio, synthesised — engine, tire squeal, impacts. No audio files. `Sound.unlock()` must be called from a user gesture or nothing plays. |
@@ -119,6 +119,39 @@ changed resolution is worse than no measurement. Turning it off pins whatever
 `MAX_DPR` and the `C` panel say. `Quality.status()` reports what it decided and
 why; the `B` overlay shows the same line, in red when the raster is software.
 
+## Laying out a track
+
+A lap is two things agreeing: the tile grid says where the line is, the
+waypoint ring says where the lap is. Both live in `track.json`.
+
+- **Tile `9` is the start line.** `updateLapCounter` counts a crossing as the
+  transition onto a `9` cell, nothing else.
+- **Waypoint 0 must sit just before the line**, within ~30px. `laps +
+  trackProgress()` is the race-order score, and it only rises smoothly if the
+  lap counter and the ring wrap at the same place; put waypoint 0 elsewhere and
+  the standings flicker every time a car takes the flag.
+- **A crossing only counts if the car passed the lap gate first** — the stretch
+  of lap between `LAP_GATE_FROM` and `LAP_GATE_TO` in `game.js`, currently 40%
+  to 65% of the way round. Without it, reversing back and forth over the line
+  scores a lap a second. The gate is a stretch rather than a point so it can't
+  be jumped, and it is kept far from the line so the reversing it blocks can't
+  re-arm it.
+- **`trackProgress()` is in lap distance, not waypoint index**, so the gate
+  means the same piece of road at any waypoint count — 11 waypoints and 120
+  put it within 50px of each other. Spacing can be as uneven as the layout
+  wants (this track's segments run 248px to 1040px).
+- **Below ~8 waypoints the ring stops being the track.** Progress is measured
+  along the chords between waypoints, so a sparse ring cuts every corner and
+  both the gate and the race order drift off the road with it.
+- **The ring must not fold back near itself.** Progress is "nearest segment",
+  so where two parts of the lap pass within a car's width — a crossover, a very
+  tight hairpin — a car can latch onto the wrong one, which misplaces it in the
+  standings as well as at the gate.
+
+`B` then the debug overlay draws all of this: the ring, the gate band, and each
+car's projection onto it with its lap percentage. It is the fastest way to see
+that a new track's gate landed somewhere sane.
+
 ## Conventions
 
 - Comments explain *why* a technique was chosen (see the header block in
@@ -130,7 +163,7 @@ why; the `B` overlay shows the same line, in red when the raster is software.
 - Keys added to game logic that must not be remappable belong in
   `BLACKLISTED_KEYS` in `keyBindings.js`.
 - The player and the AI are meant to be interchangeable to the race code: both
-  carry `laps` / `onFinishLine` / `finished` / `finishPosition` / `raceStart`,
-  and both go through `updateLapCounter` and `wheelOffRoad`. Adding a rule for
+  carry `laps` / `onFinishLine` / `passedGate` / `finished` / `finishPosition` /
+  `raceStart`, and both go through `updateLapCounter` and `wheelOffRoad`. Adding a rule for
   one and not the other is how the opponents stopped being real competitors in
   the first place.
