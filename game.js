@@ -12,27 +12,15 @@ let lastLapTime = null; // the previous lap's time, or null before one is done
 let bestLapTime = 0;
 let isMenu = true;
 let isRacing = false;
+// Records are per track — a lap of Snake Valley is a different piece of road
+// from a lap of Super Circuit, so one table of times would be comparing two
+// unrelated things. Both stores are keyed by track id; `highScores` and
+// `bestTotalTimes` below are the loaded track's slice of them, which is what
+// every screen reads.
+let allHighScores = {}; // track id → [lap times]
+let allBestTotals = {}; // track id → { mode: [total times] }
 let highScores = [];
-try {
-  const parsed = JSON.parse(localStorage.getItem("highScores"));
-  if (Array.isArray(parsed)) highScores = parsed;
-  else if (parsed !== null) localStorage.removeItem("highScores");
-} catch {
-  localStorage.removeItem("highScores");
-}
 let bestTotalTimes = {};
-try {
-  const parsed = JSON.parse(localStorage.getItem("bestTotalTimes"));
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-    for (const mode of Object.keys(parsed)) {
-      if (Array.isArray(parsed[mode])) bestTotalTimes[mode] = parsed[mode];
-    }
-  } else if (parsed !== null) {
-    localStorage.removeItem("bestTotalTimes");
-  }
-} catch {
-  localStorage.removeItem("bestTotalTimes");
-}
 let isNewBestTotal = false;
 let isLeaderboard = false;
 let savedSpeed = 0;
@@ -60,21 +48,84 @@ const MODES = [
   { id: "race10", label: "10 Lap Race" },
 ];
 
-// Staggered starting grid on the top straight, behind the finish line.
-// The field is six so it divides into three complete rows of two rather than
-// leaving one car alone at the back of a lane.
-// The straight runs y 128–320, so the two lanes sit at 190 and 258 — a car
-// is 34 wide across the grid and 56 long along it, which leaves both lanes
-// clear of the kerbs and every pair far enough apart that the collision
-// solver has nothing to separate on the line.
-const SPAWN_POSITIONS = [
-  { x: 560, y: 190, angle: Math.PI / 2, color: null }, // player
-  { x: 500, y: 258, angle: Math.PI / 2, color: "#0077ff" }, // AI 1
-  { x: 440, y: 190, angle: Math.PI / 2, color: "#ff7700" }, // AI 2
-  { x: 380, y: 258, angle: Math.PI / 2, color: "#00cc44" }, // AI 3
-  { x: 320, y: 190, angle: Math.PI / 2, color: "#cc00cc" }, // AI 4
-  { x: 260, y: 258, angle: Math.PI / 2, color: "#ffd400" }, // AI 5
+// The circuits, in menu order — one file each, in tracks/. `id` keys the
+// records and the debug panel's saved grid, so renaming one starts its tables
+// over; the file and the label are free to change.
+//
+// Every track is the same 40×28 tiles: the camera, the minimap and the skid
+// layer all size themselves from the map, so circuits of different extents
+// quietly changed how much road you could see at once.
+const TRACKS = [
+  {
+    id: "super",
+    file: "tracks/super-circuit.json",
+    label: "Super Circuit",
+  },
+  {
+    id: "valley",
+    file: "tracks/snake-valley.json",
+    label: "Snake Valley",
+  },
 ];
+let selectedTrack = 0; // index into TRACKS — the one the menu is offering
+let loadedTrack = -1; // the one actually baked into worldTrack
+let trackLoading = false;
+try {
+  const saved = localStorage.getItem("track");
+  const i = TRACKS.findIndex((t) => t.id === saved);
+  if (i >= 0) selectedTrack = i;
+} catch {
+  /* private-mode localStorage — the default track is fine */
+}
+
+function currentTrack() {
+  return TRACKS[Math.min(selectedTrack, TRACKS.length - 1)];
+}
+
+// Staggered starting grid, behind the finish line. The field is six so it
+// divides into three complete rows of two rather than leaving one car alone at
+// the back of a lane.
+//
+// The coordinates are the loaded track's `spawn` block — where the line is is
+// the track's business — and only the colours live here, because those are the
+// cars' identity rather than the circuit's. applyTrackSpawns() fills the rest
+// in; the debug sliders then nudge these in place.
+const SPAWN_POSITIONS = [
+  { x: 0, y: 0, angle: 0, color: null }, // player
+  { x: 0, y: 0, angle: 0, color: "#0077ff" }, // AI 1
+  { x: 0, y: 0, angle: 0, color: "#ff7700" }, // AI 2
+  { x: 0, y: 0, angle: 0, color: "#00cc44" }, // AI 3
+  { x: 0, y: 0, angle: 0, color: "#cc00cc" }, // AI 4
+  { x: 0, y: 0, angle: 0, color: "#ffd400" }, // AI 5
+];
+
+// A track without a `spawn` block — one straight out of the track editor, say
+// — still has to start a race, so the grid falls back to stacking the field on
+// waypoint 0 facing waypoint 1. Two lanes 34px either side of the line, 60px
+// apart along it, which is the spacing both shipped grids use.
+function applyTrackSpawns() {
+  const grid = (worldTrack.data && worldTrack.data.spawn) || [];
+  const wps = (worldTrack.data && worldTrack.data.waypoints) || [];
+
+  SPAWN_POSITIONS.forEach((pos, i) => {
+    if (grid[i]) {
+      pos.x = grid[i].x;
+      pos.y = grid[i].y;
+      pos.angle = grid[i].angle;
+      return;
+    }
+    const a = wps[0] || { x: 100, y: 100 };
+    const b = wps[1] || { x: a.x + 1, y: a.y };
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const tx = (b.x - a.x) / len;
+    const ty = (b.y - a.y) / len;
+    const side = i % 2 ? 34 : -34;
+    const back = 140 + i * 60;
+    pos.x = a.x - tx * back - ty * side;
+    pos.y = a.y - ty * back + tx * side;
+    pos.angle = Math.atan2(tx, -ty);
+  });
+}
 
 const opponents = [];
 
@@ -243,7 +294,25 @@ function skidThreshold(entity) {
 }
 
 // --- Menu actions (shared by keyboard and mouse) ---
+
+// Step to another circuit. A paused race can't survive the road under it being
+// replaced, so it is dropped here rather than left to resume onto a track it
+// was never run on.
+function cycleTrack(dir) {
+  if (TRACKS.length < 2) return;
+  selectedTrack = (selectedTrack + dir + TRACKS.length) % TRACKS.length;
+  try {
+    localStorage.setItem("track", currentTrack().id);
+  } catch {
+    /* private mode — the choice just won't outlive the tab */
+  }
+  racePaused = false;
+  savedSpeed = 0;
+  applySelectedTrack();
+}
+
 function startSelectedMode() {
+  if (trackLoading) return; // the new track is still baking
   resetRace();
   racePaused = false;
   savedSpeed = 0;
@@ -365,6 +434,14 @@ window.addEventListener("keydown", (e) => {
     }
     if (e.key === "ArrowDown") {
       selectedMode = (selectedMode + 1) % MODES.length;
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      cycleTrack(-1);
+      return;
+    }
+    if (e.key === "ArrowRight") {
+      cycleTrack(1);
       return;
     }
     if (key === "k") {
@@ -573,7 +650,92 @@ canvas.addEventListener(
 
 const worldTrack = new Track(ctx);
 
+// --- Track loading ---
+
+// Picking a circuit is a fetch and a bake, so the menu can ask for another one
+// before this one has finished. Rather than race two loads into the same Track
+// object, this keeps going until what is baked matches what is selected: the
+// last press wins, and nothing interleaves.
+async function applySelectedTrack() {
+  if (trackLoading) return;
+  trackLoading = true;
+  try {
+    while (loadedTrack !== selectedTrack) {
+      const want = selectedTrack;
+      await worldTrack.load(TRACKS[want].file);
+      loadedTrack = want;
+      onTrackLoaded();
+    }
+  } catch (err) {
+    if (loadedTrack < 0) throw err; // nothing baked yet — initGame reports it
+    console.error("Failed to load track:", err);
+    selectedTrack = loadedTrack; // stay on the circuit that is actually up
+  } finally {
+    trackLoading = false;
+  }
+}
+
+// Everything that was cut to fit the old track: the waypoint ring, the grid,
+// the skid layer's world size, and which records table is on screen.
+function onTrackLoaded() {
+  WaypointEditor.init(worldTrack.data.waypoints);
+  applyTrackSpawns();
+  DebugConfig.adoptSpawns();
+  selectRecords();
+  resizeSkidCanvas(); // reallocating the layer is also what wipes it
+  resetRace();
+}
+
 // --- Scoring ---
+
+// Both tables were flat when there was one circuit: `highScores` an array of
+// laps, `bestTotalTimes` a map of mode → totals. Either shape read off disk is
+// taken as the first track's, so nobody loses the times they set before there
+// was a second one.
+function loadRecords() {
+  allHighScores = {};
+  allBestTotals = {};
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem("highScores"));
+    if (Array.isArray(parsed)) allHighScores[TRACKS[0].id] = parsed;
+    else if (parsed && typeof parsed === "object") {
+      for (const id of Object.keys(parsed))
+        if (Array.isArray(parsed[id])) allHighScores[id] = parsed[id];
+    } else if (parsed !== null) localStorage.removeItem("highScores");
+  } catch {
+    localStorage.removeItem("highScores");
+  }
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem("bestTotalTimes"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const flat = Object.values(parsed).some(Array.isArray);
+      const byTrack = flat ? { [TRACKS[0].id]: parsed } : parsed;
+      for (const id of Object.keys(byTrack)) {
+        const modes = byTrack[id];
+        if (!modes || typeof modes !== "object") continue;
+        allBestTotals[id] = {};
+        for (const mode of Object.keys(modes))
+          if (Array.isArray(modes[mode])) allBestTotals[id][mode] = modes[mode];
+      }
+    } else if (parsed !== null) {
+      localStorage.removeItem("bestTotalTimes");
+    }
+  } catch {
+    localStorage.removeItem("bestTotalTimes");
+  }
+
+  selectRecords();
+}
+
+// Points the live tables at the loaded track's slice of the stores.
+function selectRecords() {
+  const id = currentTrack().id;
+  highScores = allHighScores[id] || (allHighScores[id] = []);
+  bestTotalTimes = allBestTotals[id] || (allBestTotals[id] = {});
+}
+
 function saveLapTime(time) {
   const parsed = parseFloat(time);
   const previousBest = highScores[0] || null;
@@ -581,7 +743,8 @@ function saveLapTime(time) {
   highScores.push(parsed);
   highScores.sort((a, b) => a - b);
   highScores = highScores.slice(0, 5);
-  localStorage.setItem("highScores", JSON.stringify(highScores));
+  allHighScores[currentTrack().id] = highScores;
+  localStorage.setItem("highScores", JSON.stringify(allHighScores));
 
   lastLapTime = time;
   LapBanner.show(time, highScores[0] === parsed && parsed !== previousBest);
@@ -597,17 +760,18 @@ function saveTotalTime(mode, time) {
   list.push(parsed);
   list.sort((a, b) => a - b);
   bestTotalTimes[mode] = list.slice(0, 3);
-  localStorage.setItem("bestTotalTimes", JSON.stringify(bestTotalTimes));
+  localStorage.setItem("bestTotalTimes", JSON.stringify(allBestTotals));
 }
 
 function clearHighScores() {
   if (confirm("Clear all high scores and records?")) {
-    highScores = [];
+    allHighScores = {};
+    allBestTotals = {};
     bestLapTime = 0;
-    bestTotalTimes = {};
     localStorage.removeItem("highScores");
     localStorage.removeItem("bestLap");
     localStorage.removeItem("bestTotalTimes");
+    selectRecords();
   }
 }
 
@@ -1538,14 +1702,10 @@ async function initGameUnsafe() {
   KeyBindings.load();
   Sound.load();
   await loadCredits();
-  await worldTrack.load("track.json");
-  WaypointEditor.init(worldTrack.data.waypoints);
-  resizeSkidCanvas();
-
-  // Player
-  car.x = SPAWN_POSITIONS[0].x;
-  car.y = SPAWN_POSITIONS[0].y;
-  car.angle = SPAWN_POSITIONS[0].angle;
+  loadRecords();
+  // Whichever circuit was last raced, plus everything cut to fit it — the
+  // player is already on its grid by the time this resolves.
+  await applySelectedTrack();
 
   // AI — created from spawn list
   for (let i = 1; i < SPAWN_POSITIONS.length; i++) {

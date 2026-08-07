@@ -93,6 +93,58 @@ const LapBanner = {
 // ─────────────────────────────────────────
 // Start menu
 // ─────────────────────────────────────────
+// Circuit picker: one row above the modes, arrows either end. The arrows are
+// what says the row is a choice rather than a heading, so they are drawn even
+// with two tracks to step between.
+function drawTrackSelector(cx, y, live) {
+  const boxW = 360;
+  const boxH = 40;
+  const boxX = cx - boxW / 2;
+  const boxY = y - 28;
+  const arrowW = 46;
+
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.beginPath();
+  ctx.roundRect(boxX, boxY, boxW, boxH, 8);
+  ctx.fill();
+
+  ctx.font = "13px 'Courier New'";
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#666";
+  ctx.fillText("TRACK", boxX - 14, y - 4);
+
+  const arrows = [
+    { x: boxX, glyph: "◀", action: "trackPrev" },
+    { x: boxX + boxW - arrowW, glyph: "▶", action: "trackNext" },
+  ];
+  ctx.font = "20px 'Courier New'";
+  ctx.textAlign = "center";
+  for (const a of arrows) {
+    const hovered = live && isHovered(a.x, boxY, arrowW, boxH);
+    menuHitAreas.push({
+      x: a.x,
+      y: boxY,
+      w: arrowW,
+      h: boxH,
+      action: a.action,
+    });
+    if (hovered) {
+      ctx.fillStyle = "rgba(255,215,0,0.25)";
+      ctx.beginPath();
+      ctx.roundRect(a.x, boxY, arrowW, boxH, 8);
+      ctx.fill();
+    }
+    ctx.fillStyle = hovered ? "#FFD700" : "#888";
+    ctx.fillText(a.glyph, a.x + arrowW / 2, y - 4);
+  }
+
+  // The label goes grey while the next circuit is still baking, which is the
+  // only sign the menu gives that ENTER is being ignored.
+  ctx.font = "22px 'Courier New'";
+  ctx.fillStyle = trackLoading ? "#888" : "#FFD700";
+  ctx.fillText(currentTrack().label, cx, y - 2);
+}
+
 function drawStartMenu() {
   // The credits popup takes the input; highlighting rows under it would light
   // them up through the dim as if they were still live.
@@ -105,16 +157,18 @@ function drawStartMenu() {
   ctx.textAlign = "center";
   ctx.fillStyle = "#FFD700";
   ctx.font = "bold 50px 'Courier New'";
-  ctx.fillText("🏎️ CANVAS CRUISER 🏎️", camera.width / 2, 150);
+  ctx.fillText("🏎️ CANVAS CRUISER 🏎️", camera.width / 2, 130);
   ctx.font = "bold 12px 'Courier New'";
-  ctx.fillText("v" + GAME_VERSION, camera.width / 2, 200);
+  ctx.fillText("v" + GAME_VERSION, camera.width / 2, 172);
 
-  // Mode selector
   const cx = camera.width / 2;
-  const modesStartY = 260;
+  const modesStartY = 268;
 
   menuHitAreas = [];
 
+  drawTrackSelector(cx, 212, live);
+
+  // Mode selector
   ctx.font = "22px 'Courier New'";
   MODES.forEach((mode, i) => {
     const y = modesStartY + i * 52;
@@ -170,9 +224,12 @@ function drawStartMenu() {
     actions.push({ key: "ESC", action: "Resume race", id: "resume" });
   }
 
+  // "Steer" used to live here, but LEFT / RIGHT picks the circuit on this
+  // screen now and a line claiming otherwise is worse than none — the key
+  // bindings screen is where the driving controls are.
   const hints = [
     { key: "UP / DOWN", action: "Select mode" },
-    { key: "LEFT / RIGHT", action: "Steer" },
+    { key: "LEFT / RIGHT", action: "Select track" },
     { key: "R", action: "Reset" },
   ];
   if (!racePaused) hints.push({ key: "ESC", action: "Back to Menu" });
@@ -237,6 +294,12 @@ function handleMenuClick(x, y) {
     case "mode":
       selectedMode = hit.index;
       startSelectedMode();
+      break;
+    case "trackPrev":
+      cycleTrack(-1);
+      break;
+    case "trackNext":
+      cycleTrack(1);
       break;
     case "start":
       startSelectedMode();
@@ -681,6 +744,12 @@ function drawLeaderboard() {
   ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
   ctx.fillRect(0, 0, camera.width, camera.height);
   ctx.textAlign = "center";
+
+  // Each circuit keeps its own times, so the tables are meaningless without
+  // saying which one they belong to.
+  ctx.fillStyle = "#888";
+  ctx.font = "bold 18px 'Courier New'";
+  ctx.fillText(currentTrack().label.toUpperCase(), camera.width / 2, 90);
 
   const colX = [camera.width * 0.2, camera.width * 0.5, camera.width * 0.8];
   const columns = [

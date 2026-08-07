@@ -8,7 +8,7 @@
 //   Mouse wheel        — scroll through tile palette
 //   Arrow keys         — pan the camera (player car is frozen)
 //   Z                  — undo last stroke
-//   P                  — export updated track.json to console + download
+//   P                  — export the loaded track to console + download
 //   T / ESC            — close editor
 //
 // Integration checklist (see bottom of this file for copy-paste snippets):
@@ -418,10 +418,13 @@ const TrackEditor = (() => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "track.json";
+    // Basename only — a download name with a directory in it gets mangled,
+    // and the file belongs back in tracks/ under the name it came from.
+    const name = currentTrack().file.split("/").pop();
+    a.download = name;
     a.click();
     URL.revokeObjectURL(url);
-    console.log("[TrackEditor] track.json downloaded.");
+    console.log(`[TrackEditor] ${name} downloaded — put it back in tracks/.`);
   }
 
   // ── Mouse position cache (for cursor rendering) ────────────────────────────

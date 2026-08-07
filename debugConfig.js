@@ -35,9 +35,19 @@ const DebugConfig = {
     // Spawn — filled in from SPAWN_POSITIONS by seedDefaults()
   },
 
-  // Bumped whenever the built-in grid in game.js changes, so a saved copy of
-  // the old one can't quietly override it on the next load.
-  spawnVersion: 3,
+  // Bumped whenever the shipped starting grids change, so a saved copy of an
+  // old one can't quietly override them on the next load. The track id rides
+  // along with it: grids are per circuit now, and Super Circuit's coordinates
+  // put the field in a field on Snake Valley.
+  spawnVersion: 5,
+
+  spawnKey() {
+    return `${this.spawnVersion}:${currentTrack().id}`;
+  },
+
+  // True once init() has seeded `values` — before that there is nothing for a
+  // track change to move over.
+  ready: false,
 
   // Same idea for the opponent tuning: anyone who has ever opened the panel
   // has an `ai*` block in localStorage, and it would otherwise pin them to
@@ -48,9 +58,10 @@ const DebugConfig = {
   // be written into the `defaults` literal — SPAWN_POSITIONS and MAX_DPR do
   // not exist yet at that point.
   //
-  // SPAWN_POSITIONS is the one source of truth for the starting grid; the
-  // sliders only nudge it at runtime. Keeping a second copy of the numbers
-  // here let the two drift apart, and this copy was the one that won.
+  // SPAWN_POSITIONS — itself filled from the loaded track's `spawn` block — is
+  // the one source of truth for the starting grid; the sliders only nudge it at
+  // runtime. Keeping a second copy of the numbers here let the two drift apart,
+  // and this copy was the one that won.
   seedDefaults() {
     SPAWN_POSITIONS.forEach((pos, i) => {
       const name = i === 0 ? "Player" : `AI${i}`;
@@ -58,6 +69,23 @@ const DebugConfig = {
       this.defaults[`spawn${name}Y`] = pos.y;
     });
     this.defaults.maxDpr = MAX_DPR;
+  },
+
+  // Called when a different circuit finishes loading. The sliders are still
+  // pointing at the old track's grid, and the next apply() would drop the field
+  // back onto it, so both the defaults and the live values move over. Grid
+  // tuning is therefore per session and per track — the sliders are for finding
+  // the numbers that then go into the track file.
+  adoptSpawns() {
+    this.seedDefaults();
+    if (!this.ready) return; // pre-init: load() is about to seed values anyway
+    SPAWN_POSITIONS.forEach((pos, i) => {
+      const name = i === 0 ? "Player" : `AI${i}`;
+      this.values[`spawn${name}X`] = pos.x;
+      this.values[`spawn${name}Y`] = pos.y;
+    });
+    this.buildPanel();
+    this.save();
   },
 
   schema: [
@@ -166,18 +194,18 @@ const DebugConfig = {
     { group: "Render" },
     { key: "maxDpr", label: "Max dpr", min: 1, max: 3, step: 0.25 },
     { group: "Spawn positions" },
-    { key: "spawnPlayerX", label: "Player X", min: 0, max: 2048, step: 5 },
-    { key: "spawnPlayerY", label: "Player Y", min: 0, max: 2048, step: 5 },
-    { key: "spawnAI1X", label: "AI 1 X", min: 0, max: 2048, step: 5 },
-    { key: "spawnAI1Y", label: "AI 1 Y", min: 0, max: 2048, step: 5 },
-    { key: "spawnAI2X", label: "AI 2 X", min: 0, max: 2048, step: 5 },
-    { key: "spawnAI2Y", label: "AI 2 Y", min: 0, max: 2048, step: 5 },
-    { key: "spawnAI3X", label: "AI 3 X", min: 0, max: 2048, step: 5 },
-    { key: "spawnAI3Y", label: "AI 3 Y", min: 0, max: 2048, step: 5 },
-    { key: "spawnAI4X", label: "AI 4 X", min: 0, max: 2048, step: 5 },
-    { key: "spawnAI4Y", label: "AI 4 Y", min: 0, max: 2048, step: 5 },
-    { key: "spawnAI5X", label: "AI 5 X", min: 0, max: 2048, step: 5 },
-    { key: "spawnAI5Y", label: "AI 5 Y", min: 0, max: 2048, step: 5 },
+    { key: "spawnPlayerX", label: "Player X", min: 0, max: 2560, step: 5 },
+    { key: "spawnPlayerY", label: "Player Y", min: 0, max: 2560, step: 5 },
+    { key: "spawnAI1X", label: "AI 1 X", min: 0, max: 2560, step: 5 },
+    { key: "spawnAI1Y", label: "AI 1 Y", min: 0, max: 2560, step: 5 },
+    { key: "spawnAI2X", label: "AI 2 X", min: 0, max: 2560, step: 5 },
+    { key: "spawnAI2Y", label: "AI 2 Y", min: 0, max: 2560, step: 5 },
+    { key: "spawnAI3X", label: "AI 3 X", min: 0, max: 2560, step: 5 },
+    { key: "spawnAI3Y", label: "AI 3 Y", min: 0, max: 2560, step: 5 },
+    { key: "spawnAI4X", label: "AI 4 X", min: 0, max: 2560, step: 5 },
+    { key: "spawnAI4Y", label: "AI 4 Y", min: 0, max: 2560, step: 5 },
+    { key: "spawnAI5X", label: "AI 5 X", min: 0, max: 2560, step: 5 },
+    { key: "spawnAI5Y", label: "AI 5 Y", min: 0, max: 2560, step: 5 },
   ],
 
   values: {},
@@ -189,10 +217,11 @@ const DebugConfig = {
     if (!saved) return;
     try {
       const parsed = JSON.parse(saved);
-      // Grid coordinates saved against an older layout would put cars back on
-      // the grass, so drop them and keep the rest of the tuning.
-      const savedVersion = +localStorage.getItem("debugConfigSpawnVersion");
-      if (savedVersion !== this.spawnVersion) {
+      // Grid coordinates saved against an older layout — or against the other
+      // circuit — would put cars back on the grass, so drop them and keep the
+      // rest of the tuning.
+      const savedVersion = localStorage.getItem("debugConfigSpawnVersion");
+      if (savedVersion !== this.spawnKey()) {
         for (const key of Object.keys(parsed))
           if (key.startsWith("spawn")) delete parsed[key];
       }
@@ -209,7 +238,7 @@ const DebugConfig = {
 
   save() {
     localStorage.setItem("debugConfig", JSON.stringify(this.values));
-    localStorage.setItem("debugConfigSpawnVersion", this.spawnVersion);
+    localStorage.setItem("debugConfigSpawnVersion", this.spawnKey());
     localStorage.setItem("debugConfigAiVersion", this.aiVersion);
   },
 
@@ -405,6 +434,7 @@ const DebugConfig = {
   },
 
   init() {
+    this.ready = true;
     this.load();
     this.buildPanel();
     this.apply();

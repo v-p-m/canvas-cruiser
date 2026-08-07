@@ -18,21 +18,23 @@ converting the page to `type="module"`.
 | [rain.js](rain.js) | Weather: drop pool, puddles, screen tint. Exposes `gripScale()`/`frictionBonus()`; it must never assign to `car.driftGrip` etc. directly or it overwrites the tuning sliders. |
 | [sound.js](sound.js) | WebAudio, synthesised — engine, tire squeal, impacts. No audio files. `Sound.unlock()` must be called from a user gesture or nothing plays. |
 | [quality.js](quality.js) | Render-scale governor. Probes WebGL for a software rasteriser before the first frame, then watches the frame interval and moves the dpr cap down a ladder. Owns `Quality.cap`; `resizeCanvas()` in `game.js` is what reads it. |
-| [track.js](track.js) | `Track` class. Loads `track.json` (tile grid), rasterises + blurs it into a "road field"; both the baked artwork and the physics sample that one field, so visuals and collision can't disagree. |
+| [track.js](track.js) | `Track` class. Loads a track file (tile grid), rasterises + blurs it into a "road field"; both the baked artwork and the physics sample that one field, so visuals and collision can't disagree. One instance, `worldTrack`, reloaded in place when the circuit changes. |
 | [carSprites.js](carSprites.js) | The one open-wheel car, as a pixel grid baked to a canvas per livery — no PNGs. Body colour is substituted at bake time and its shade/highlight derived, so a new rival is just a hex. Bakes in device pixels; `resizeCanvas()` must call `CarSprites.invalidate()` when the render scale moves. |
 | [ai.js](ai.js) | Opponent waypoint following, corner braking, mutual repulsion. Laps and race position are *not* here — `updateLapCounter` in `game.js` drives the player and every opponent through the same code. |
-| [trackEditor.js](trackEditor.js) | Tile map editor. DEBUG on (`B`), then `T`. `P` exports `track.json`. |
+| [trackEditor.js](trackEditor.js) | Tile map editor. DEBUG on (`B`), then `T`. `P` exports the loaded track back out under its own filename. |
 | [waypointEditor.js](waypointEditor.js) | Drag AI waypoints. DEBUG on, then `E`. |
-| [debugConfig.js](debugConfig.js) | Live tuning sliders (physics, AI, spawn grid) persisted to localStorage. `spawnVersion` must be bumped when the built-in grid in `game.js` changes, or a stale saved copy overrides it. |
+| [debugConfig.js](debugConfig.js) | Live tuning sliders (physics, AI, spawn grid) persisted to localStorage. `spawnVersion` must be bumped when a shipped starting grid changes, or a stale saved copy overrides it; the saved copy is keyed by track as well, since the grids are per circuit. |
 | [debugHUD.js](debugHUD.js), [startLights.js](startLights.js), [keyBindings.js](keyBindings.js) | Debug overlay, countdown lights, remappable controls. |
 
 State that survives reloads lives in localStorage: `highScores`,
-`bestTotalTimes`, key bindings, debug config. Parsing is defensive — bad JSON is
-dropped, not trusted; keep it that way when adding keys.
+`bestTotalTimes`, the chosen `track`, key bindings, debug config. Parsing is
+defensive — bad JSON is dropped, not trusted; keep it that way when adding keys.
+`highScores` and `bestTotalTimes` are keyed by track id and still accept the
+flat pre-two-track shapes, which are read as the first circuit's.
 
 ## Running it
 
-`track.json` is loaded with `fetch()`, so **`file://` does not work** — serve it:
+The track files are loaded with `fetch()`, so **`file://` does not work** — serve them:
 
 ```bash
 python3 -m http.server 8123 -d /home/demac/dev/github/v-p-m/canvas-cruiser
@@ -88,6 +90,7 @@ window.requestAnimationFrame = (cb) => setTimeout(() => {
 setTimeout(() => { window.requestAnimationFrame = realRaf; }, 11500);  // budget - 500
 
 const k=(t,key)=>setTimeout(()=>window.dispatchEvent(new KeyboardEvent("keydown",{key,bubbles:true})),t);
+k(100,"ArrowRight");                          // second circuit (LEFT/RIGHT)
 k(200,"ArrowDown"); k(400,"Enter");           // pick 5 Lap Race, start
 setTimeout(()=>{ keys["ArrowUp"]=true; }, 4200);   // hold the throttle
 </script></body>'''
@@ -102,6 +105,9 @@ Setting `keys[...]` directly is more reliable than synthesising `keydown` for
 held inputs. Wrapping the loop in `try/catch` as above is worth keeping: an
 exception inside `gameLoop` kills the loop silently, and headless does not
 surface it through `window.onerror`.
+
+Picking a circuit is a fetch and a bake, so give it a beat before ENTER —
+`startSelectedMode()` ignores the key while one is loading.
 
 Add keys to taste: `B` debug HUD, then (DEBUG only) `C` tuning sliders, `T`
 track editor, `E` waypoint editor; `Q` records, `M` mute, `R` reset, `Escape`
@@ -119,10 +125,43 @@ changed resolution is worse than no measurement. Turning it off pins whatever
 `MAX_DPR` and the `C` panel say. `Quality.status()` reports what it decided and
 why; the `B` overlay shows the same line, in red when the raster is software.
 
+## Adding a track
+
+One file per circuit in [tracks/](tracks/), carrying its tile `map`, its
+`waypoints` and its `spawn` grid.
+
+- **Every track is 40×28 tiles** (2560×1792). The camera, the minimap and the
+  skid layer all size themselves off the map, so circuits of different extents
+  changed how much road you could see at once. A layout that doesn't fill it is
+  centred and padded with terrain rather than stretched — Super Circuit was
+  authored at 32×25 and sits in a grass margin. Nothing in the code hardcodes
+  the size; growing a track means recentring its `map` and shifting every
+  waypoint and spawn by the same offset.
+- **Register it in `TRACKS` at the top of `game.js`** — id, file, label. The id
+  keys the records tables and the debug panel's saved grid, so changing one
+  starts that circuit's records over; the file and the label are free.
+- **The starting grid is track data.** `SPAWN_POSITIONS` in `game.js` holds only
+  the liveries; `applyTrackSpawns()` fills the coordinates from the `spawn`
+  block, and a file without one gets the field stacked on waypoint 0. Bump
+  `spawnVersion` in `debugConfig.js` when a shipped grid moves.
+- **Switching circuits reloads `worldTrack` in place.** `onTrackLoaded()` is the
+  list of everything cut to fit the old one — the waypoint ring, the grid, the
+  skid layer's size, the records on screen. Anything else derived from map
+  dimensions belongs there too.
+- The outer ring of tiles is dirt and everything else off the road is grass;
+  the ground renderer blurs that into a ragged run-off, so the map edge — the
+  hard wall in `clampToWorld` — always reads as the edge of the world.
+- Snake Valley was laid out by sampling a closed Catmull-Rom spline and taking
+  every tile within 100px of it. That keeps the road ~200px wide, the same as
+  Super Circuit's three tiles, whatever angle it runs at; stamping a corridor of
+  tiles along the curve instead dilates it by a tile on each side and comes out
+  40% wider. Keep any two parts of the lap ≥380px apart, centreline to
+  centreline: below that the ~50px blur starts closing the grass between them.
+
 ## Laying out a track
 
 A lap is two things agreeing: the tile grid says where the line is, the
-waypoint ring says where the lap is. Both live in `track.json`.
+waypoint ring says where the lap is. Both live in the track file.
 
 - **Tile `9` is the start line.** `updateLapCounter` counts a crossing as the
   transition onto a `9` cell, nothing else.
@@ -139,7 +178,7 @@ waypoint ring says where the lap is. Both live in `track.json`.
 - **`trackProgress()` is in lap distance, not waypoint index**, so the gate
   means the same piece of road at any waypoint count — 11 waypoints and 120
   put it within 50px of each other. Spacing can be as uneven as the layout
-  wants (this track's segments run 248px to 1040px).
+  wants (Super Circuit's segments run 248px to 1040px).
 - **Below ~8 waypoints the ring stops being the track.** Progress is measured
   along the chords between waypoints, so a sparse ring cuts every corner and
   both the gate and the race order drift off the road with it.

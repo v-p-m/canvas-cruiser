@@ -1,11 +1,11 @@
 # Canvas Cruiser v0.11.0
 A minimalist top-down racing game built with pure **HTML5 Canvas** and **JavaScript**.
 
-Pick a mode in the menu — **Free Drive**, **5 Lap Race** or **10 Lap Race** —
-with the mouse or the keyboard.
+Pick a circuit — **Super Circuit** or **Snake Valley** — and a mode — **Free
+Drive**, **5 Lap Race** or **10 Lap Race** — with the mouse or the keyboard.
 
 ## Running it
-`track.json` is fetched at startup, so opening `index.html` from disk won't
+The track files are fetched at startup, so opening `index.html` from disk won't
 work. Serve the folder instead:
 
 ```bash
@@ -17,7 +17,7 @@ python3 -m http.server 8123
 | Key | Action |
 |-----|--------|
 | ↑ / ↓ | Accelerate / Brake & reverse |
-| ← / → | Steer |
+| ← / → | Steer; pick the circuit on the menu |
 | ESC | Pause to the menu; again to resume |
 | R | Restart the race |
 | Q | Records (best laps and race totals) |
@@ -44,7 +44,10 @@ the arrow keys. Sections with no names yet are skipped, and if the file is
 missing or malformed the game falls back to a built-in roll.
 
 ## Features
-- Tile-based track loaded from `track.json`, rasterised and blurred into a
+- Two circuits — the boxy **Super Circuit** and the flowing **Snake Valley**,
+  in [tracks/](tracks/), each with its own starting grid and its own records
+  table
+- Tile-based tracks loaded from JSON, rasterised and blurred into a
   smooth road field — the artwork and the collision read the same field, so
   corners are round and what you see is what you drive on
 - Drivable dirt run-off outside the kerbs, with a noise-warped edge that never
