@@ -4,13 +4,74 @@
 // which throttled every ordinary corner entry as well.
 //
 // Anticipatory corner braking — lifting for the turn angle at the waypoint
-// ahead, before arriving — was tried here and is not worth it on this track.
+// ahead, before arriving — was tried here and is not worth it *in the dry*.
 // Every setting of it traded pace against time on the grass at roughly one for
 // one, with no knee: measured over a stint, going from no lift at all to a
 // full one moved average speed 9.08 to 8.63 px/frame and off-road frames 0.128
-// to 0.091. At the grip below the cars hold the line flat out, so there is
+// to 0.091. At the dry grip below the cars hold the line flat out, so there is
 // nothing to anticipate. 0.15 keeps the recovery case for about a 1% cost.
 const HEADING_BRAKE = 0.15;
+
+// Rain. These five are one setting: the first takes grip away and the rest are
+// how a driver copes with having less of it. Tuning one alone puts the field
+// either in the grass or a second a lap off, so move them together
+// and re-measure — see the table at the bottom of this block.
+//
+// The opponents carry twice the player's grip so they can hold the line flat
+// out, and Rain.gripScale() takes the same *fraction* off everyone, which left
+// them on rails in the wet while the player was sliding: rain cost them 3% of
+// their pace. WET_GRIP takes the rest off, so the back steps out on a wet
+// corner the way the player's does.
+//
+// The other three keep that from simply putting them in the grass, cheapest
+// first:
+//
+//   WET_STEER is more lock, and it is the one that does the work. Holding a
+//   wet line is a steering problem, and turning the wheel costs no lap time,
+//   where braking costs it directly. It is what lets the grip come out at all.
+//   It is scaled by how far the car is *already* sliding, and that shape is
+//   not decoration: a flat wet multiplier on turnSpeed steers as hard through
+//   an ordinary corner as through a slide, and the cars visibly snap round.
+//   Peak turn rate, degrees a frame, is the number to watch — the dry game
+//   runs p99 5.1 and never exceeds 6.1, a flat 0.5 multiplier took that to 7.1
+//   and 9.5, and ramping it against slip holds 5.6 and 7.3 for the same line.
+//   Turned off entirely the wet peaks sit back at dry (4.96 / 6.41), so any
+//   sharpness on screen is this term and nothing else here.
+//
+//   WET_PICKUP is the throttle out of the slide. Speed sheds at 0.12 a frame
+//   and rebuilds at 0.05, so a lift is cheap and the twenty frames of crawling
+//   back afterwards is what actually costs the lap — several times a wet lap.
+//   Paying that back is worth 0.6s a lap and never touches the ceiling, so
+//   their top speed in the rain is still their top speed.
+//
+//   WET_LIFT is the brake, and it goes last because it is the expensive one. It
+//   rides on the tires rather than the aim: how far the sideways scrub is past
+//   the point where it lays a mark. Heading error was tried first and is the
+//   wrong signal — a car is a degree or two off its marker all the way down a
+//   straight, so the lift was on everywhere and cost a second a lap braking for
+//   corners that weren't there. Slip is only large once the tires have let go.
+//
+// Wet stint on Super Circuit at 100cc, lap times across the field and off-road
+// frames, run against a pacer lapping in 11.4s so the catch-up has a real
+// player to measure against:
+//
+//   before any of this      10.80–11.09   0.031
+//   WET_GRIP on its own     10.98–11.30   0.050   ← the failure mode
+//   all of it               11.06–11.39   0.023
+//
+// The grip cut on its own barely costs a lap time and nearly doubles the time
+// spent off the road, which is the whole reason the other three exist. Together
+// they give up a quarter-second a lap on what the field used to do in the wet,
+// spend less time off the road than they did, and slide visibly more.
+//
+// 250cc is where this matters most and is worth re-checking after any change:
+// the same grip carries 35% more speed, and before this the field spent 10–14%
+// of a wet lap properly off the road (`offHard`), against 0–1.5% now.
+const WET_GRIP = 0.85; // extra grip multiplier when fully wet
+const WET_STEER = 0.25; // extra fraction of turn rate at full slide, when fully wet
+const WET_PICKUP = 3.0; // extra fraction of the speed pickup rate when fully wet
+const WET_LIFT = 0.8; // lift per skid threshold of slip past the deadzone
+const WET_LIFT_DEADZONE = 2.0; // slip, in skid thresholds, that isn't yet a slide
 
 // Catch-up, measured as a gap in waypoints along the track rather than in
 // straight-line pixels — two cars either side of a hairpin are close in pixels
@@ -131,13 +192,26 @@ class AICar {
     const targetX = current.x + (perpX / perpLen) * this.lineOffset;
     const targetY = current.y + (perpY / perpLen) * this.lineOffset;
 
+    // Sideways scrub, in units of the slip that lays a skid mark. Both wet
+    // responses hang off this one number, and WET_LIFT_DEADZONE is the hinge
+    // between them: the extra lock ramps in up to it, and past it — the tires
+    // are visibly gone by then — the car also lifts.
+    const slipRatio = lateralSlip(this) / skidThreshold(this);
+
     // Steering
     const targetAngle = Math.atan2(targetX - this.x, -(targetY - this.y));
     const angleDiff = Math.atan2(
       Math.sin(targetAngle - this.angle),
       Math.cos(targetAngle - this.angle),
     );
-    this.angle += angleDiff * this.turnSpeed * delta;
+    this.angle +=
+      angleDiff *
+      this.turnSpeed *
+      (1 +
+        Rain.intensity *
+          WET_STEER *
+          Math.min(1, slipRatio / WET_LIFT_DEADZONE)) *
+      delta;
 
     // Rubber banding — must be declared before use
     let rubberBand = 1.0;
@@ -169,23 +243,36 @@ class AICar {
       );
     }
 
-    // Speed — lift only for being mis-pointed, then apply rubber band and
-    // multiplier.
+    // Speed — lift for being mis-pointed, and in the wet for sliding, then
+    // apply rubber band and multiplier.
     const headingErr = Math.min(Math.abs(angleDiff) / Math.PI, 1);
-    const cornerFactor = 1 - headingErr * HEADING_BRAKE;
+    // Floored at zero: the two terms together can exceed 1, and a car pointing
+    // far enough the wrong way — spun, or shoved into a wall — would otherwise
+    // be given a negative target speed and reverse out of it.
+    const cornerFactor = Math.max(
+      0,
+      1 -
+        headingErr * HEADING_BRAKE -
+        Rain.intensity * WET_LIFT * Math.max(0, slipRatio - WET_LIFT_DEADZONE),
+    );
 
     const targetSpeed =
       this.maxSpeed * cornerFactor * rubberBand * this.speedMultiplier;
     // Asymmetric: shedding speed is a reaction to something that has already
     // happened — grass under the wheels, a shove dropping the multiplier — so
     // it settles quickly, while the pickup stays gradual enough to look driven.
-    const rate = targetSpeed < this.speed ? 0.12 : 0.05;
+    // Wet, that slow pickup is what a lift actually costs — see WET_PICKUP.
+    const rate =
+      targetSpeed < this.speed
+        ? 0.12
+        : 0.05 * (1 + Rain.intensity * WET_PICKUP);
     this.speed += (targetSpeed - this.speed) * rate * delta;
 
     // Velocity-based movement. Rain scales grip here rather than being
     // written onto this.grip, so the tuning sliders stay in charge of the
     // dry value.
-    const wetGrip = this.grip * Rain.gripScale();
+    const wetGrip =
+      this.grip * Rain.gripScale() * (1 - Rain.intensity * (1 - WET_GRIP));
     const targetVx = Math.sin(this.angle) * this.speed;
     const targetVy = -Math.cos(this.angle) * this.speed;
     // Blend toward stronger grip off-track so velocity catches down to
