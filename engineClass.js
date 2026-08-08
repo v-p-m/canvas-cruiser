@@ -11,10 +11,15 @@
 // entire difficulty curve — scaling grip alongside it would hand the speed
 // straight back and every class would drive the same.
 //
-// Like Rain, this module never assigns to `car.maxSpeed` or `ai.baseMaxSpeed`
-// itself. It hands out multipliers and the two places that already own those
-// numbers — DebugConfig.apply() and resetRace() — apply them, so the tuning
-// sliders keep meaning "the 100cc baseline" instead of being overwritten.
+// It applies to the whole grid, because the whole grid is one car: the
+// opponents' corner speeds fall out of the same `turnSpeed`, so a 250cc field
+// arrives at every corner faster on the same lock and has to brake for it,
+// exactly as the player does.
+//
+// Like Rain, this module never assigns to `car.maxSpeed` itself. It hands out
+// multipliers and the one place that owns those numbers — applyCarStats() in
+// game.js — applies them, so the tuning sliders keep meaning "the 100cc
+// baseline" instead of being overwritten.
 //
 // The HUD reads speed × 10 as KM/H, so each class's speedo tops out at its own
 // number: 80, 100, 135.

@@ -318,13 +318,12 @@ const car = {
   height: 56,
   angle: 0,
   speed: 0,
-  acceleration: 0.2,
-  maxSpeed: 10,
-  turnSpeed: 0.06,
   velocityX: 0,
   velocityY: 0,
-  friction: 0.96,
-  driftGrip: 0.1,
+
+  // acceleration / maxSpeed / turnSpeed / driftGrip / friction are not written
+  // here: applyCarStats() owns them, for this car and every opponent alike.
+  mods: null,
 
   // Race state, shared in shape with AICar so updateLapCounter and the
   // standings can treat the player as just another entry
@@ -339,6 +338,33 @@ const car = {
 // One source of truth for the player's livery: it paints the sprite and the
 // colour chip beside "YOU" in the standings, which have to agree.
 const PLAYER_COLOR = "#e01b1b";
+
+// Coasting decay. Not a slider because the rain's FRICTION_BONUS is defined
+// as an offset from it, and a second copy of the number is how those two
+// drifted apart before.
+const CAR_FRICTION = 0.96;
+
+// There is one car on the grid, six times over. The opponents used to be a
+// different vehicle — twice the grip, a steering controller that could swing
+// the nose four times as fast as the player's lock, a speed ceiling off-road
+// instead of the player's drag — which is why no player tuning ever
+// transferred to them and why the field either walked away or drove into the
+// scenery whenever a number moved. Every stat now comes from here.
+//
+// `mods` is where the part upgrades will hang: a bigger rear wing is a grip
+// and corner-speed multiplier on one car, and nothing downstream of this
+// function needs to know which car has one.
+const NO_MODS = Object.freeze({ speed: 1, accel: 1, turn: 1, grip: 1 });
+
+function applyCarStats(entity, v = DebugConfig.values) {
+  const mods = entity.mods || NO_MODS;
+  entity.acceleration =
+    v.playerAcceleration * EngineClass.accelScale() * mods.accel;
+  entity.maxSpeed = v.playerMaxSpeed * EngineClass.speedScale() * mods.speed;
+  entity.turnSpeed = v.playerTurnSpeed * mods.turn;
+  entity.driftGrip = v.playerDriftGrip * mods.grip;
+  entity.friction = CAR_FRICTION;
+}
 
 const keys = {};
 
@@ -412,15 +438,13 @@ function lateralSlip(entity) {
 // Slip is the velocity grip has not pulled onto the heading yet, so it scales
 // as 1/grip — the same corner leaves a grippier car sliding proportionally
 // less. A single absolute threshold therefore quietly asks more of whoever
-// grips harder, and that is how the opponents stopped marking: aiGrip went
-// 0.15 → 0.2 for the racing, their slip fell under a 2.4 tuned at 0.15, and
-// four cars laid two scuffs a race. Scaling the threshold by grip asks both
-// for the same manoeuvre instead of the same number, and keeps doing so when
-// either grip slider moves. Rain is deliberately not in here: it lowers grip
-// to make the cars slide, and dividing that back out would erase the point.
+// grips harder. The whole field runs the player's grip now, so this only
+// matters once a part upgrade moves one car's `driftGrip` off the others' —
+// which is exactly when a fixed number would stop meaning the same manoeuvre.
+// Rain is deliberately not in here: it lowers grip to make the cars slide,
+// and dividing that back out would erase the point.
 function skidThreshold(entity) {
-  const grip = entity.driftGrip ?? entity.grip; // player / opponent
-  return SKID_SLIP * (SKID_REF_GRIP / grip);
+  return SKID_SLIP * (SKID_REF_GRIP / entity.driftGrip);
 }
 
 // --- Menu actions (shared by keyboard and mouse) ---
@@ -1060,7 +1084,9 @@ function resetRace() {
 
   // AI — reset from the same spawn list, and re-roll the traits that make
   // one opponent feel different from another. These used to persist across
-  // a restart, so every rerun of a race played out the same way.
+  // a restart, so every rerun of a race played out the same way. What gets
+  // re-rolled is the *driver*: the car is the player's, every time, and
+  // applyCarStats says so rather than a second copy of the numbers here.
   const cfg = DebugConfig.values;
   for (let i = 0; i < opponents.length; i++) {
     const s = SPAWN_POSITIONS[i + 1];
@@ -1073,16 +1099,11 @@ function resetRace() {
     ai.speed = 0;
     ai.velocityX = 0;
     ai.velocityY = 0;
-    ai.speedMultiplier = 1;
     ai.currentWaypoint = 0;
+    ai.steerDir = 0;
     ai.startDelay = Math.random() * 400;
-    ai.lineOffset = (Math.random() - 0.5) * (cfg.aiLineOffsetRange ?? 40);
-    ai.baseMaxSpeed =
-      ((cfg.aiMaxSpeedMin ?? 8.3) +
-        Math.random() *
-          ((cfg.aiMaxSpeedMax ?? 9.6) - (cfg.aiMaxSpeedMin ?? 8.3))) *
-      EngineClass.speedScale(); // the sliders are the 100cc baseline
-    ai.maxSpeed = ai.baseMaxSpeed;
+    applyCarStats(ai, cfg);
+    ai.rollDriver(cfg);
     ai.laps = 0;
     ai.onFinishLine = false;
     ai.passedGate = false;
@@ -1510,15 +1531,67 @@ function wheelOffRoad(entity) {
   return sum / 4;
 }
 
-function updatePlayerSurface(delta) {
-  if (!worldTrack.data || !worldTrack.data.map) return;
+const OFFROAD_DRAG = 0.08; // fraction of speed shed per frame, fully off the road
 
-  const offRoad = wheelOffRoad(car);
+// --- The car, for whoever is driving it ---
+//
+// Split in two because the collision pass has to sit between the halves: a
+// shove has to land after the driver has chosen this frame's inputs and
+// before the car is integrated, or a car is pushed out of a gap it has
+// already been moved through. The player's keys and AIDriver's decisions both arrive
+// here as the same four booleans, so there is exactly one set of physics on
+// the grid.
+//
+// `rollOut` is the fifth input and not a key: past the flag the player is a
+// passenger and the car brakes itself to a standstill. It stops at zero
+// rather than braking through it, which would back the car over its own
+// finish line.
+function stepCarControls(entity, input, delta) {
+  if (input.rollOut) {
+    const drop = entity.acceleration * delta;
+    entity.speed =
+      Math.abs(entity.speed) <= drop
+        ? 0
+        : entity.speed - Math.sign(entity.speed) * drop;
+  } else if (input.accel) entity.speed += entity.acceleration * delta;
+  else if (input.brake) entity.speed -= entity.acceleration * delta;
+  else entity.speed *= Math.pow(entity.friction + Rain.frictionBonus(), delta);
+
+  if (entity.speed > entity.maxSpeed) entity.speed = entity.maxSpeed;
+  if (entity.speed < -entity.maxSpeed / 2) entity.speed = -entity.maxSpeed / 2;
+  if (!input.accel && !input.brake && Math.abs(entity.speed) < 0.01)
+    entity.speed = 0;
+
+  const flip = entity.speed >= 0 ? 1 : -1;
+  if (input.left) entity.angle -= entity.turnSpeed * flip * delta;
+  if (input.right) entity.angle += entity.turnSpeed * flip * delta;
+
+  // Cornering scrub. The opponents never paid this, which is a good part of
+  // why they could carry speed through a corner the player had to brake for.
+  if (entity.speed !== 0 && (input.left || input.right)) {
+    const scrubFactor =
+      0.94 + 0.04 * (1 - Math.abs(entity.speed) / entity.maxSpeed);
+    entity.speed *= Math.pow(scrubFactor, delta);
+  }
+}
+
+function stepCarMotion(entity, delta) {
+  const targetVx = Math.sin(entity.angle) * entity.speed;
+  const targetVy = -Math.cos(entity.angle) * entity.speed;
+  const grip = entity.driftGrip * Rain.gripScale();
+  entity.velocityX += (targetVx - entity.velocityX) * grip * delta;
+  entity.velocityY += (targetVy - entity.velocityY) * grip * delta;
+
+  entity.x += entity.velocityX * delta;
+  entity.y += entity.velocityY * delta;
+  clampToWorld(entity);
+
   // Per-frame decay has to be raised to `delta`, like the friction above —
-  // applied straight it would drag twice as hard at 120fps as at 60.
-  if (offRoad > 0) car.speed *= Math.pow(1 - 0.08 * offRoad, delta);
-
-  updateLapCounter(car, true);
+  // applied straight it would drag twice as hard at 120fps as at 60. The
+  // opponents used to get a speed *ceiling* off the road instead, which let
+  // them run the grass at a flat 45% forever rather than bleeding to a crawl.
+  const offRoad = wheelOffRoad(entity);
+  if (offRoad > 0) entity.speed *= Math.pow(1 - OFFROAD_DRAG * offRoad, delta);
 }
 
 // --- Draw helpers ---
@@ -1644,14 +1717,13 @@ function resolveCollision(a, b) {
 
       Sound.impact(impactForce);
 
-      // Only punish very hard impacts
+      // Only punish very hard impacts, and punish both cars the same. The
+      // opponents used to take this on a `speedMultiplier` floored at 0.7,
+      // so a hit that cost the player 15% of its speed outright cost them a
+      // recoverable 10% of a ceiling they were rarely against.
       if (impactForce > 3) {
-        if (a.speedMultiplier !== undefined)
-          a.speedMultiplier = Math.max(0.7, a.speedMultiplier * 0.9);
-        else a.speed *= 0.85;
-        if (b.speedMultiplier !== undefined)
-          b.speedMultiplier = Math.max(0.7, b.speedMultiplier * 0.9);
-        else b.speed *= 0.85;
+        a.speed *= 0.85;
+        b.speed *= 0.85;
       }
     }
   }
@@ -1705,56 +1777,27 @@ function gameLoop(timestamp) {
     // they are still on their own lap, and the table was already taken.
     const rollingOut = finishHoldTimer > 0;
 
-    const accel = !rollingOut && keys[KeyBindings.bindings.accelerate];
-    const braking = !rollingOut && keys[KeyBindings.bindings.brake];
-    const left = !rollingOut && keys[KeyBindings.bindings.left];
-    const right = !rollingOut && keys[KeyBindings.bindings.right];
-    throttle = !!accel;
+    const playerInput = {
+      rollOut: rollingOut,
+      accel: !rollingOut && !!keys[KeyBindings.bindings.accelerate],
+      brake: !rollingOut && !!keys[KeyBindings.bindings.brake],
+      left: !rollingOut && !!keys[KeyBindings.bindings.left],
+      right: !rollingOut && !!keys[KeyBindings.bindings.right],
+    };
+    throttle = playerInput.accel;
 
-    // car.friction, not a second hardcoded constant — it is what the rain's
-    // FRICTION_BONUS has always meant to raise, and never could while the
-    // coast rate was written out separately here.
-    if (rollingOut) {
-      // Toward zero from either side, and stopping there — braking straight
-      // through it would back the car over its own finish line.
-      const drop = car.acceleration * delta;
-      car.speed =
-        Math.abs(car.speed) <= drop
-          ? 0
-          : car.speed - Math.sign(car.speed) * drop;
-    } else if (accel) car.speed += car.acceleration * delta;
-    else if (braking) car.speed -= car.acceleration * delta;
-    else car.speed *= Math.pow(car.friction + Rain.frictionBonus(), delta);
-
-    if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
-    if (car.speed < -car.maxSpeed / 2) car.speed = -car.maxSpeed / 2;
-    if (!accel && !braking && Math.abs(car.speed) < 0.01) car.speed = 0;
-
-    const flip = car.speed >= 0 ? 1 : -1;
-
-    if (left) car.angle -= car.turnSpeed * flip * delta;
-    if (right) car.angle += car.turnSpeed * flip * delta;
-
-    if (car.speed !== 0 && (left || right)) {
-      const scrubFactor =
-        0.94 + 0.04 * (1 - Math.abs(car.speed) / car.maxSpeed);
-      car.speed *= Math.pow(scrubFactor, delta);
-    }
-
-    // AI update
+    // CONTROLS — six drivers, one car. The only difference between these two
+    // lines is where the four booleans came from.
+    stepCarControls(car, playerInput, delta);
     opponents.forEach((ai) =>
-      ai.update(
-        worldTrack.data.waypoints,
-        isRacing,
-        car.x,
-        car.y,
-        opponents,
+      stepCarControls(
+        ai,
+        ai.drive(worldTrack.data.waypoints, car, opponents, delta),
         delta,
       ),
     );
-    opponents.forEach(clampToWorld);
 
-    // Front-wheel artwork, off the yaw both of them just produced
+    // Front-wheel artwork, off the yaw they all just produced
     updateSteerVisual(car, delta);
     opponents.forEach((ai) => updateSteerVisual(ai, delta));
 
@@ -1768,16 +1811,12 @@ function gameLoop(timestamp) {
     // Player vs AI
     opponents.forEach((ai) => resolveCollision(car, ai));
 
-    const targetVx = Math.sin(car.angle) * car.speed;
-    const targetVy = -Math.cos(car.angle) * car.speed;
-    const grip = car.driftGrip * Rain.gripScale();
-    car.velocityX += (targetVx - car.velocityX) * grip * delta;
-    car.velocityY += (targetVy - car.velocityY) * grip * delta;
+    // MOTION — after the shoves, so a car cannot be pushed out of a gap it
+    // has already been integrated through.
+    stepCarMotion(car, delta);
+    opponents.forEach((ai) => stepCarMotion(ai, delta));
 
-    car.x += car.velocityX * delta;
-    car.y += car.velocityY * delta;
-    clampToWorld(car);
-    updatePlayerSurface(delta);
+    updateLapCounter(car, true);
     opponents.forEach((ai) => updateLapCounter(ai, false));
 
     slip = lateralSlip(car);

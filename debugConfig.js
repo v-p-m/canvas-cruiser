@@ -13,14 +13,16 @@ const DebugConfig = {
     playerTurnSpeed: 0.06,
     playerDriftGrip: 0.1,
 
-    // AI
-    aiMaxSpeedMin: 8.3,
-    aiMaxSpeedMax: 9.6,
-    aiTurnSpeed: 0.08,
-    aiGrip: 0.2,
+    // AI. There are no speed, turn or grip sliders here any more: the
+    // opponents drive the player's car, so the four above are theirs too and
+    // a second set of them could only ever be a way to make them a different
+    // vehicle again. What is left tunes the driver.
+    aiSkillMin: 0.85,
+    aiSkillMax: 1.0,
+    aiCornerMargin: 0.86,
     aiLineOffsetRange: 40,
-    aiRepulsionRadius: 120,
-    aiRepulsionForce: 0.3,
+    aiAvoidRadius: 120,
+    aiAvoidStrength: 55,
 
     // Collision
     collisionHalfW: 1.0, // multiplier of car.width
@@ -55,7 +57,7 @@ const DebugConfig = {
   // Same idea for the opponent tuning: anyone who has ever opened the panel
   // has an `ai*` block in localStorage, and it would otherwise pin them to
   // whatever the balance was on the day they opened it.
-  aiVersion: 2,
+  aiVersion: 3,
 
   // Defaults that live in game.js. This file is parsed first, so they cannot
   // be written into the `defaults` literal — SPAWN_POSITIONS and MAX_DPR do
@@ -117,16 +119,15 @@ const DebugConfig = {
     },
 
     { group: "AI" },
-    { key: "aiMaxSpeedMin", label: "Speed min", min: 2, max: 15, step: 0.5 },
-    { key: "aiMaxSpeedMax", label: "Speed max", min: 2, max: 15, step: 0.5 },
+    { key: "aiSkillMin", label: "Skill min", min: 0.5, max: 1.2, step: 0.01 },
+    { key: "aiSkillMax", label: "Skill max", min: 0.5, max: 1.2, step: 0.01 },
     {
-      key: "aiTurnSpeed",
-      label: "Turn speed",
-      min: 0.01,
-      max: 0.2,
-      step: 0.005,
+      key: "aiCornerMargin",
+      label: "Corner margin",
+      min: 0.3,
+      max: 1.2,
+      step: 0.01,
     },
-    { key: "aiGrip", label: "Grip", min: 0.01, max: 1.0, step: 0.01 },
     {
       key: "aiLineOffsetRange",
       label: "Line offset",
@@ -135,18 +136,18 @@ const DebugConfig = {
       step: 1,
     },
     {
-      key: "aiRepulsionRadius",
-      label: "Repulsion radius",
+      key: "aiAvoidRadius",
+      label: "Avoid radius",
       min: 0,
       max: 300,
       step: 5,
     },
     {
-      key: "aiRepulsionForce",
-      label: "Repulsion force",
+      key: "aiAvoidStrength",
+      label: "Avoid strength",
       min: 0,
-      max: 2.0,
-      step: 0.05,
+      max: 200,
+      step: 5,
     },
 
     { group: "Collision" },
@@ -259,28 +260,14 @@ const DebugConfig = {
   apply() {
     const v = this.values;
 
-    // The speed sliders are the 100cc baseline; the engine class multiplies
-    // them, for the opponents as well as the player, so the field stays as
-    // close in a 60cc race as in a 250cc one. Turn speed and grip are not
-    // scaled — see engineClass.js.
-    const speedScale = EngineClass.speedScale();
-
-    // Player
-    car.acceleration = v.playerAcceleration * EngineClass.accelScale();
-    car.maxSpeed = v.playerMaxSpeed * speedScale;
-    car.turnSpeed = v.playerTurnSpeed;
-    car.driftGrip = v.playerDriftGrip;
-
-    // AI
+    // The four "Player" sliders are the whole grid's car — applyCarStats is
+    // what multiplies the engine class into them, for the opponents as well,
+    // so the field stays as close in a 60cc race as in a 250cc one. Turn
+    // speed and grip are not scaled by class — see engineClass.js.
+    applyCarStats(car, v);
     opponents.forEach((ai) => {
-      ai.baseMaxSpeed =
-        (v.aiMaxSpeedMin +
-          Math.random() * (v.aiMaxSpeedMax - v.aiMaxSpeedMin)) *
-        speedScale;
-      ai.maxSpeed = ai.baseMaxSpeed;
-      ai.turnSpeed = v.aiTurnSpeed;
-      ai.grip = v.aiGrip;
-      ai.lineOffset = (Math.random() - 0.5) * v.aiLineOffsetRange;
+      applyCarStats(ai, v);
+      ai.rollDriver(v);
     });
 
     // StartLights
