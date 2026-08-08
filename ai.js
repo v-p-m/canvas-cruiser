@@ -26,17 +26,66 @@
 // far the slide carries the car off the marker it aimed at, and that is what
 // the margin below pays for.
 const CORNER_MARGIN = 0.86; // fraction of the geometric limit a perfect driver takes
-const LOOKAHEAD_MARKERS = 5; // waypoints scanned ahead for something to brake for
 const LOOKAHEAD_DIST = 1200; // world px — stop scanning once this far ahead
 
-// When to stop chasing a marker and commit to the next one. Turning in early
-// has now been tried twice and measured wrong twice — once as a fixed aim
-// between the two markers, and once scaled to the speed/grip distance the car
-// covers going straight while the velocity catches the nose up, which is a
-// real effect and still not a reason to do this. On a track this narrow it
-// cuts the apex onto the inside grass: at 0.4 of the entry slide the dry
-// 100cc lap went from 11.5s to 18.5s with over half of it off the road.
-const ADVANCE_RADIUS = 120; // px
+// THE LINE. A dozen markers hold a circuit, so the line they describe is a
+// polygon: every corner's turning is concentrated at a single vertex with
+// nothing on either side of it. Chasing those markers one at a time is what
+// made the cornering look sharp — measured on Super Circuit, the aim sat still
+// for a second and then moved a median of 55° of bearing in the one frame the
+// marker advanced, against 0.2° in every frame between. The driver answered
+// each jump with one unbroken hold of full lock, fifteen a lap sweeping 76° to
+// 134° of heading apiece, and drove the twelve-sided polygon that implies: half
+// the lap dead straight, a ninth of it pivoting at the lock, nothing in between.
+//
+// Resampling the markers and rounding them gives a line that *contains* its
+// corners, so the same turning is spread over an entry, an apex and an exit —
+// and, as a second effect worth as much, gives `cornerRadius` something real to
+// read. Three markers 400px apart around a 90° vertex describe no corner the
+// braking model can see; a rounded line at 20px does.
+//
+// The rounding is a moving average, which cuts inside the markers — it is
+// bounded to a few tens of px by the span, and this is the *only* place the
+// line moves off them. Aiming off the ring is what has been tried twice and
+// measured wrong twice: at 0.4 of the entry slide the dry 100cc lap went from
+// 11.5s to 18.5s with over half of it off the road.
+const RING_SPACING = 20; // world px between resampled points
+const RING_SMOOTH_SPAN = 3; // points either side averaged, per pass
+const RING_SMOOTH_PASSES = 2; // together: a corner rounded over ~120px of line
+const RING_CURV_SPAN = 4; // points either side the radius is measured across
+
+// Clearance. Both shipped rings were cut taut against the inside kerb, which
+// was right for a driver that swung wide of everything it aimed at: the old
+// one spent a quarter of the lap with a wheel off and none of it in trouble.
+// A driver that *tracks* the line inherits the kerb instead — the same ring
+// drove 58% of the lap off the road, a tenth of it half the car deep.
+//
+// Rather than re-cut the shipped circuits for one driver, the ring is pushed
+// off the edge where it does not fit, by sampling the same road field the
+// physics collide against. It is one-sided on purpose: a point with room for
+// the car either side is left exactly where it was authored, so the taut
+// corner-cutting line — which was measured faster than a textbook racing line
+// — survives everywhere it is legal, and only the kerbs move.
+//
+// What sets the distance is tracking error, not the car: it is half a car wide,
+// and it still wants 54px because at a hairpin it runs up to 47px off its own
+// line. This is a cliff and not a dial — 34px leaves the dry lap at 0.159 of
+// off-road drag, 54 at 0.017, 64 at 0.008, and 74 pinches the line badly enough
+// that the driver starts braking for its own kerbs (10.9s becomes 13.9s). 54
+// buys the margin.
+const RING_CLEARANCE = 54; // world px probed either side
+const RING_CLEAR_STEP = 8; // world px moved per pass
+const RING_CLEAR_PASSES = 6; // enough to walk a point clear of the widest overhang
+
+// Where to point: a fixed distance ahead along that line — pure pursuit. The
+// bound at both ends is the whole tuning. Too short and the loop is under-
+// damped: at 14 frames, under the car's own 117px turn radius at pace, it wove
+// down the straights and lost 2s a lap to the scrub. Too long and it stops
+// tracking the line and takes the chord across it — at 26 frames on the raw
+// markers, 72% of the lap had a wheel off the road.
+const LOOKAHEAD_FRAMES = 20; // frames of travel the aim point runs ahead
+const LOOKAHEAD_MIN = 70; // world px — floor, so a stopped car still has a target
+const LOOKAHEAD_MAX = 190; // world px — ceiling
 
 // Bang-bang steering needs a deadband or the car saws at the rate limit all
 // the way down every straight. Both thresholds are in frames of the car's own
@@ -114,7 +163,7 @@ const WET_MARGIN = 0.45; // fraction of the dry corner margin when fully wet
 // aggression instead — later braking and more of the geometric limit — so
 // they close in the corners, where a driver can actually find time.
 const CATCHUP_GAIN = 0.12; // max fraction added to the corner margin
-const CATCHUP_FULL = 2.5; // waypoints behind at which the gain is maxed
+const CATCHUP_FULL = 1200; // world px behind at which the gain is maxed
 
 // Avoidance is a driver behaviour, so it moves the aim point rather than the
 // velocity. Shoving velocity around directly — which is what this used to do
@@ -123,15 +172,15 @@ const CATCHUP_FULL = 2.5; // waypoints behind at which the gain is maxed
 const AVOID_RADIUS = 120; // px — start aiming away at this distance
 const AVOID_STRENGTH = 55; // px of lateral aim offset at full closeness
 
-// Index of the waypoint nearest a point. Both cars are measured the same way
-// so the systematic offset between "closest marker" and "marker being chased"
-// cancels out of the gap.
-function nearestWaypoint(x, y, waypoints) {
+// Index of the ring point nearest a position. Both cars are measured the same
+// way so the systematic offset between "closest point" and "point being
+// chased" cancels out of the gap.
+function nearestPoint(x, y, pts) {
   let best = 0;
   let bestSq = Infinity;
-  for (let i = 0; i < waypoints.length; i++) {
-    const dx = waypoints[i].x - x;
-    const dy = waypoints[i].y - y;
+  for (let i = 0; i < pts.length; i++) {
+    const dx = pts[i].x - x;
+    const dy = pts[i].y - y;
     const dSq = dx * dx + dy * dy;
     if (dSq < bestSq) {
       bestSq = dSq;
@@ -141,14 +190,16 @@ function nearestWaypoint(x, y, waypoints) {
   return best;
 }
 
-// Radius of the circle through a marker and its two neighbours — the corner,
-// as the track actually describes it. Three markers in a line give zero area
-// and an infinite radius, which is a straight and exactly the right answer.
-function cornerRadius(waypoints, i) {
-  const n = waypoints.length;
-  const a = waypoints[(i - 1 + n) % n];
-  const b = waypoints[i];
-  const c = waypoints[(i + 1) % n];
+// Radius of the circle through a point and its neighbours `span` either side —
+// the corner, as the line actually describes it. Three collinear points give
+// zero area and an infinite radius, which is a straight and exactly the right
+// answer. The span is what makes it readable on a 20px ring: neighbours that
+// close are a straight everywhere, corners included.
+function cornerRadius(pts, i, span) {
+  const n = pts.length;
+  const a = pts[(((i - span) % n) + n) % n];
+  const b = pts[i];
+  const c = pts[(i + span) % n];
 
   const ab = Math.hypot(b.x - a.x, b.y - a.y);
   const bc = Math.hypot(c.x - b.x, c.y - b.y);
@@ -157,6 +208,125 @@ function cornerRadius(waypoints, i) {
 
   if (area2 < 1e-6) return Infinity;
   return (ab * bc * ca) / (2 * area2);
+}
+
+// The markers, resampled at RING_SPACING and rounded — see THE LINE above.
+// Built once and cached: the checksum is over the *markers*, so a dozen of
+// them cost nothing to re-check every frame, and the ring rebuilds itself
+// while the waypoint editor is dragging one about.
+let ringCache = { key: 0, count: 0, cleared: false, ring: null };
+
+function smoothRing(pts) {
+  const m = pts.length;
+  const out = new Array(m);
+  for (let i = 0; i < m; i++) {
+    let sx = 0;
+    let sy = 0;
+    for (let k = -RING_SMOOTH_SPAN; k <= RING_SMOOTH_SPAN; k++) {
+      const q = pts[(((i + k) % m) + m) % m];
+      sx += q.x;
+      sy += q.y;
+    }
+    out[i] = {
+      x: sx / (2 * RING_SMOOTH_SPAN + 1),
+      y: sy / (2 * RING_SMOOTH_SPAN + 1),
+    };
+  }
+  return out;
+}
+
+// One pass of the clearance walk: every point that has the road field falling
+// away on one side within RING_CLEARANCE steps away from it, sideways only.
+// Moving a point *along* the line would shuffle the spacing and, at a hairpin,
+// the order; across it can only change where the corner is taken.
+function clearRing(pts) {
+  if (typeof worldTrack === "undefined" || !worldTrack.field) return pts;
+
+  const m = pts.length;
+  const out = new Array(m);
+  for (let i = 0; i < m; i++) {
+    const a = pts[(i - 1 + m) % m];
+    const b = pts[(i + 1) % m];
+    const tx = b.x - a.x;
+    const ty = b.y - a.y;
+    const len = Math.hypot(tx, ty) || 1;
+    const nx = -ty / len;
+    const ny = tx / len;
+
+    const p = pts[i];
+    const left = worldTrack.sampleRoad(
+      p.x - nx * RING_CLEARANCE,
+      p.y - ny * RING_CLEARANCE,
+    );
+    const right = worldTrack.sampleRoad(
+      p.x + nx * RING_CLEARANCE,
+      p.y + ny * RING_CLEARANCE,
+    );
+
+    // Only the side that is actually off the road pulls. Both clear, or both
+    // gone — a point stranded on the grass has no side to prefer — and it
+    // stays put.
+    let push = 0;
+    if (left < 0.5 && right >= 0.5) push = 1;
+    else if (right < 0.5 && left >= 0.5) push = -1;
+
+    out[i] = {
+      x: p.x + nx * push * RING_CLEAR_STEP,
+      y: p.y + ny * push * RING_CLEAR_STEP,
+    };
+  }
+  return out;
+}
+
+function buildRing(waypoints) {
+  let pts = [];
+  const n = waypoints.length;
+  for (let i = 0; i < n; i++) {
+    const a = waypoints[i];
+    const b = waypoints[(i + 1) % n];
+    const steps = Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y) / RING_SPACING));
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      pts.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    }
+  }
+
+  const m = pts.length;
+  for (let pass = 0; pass < RING_SMOOTH_PASSES; pass++) pts = smoothRing(pts);
+  for (let pass = 0; pass < RING_CLEAR_PASSES; pass++) {
+    pts = smoothRing(clearRing(pts));
+  }
+
+  // Per-point corner radius and the length of the segment leaving it, both
+  // wanted every frame by every car and neither of them changing.
+  const radius = new Array(m);
+  const seg = new Array(m);
+  for (let i = 0; i < m; i++) {
+    radius[i] = cornerRadius(pts, i, RING_CURV_SPAN);
+    const b = pts[(i + 1) % m];
+    seg[i] = Math.hypot(b.x - pts[i].x, b.y - pts[i].y);
+  }
+  return { pts, radius, seg };
+}
+
+function ringFor(waypoints) {
+  let key = 0;
+  for (let i = 0; i < waypoints.length; i++) {
+    key = (key + waypoints[i].x * 3 + waypoints[i].y * 7) % 1e9;
+  }
+  // `cleared` is part of the key: a ring built before the road field was
+  // rasterised never had a kerb to be pushed off, and has to be thrown away
+  // once there is one.
+  const cleared = typeof worldTrack !== "undefined" && !!worldTrack.field;
+  if (
+    !ringCache.ring ||
+    ringCache.key !== key ||
+    ringCache.count !== waypoints.length ||
+    ringCache.cleared !== cleared
+  ) {
+    ringCache = { key, count: waypoints.length, cleared, ring: buildRing(waypoints) };
+  }
+  return ringCache.ring;
 }
 
 class AICar {
@@ -221,54 +391,106 @@ class AICar {
   }
 
   // The fastest this car can be going *now* and still be down to every corner
-  // in range by the time it reaches it. Each marker in the scan contributes
-  // sqrt(v² + 2·a·d) — the arrival speed it allows, worked back over the
-  // distance still to run — and the driver obeys the tightest of them.
-  targetSpeed(waypoints, margin) {
-    const n = waypoints.length;
+  // in range by the time it reaches it. Each point of line in the scan
+  // contributes sqrt(v² + 2·a·d) — the arrival speed its radius allows, worked
+  // back over the distance still to run — and the driver obeys the tightest.
+  targetSpeed(ring, margin) {
+    const n = ring.pts.length;
     let limit = this.maxSpeed;
-    let px = this.x;
-    let py = this.y;
-    let d = 0;
+    let d = Math.hypot(
+      ring.pts[this.currentWaypoint].x - this.x,
+      ring.pts[this.currentWaypoint].y - this.y,
+    );
 
-    for (let step = 0; step < LOOKAHEAD_MARKERS; step++) {
+    for (let step = 0; step < n; step++) {
       const i = (this.currentWaypoint + step) % n;
-      const wp = waypoints[i];
-      d += Math.hypot(wp.x - px, wp.y - py);
-      px = wp.x;
-      py = wp.y;
 
-      const r = cornerRadius(waypoints, i);
+      const r = ring.radius[i];
       if (r !== Infinity) {
         const corner = r * this.turnSpeed * margin;
         const allowed = Math.sqrt(corner * corner + 2 * this.acceleration * d);
         if (allowed < limit) limit = allowed;
       }
 
+      d += ring.seg[i];
       if (d > LOOKAHEAD_DIST) break;
     }
     return limit;
   }
 
-  // Where to point: the marker being chased, pushed sideways by this driver's
-  // line offset and again by anyone close enough to hit.
-  aimPoint(waypoints, others) {
-    const n = waypoints.length;
-    const current = waypoints[this.currentWaypoint];
-    const next = waypoints[(this.currentWaypoint + 1) % n];
+  // How far down the segment leading to the point being approached the car is,
+  // as a fraction. It is a projection and not a proximity test: a car shoved
+  // wide, or one taking a metre of line offset, is still level with the same
+  // piece of track, where a radius check either advances it early or strands it
+  // against a point it never passes close enough to.
+  segmentProgress(ring) {
+    const n = ring.pts.length;
+    const prev = ring.pts[(this.currentWaypoint - 1 + n) % n];
+    const cur = ring.pts[this.currentWaypoint];
+    const vx = cur.x - prev.x;
+    const vy = cur.y - prev.y;
+    const len2 = vx * vx + vy * vy || 1;
+    const t = ((this.x - prev.x) * vx + (this.y - prev.y) * vy) / len2;
+    return { prev, cur, t: Math.min(1, Math.max(0, t)), passed: t >= 1 };
+  }
 
-    // Perpendicular offset for a varied racing line. Aiming anywhere between
-    // this marker and the next one was tried, to make the cars turn in early;
-    // on a track this narrow it just cuts the apex onto the inside grass and
-    // trebled the time they spent off the road.
-    const perpX = -(current.y - next.y);
-    const perpY = current.x - next.x;
+  // Commit to the next point of line once the car is level with this one.
+  // Bounded by the ring length so a car facing the wrong way down the track
+  // cannot walk the whole lap in one frame.
+  advancePath(ring) {
+    const n = ring.pts.length;
+    for (let step = 0; step < n; step++) {
+      if (!this.segmentProgress(ring).passed) return;
+      this.currentWaypoint = (this.currentWaypoint + 1) % n;
+    }
+  }
+
+  // Where to point: a point LOOKAHEAD further along the line, pushed sideways
+  // by this driver's line offset and again by anyone close enough to hit.
+  aimPoint(ring, others) {
+    const n = ring.pts.length;
+    const { prev, cur, t } = this.segmentProgress(ring);
+
+    // Walk on round the ring from the point the car is level with until the
+    // lookahead is spent. Distance is measured along the line rather than
+    // straight from the car, so the target keeps its distance through a corner
+    // instead of being dragged across it.
+    let ahead = Math.abs(this.speed) * LOOKAHEAD_FRAMES;
+    ahead = Math.min(LOOKAHEAD_MAX, Math.max(LOOKAHEAD_MIN, ahead));
+
+    let x = prev.x + (cur.x - prev.x) * t;
+    let y = prev.y + (cur.y - prev.y) * t;
+    let dirX = cur.x - prev.x;
+    let dirY = cur.y - prev.y;
+    for (let step = 0; step < n; step++) {
+      const wp = ring.pts[(this.currentWaypoint + step) % n];
+      const dx = wp.x - x;
+      const dy = wp.y - y;
+      const d = Math.hypot(dx, dy);
+      if (d > 0) {
+        dirX = dx;
+        dirY = dy;
+        if (d >= ahead) {
+          x += (dx / d) * ahead;
+          y += (dy / d) * ahead;
+          break;
+        }
+        ahead -= d;
+      }
+      x = wp.x;
+      y = wp.y;
+    }
+
+    // Perpendicular offset for a varied racing line, off the direction the
+    // ring runs where the aim point landed.
+    const perpX = dirY;
+    const perpY = -dirX;
     const perpLen = Math.hypot(perpX, perpY) || 1;
 
     const lateral =
       this.lineOffset + Math.sin(this.wanderPhase) * this.wander;
-    let x = current.x + (perpX / perpLen) * lateral;
-    let y = current.y + (perpY / perpLen) * lateral;
+    x += (perpX / perpLen) * lateral;
+    y += (perpY / perpLen) * lateral;
 
     const radius = DebugConfig.values.aiAvoidRadius ?? AVOID_RADIUS;
     const strength = DebugConfig.values.aiAvoidStrength ?? AVOID_STRENGTH;
@@ -302,20 +524,16 @@ class AICar {
 
     this.wanderPhase += WANDER_RATE * delta;
 
-    const n = waypoints.length;
-    const current = waypoints[this.currentWaypoint];
-    const dx = current.x - this.x;
-    const dy = current.y - this.y;
+    const ring = ringFor(waypoints);
+    const n = ring.pts.length;
 
     // Advance once, here. There used to be a second check at the bottom of
-    // this function testing the *same* distance against a tighter radius, so
-    // any approach inside 80px burned two waypoints in one frame and the car
-    // cut the corner that followed.
-    if (dx * dx + dy * dy < ADVANCE_RADIUS * ADVANCE_RADIUS) {
-      this.currentWaypoint = (this.currentWaypoint + 1) % n;
-    }
+    // this function testing the *same* proximity against a tighter radius, so
+    // any close approach burned two waypoints in one frame and the car cut the
+    // corner that followed.
+    this.advancePath(ring);
 
-    const aim = this.aimPoint(waypoints, others);
+    const aim = this.aimPoint(ring, others);
 
     // STEERING. Bang-bang, at the player's lock, through a Schmitt trigger in
     // units of that lock so it does not chatter around dead centre. The nose
@@ -341,14 +559,14 @@ class AICar {
     else if (err > this.turnSpeed * STEER_ON)
       this.steerDir = Math.sign(angleDiff);
 
-    // Catch-up, in waypoints of track rather than pixels of separation.
+    // Catch-up, in track run along the line rather than pixels of separation.
     let catchup = 0;
     if (player) {
-      const mine = nearestWaypoint(this.x, this.y, waypoints);
-      const theirs = nearestWaypoint(player.x, player.y, waypoints);
+      const mine = nearestPoint(this.x, this.y, ring.pts);
+      const theirs = nearestPoint(player.x, player.y, ring.pts);
       let gap = (((mine - theirs) % n) + n) % n;
       if (gap > n / 2) gap -= n; // signed — negative is behind the player
-      if (gap < 0) catchup = Math.min(-gap / CATCHUP_FULL, 1);
+      if (gap < 0) catchup = Math.min((-gap * RING_SPACING) / CATCHUP_FULL, 1);
     }
 
     // PEDALS. The corner limit, less a lift for being badly mis-pointed —
@@ -356,7 +574,7 @@ class AICar {
     // target and asked to reverse out of it.
     const headingErr = Math.min(Math.abs(angleDiff) / Math.PI, 1);
     const target =
-      this.targetSpeed(waypoints, this.cornerMargin(catchup)) *
+      this.targetSpeed(ring, this.cornerMargin(catchup)) *
       Math.max(0, 1 - headingErr * HEADING_BRAKE);
 
     return {

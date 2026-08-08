@@ -57,7 +57,7 @@ const DebugConfig = {
   // Same idea for the opponent tuning: anyone who has ever opened the panel
   // has an `ai*` block in localStorage, and it would otherwise pin them to
   // whatever the balance was on the day they opened it.
-  aiVersion: 3,
+  aiVersion: 4,
 
   // Defaults that live in game.js. This file is parsed first, so they cannot
   // be written into the `defaults` literal — SPAWN_POSITIONS and MAX_DPR do

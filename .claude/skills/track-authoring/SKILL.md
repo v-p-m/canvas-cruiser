@@ -60,6 +60,14 @@ waypoint ring says where the lap is. Both live in the track file.
 - **Below ~8 waypoints the ring stops being the track.** Progress is measured
   along the chords between waypoints, so a sparse ring cuts every corner and
   both the gate and the race order drift off the road with it.
+- **The ring is where the lap is, not where the AI drives.** `ai.js` resamples
+  it at 20px, rounds the vertices and then pushes any point that has grass
+  within 54px of it back toward the middle, sampling the same road field the
+  physics collide against. So a ring does not have to be cut tight to the apexes
+  to be quick — the shipped ones were, for a driver that swung wide of
+  everything it aimed at, and the driver that replaced it read that as an
+  instruction to drive on the kerb. Author the ring for the lap; the line looks
+  after itself.
 - **The ring must not fold back near itself.** Progress is "nearest segment",
   so where two parts of the lap pass within a car's width — a crossover, a very
   tight hairpin — a car can latch onto the wrong one, which misplaces it in the
