@@ -105,6 +105,10 @@ const DebugHUD = {
     ctx.font = "14px monospace";
 
     if (DEBUG) {
+      // The grid markers are on the road, not on the screen, so they take the
+      // free camera's zoom the same way everything else in world space does.
+      ctx.save();
+      ctx.scale(viewZoom, viewZoom);
       SPAWN_POSITIONS.forEach((pos, i) => {
         const sx = pos.x - camera.x;
         const sy = pos.y - camera.y;
@@ -123,11 +127,17 @@ const DebugHUD = {
         ctx.textBaseline = "middle";
         ctx.fillText(i === 0 ? "P" : `A${i}`, sx, sy);
       });
+      ctx.restore();
     }
 
     if (WaypointEditor.active) {
+      // The pan and zoom half of the line is only true where the free camera
+      // is — in a race the view is still the car's.
+      const view = freeCameraActive()
+        ? `  |  RMB / ARROWS: pan  |  WHEEL: zoom ${viewZoom}x (0: reset)`
+        : "";
       ctx.fillText(
-        `WAYPOINT EDITOR  |  CLICK: place  |  DRAG: move  |  Z: undo  |  P: export  |  ${WaypointEditor.waypoints.length} points`,
+        `WAYPOINT EDITOR  |  CLICK: place  |  DRAG: move  |  Z: undo  |  P: export${view}  |  ${WaypointEditor.waypoints.length} points`,
         camera.width / 2,
         camera.height - 18,
       );

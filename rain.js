@@ -136,11 +136,14 @@ const Rain = {
     this.puddles.forEach((p) => {
       const sx = p.x - camera.x;
       const sy = p.y - camera.y;
+      // Against the world rect, not the viewport: zoomed out by an editor's
+      // free camera the two are not the same, and puddles in the half of the
+      // map beyond the viewport would drop out.
       if (
         sx < -60 ||
-        sx > camera.width + 60 ||
+        sx > viewWidth() + 60 ||
         sy < -40 ||
-        sy > camera.height + 40
+        sy > viewHeight() + 40
       )
         return;
 

@@ -3,6 +3,9 @@
 const DebugConfig = {
   visible: false,
 
+  // The speed numbers below are the 100cc baseline. What the cars actually get
+  // is these times the selected engine class's multiplier — apply() is where
+  // the two meet, so dragging a slider tunes every class at once.
   defaults: {
     // Player
     playerAcceleration: 0.2,
@@ -256,16 +259,24 @@ const DebugConfig = {
   apply() {
     const v = this.values;
 
+    // The speed sliders are the 100cc baseline; the engine class multiplies
+    // them, for the opponents as well as the player, so the field stays as
+    // close in a 60cc race as in a 250cc one. Turn speed and grip are not
+    // scaled — see engineClass.js.
+    const speedScale = EngineClass.speedScale();
+
     // Player
-    car.acceleration = v.playerAcceleration;
-    car.maxSpeed = v.playerMaxSpeed;
+    car.acceleration = v.playerAcceleration * EngineClass.accelScale();
+    car.maxSpeed = v.playerMaxSpeed * speedScale;
     car.turnSpeed = v.playerTurnSpeed;
     car.driftGrip = v.playerDriftGrip;
 
     // AI
     opponents.forEach((ai) => {
       ai.baseMaxSpeed =
-        v.aiMaxSpeedMin + Math.random() * (v.aiMaxSpeedMax - v.aiMaxSpeedMin);
+        (v.aiMaxSpeedMin +
+          Math.random() * (v.aiMaxSpeedMax - v.aiMaxSpeedMin)) *
+        speedScale;
       ai.maxSpeed = ai.baseMaxSpeed;
       ai.turnSpeed = v.aiTurnSpeed;
       ai.grip = v.aiGrip;

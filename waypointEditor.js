@@ -4,7 +4,9 @@ const WaypointEditor = {
   dragIndex: -1, // which waypoint is being dragged
   dragOffsetX: 0,
   dragOffsetY: 0,
-  GRAB_RADIUS: 20, // px — how close you need to click to grab a waypoint
+  panFromX: null, // last position of a right-button pan, screen px
+  panFromY: null,
+  GRAB_RADIUS: 20, // world px — how close you need to click to grab a waypoint
 
   init(existingWaypoints) {
     this.waypoints = existingWaypoints || [];
@@ -13,16 +15,21 @@ const WaypointEditor = {
   toggle() {
     if (!DEBUG) return;
     this.active = !this.active;
+    // Opened from the menu the view is free (see the free camera in game.js),
+    // and it starts where the racing camera was left.
+    if (this.active) resetEditorView();
     console.log(`Waypoint editor ${this.active ? "ON" : "OFF"}`);
   },
 
-  // Find waypoint index near screen coords, returns -1 if none
+  // Find waypoint index near screen coords, returns -1 if none. The compare is
+  // in world units so the grab ring stays the ring that is drawn — zoomed out
+  // it shrinks with the map rather than swallowing half the lap.
   findNear(screenX, screenY) {
+    const wx = screenToWorldX(screenX);
+    const wy = screenToWorldY(screenY);
     for (let i = 0; i < this.waypoints.length; i++) {
-      const sx = this.waypoints[i].x - camera.x; // world → screen
-      const sy = this.waypoints[i].y - camera.y;
-      const dx = screenX - sx;
-      const dy = screenY - sy;
+      const dx = wx - this.waypoints[i].x;
+      const dy = wy - this.waypoints[i].y;
       if (dx * dx + dy * dy < this.GRAB_RADIUS * this.GRAB_RADIUS) return i;
     }
     return -1;
@@ -30,25 +37,33 @@ const WaypointEditor = {
 
   handleClick(screenX, screenY) {
     if (!this.active) return;
-    // camera.x/y are world offsets so this is correct
-    const worldX = screenX + camera.x;
-    const worldY = screenY + camera.y;
-    this.waypoints.push({ x: Math.round(worldX), y: Math.round(worldY) });
+    this.waypoints.push({
+      x: Math.round(screenToWorldX(screenX)),
+      y: Math.round(screenToWorldY(screenY)),
+    });
   },
 
-  handleMouseDown(screenX, screenY) {
+  handleMouseDown(screenX, screenY, button) {
     if (!this.active) return;
+
+    // Right-drag pans. Placing a point is the left button's job, so the right
+    // one is free, and dragging the map beats forty presses of an arrow key.
+    if (button === 2) {
+      this.panFromX = screenX;
+      this.panFromY = screenY;
+      return;
+    }
 
     const hit = this.findNear(screenX, screenY);
     if (hit !== -1) {
       // Grab existing waypoint
       this.dragIndex = hit;
-      this.dragOffsetX = this.waypoints[hit].x - camera.x - screenX;
-      this.dragOffsetY = this.waypoints[hit].y - camera.y - screenY;
+      this.dragOffsetX = this.waypoints[hit].x - screenToWorldX(screenX);
+      this.dragOffsetY = this.waypoints[hit].y - screenToWorldY(screenY);
     } else {
       // Place new waypoint
-      const worldX = screenX + camera.x;
-      const worldY = screenY + camera.y;
+      const worldX = screenToWorldX(screenX);
+      const worldY = screenToWorldY(screenY);
       this.waypoints.push({ x: Math.round(worldX), y: Math.round(worldY) });
       console.log(
         `Waypoint ${this.waypoints.length - 1} added:`,
@@ -58,13 +73,28 @@ const WaypointEditor = {
     }
   },
 
-  handleMouseMove(screenX, screenY) {
-    if (!this.active || this.dragIndex === -1) return;
-    this.waypoints[this.dragIndex].x = Math.round(screenX + camera.x);
-    this.waypoints[this.dragIndex].y = Math.round(screenY + camera.y);
+  handleMouseMove(screenX, screenY, buttons) {
+    if (!this.active) return;
+
+    if (buttons & 2 && this.panFromX !== null) {
+      // The drag is in screen pixels; the view moves in world ones.
+      panEditorView(
+        (this.panFromX - screenX) / viewZoom,
+        (this.panFromY - screenY) / viewZoom,
+      );
+      this.panFromX = screenX;
+      this.panFromY = screenY;
+      return;
+    }
+
+    if (this.dragIndex === -1) return;
+    this.waypoints[this.dragIndex].x = Math.round(screenToWorldX(screenX));
+    this.waypoints[this.dragIndex].y = Math.round(screenToWorldY(screenY));
   },
 
   handleMouseUp() {
+    this.panFromX = null;
+    this.panFromY = null;
     if (this.dragIndex !== -1) {
       console.log(
         `Waypoint ${this.dragIndex} moved to:`,

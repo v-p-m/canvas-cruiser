@@ -93,10 +93,12 @@ const LapBanner = {
 // ─────────────────────────────────────────
 // Start menu
 // ─────────────────────────────────────────
-// Circuit picker: one row above the modes, arrows either end. The arrows are
-// what says the row is a choice rather than a heading, so they are drawn even
-// with two tracks to step between.
-function drawTrackSelector(cx, y, live) {
+// A picker row: circuit and engine class, above the modes, arrows either end.
+// The arrows are what says the row is a choice rather than a heading, so they
+// are drawn even with only two things to step between. `focused` is the menu
+// cursor sitting on the row — the modes show that with their gold fill, but a
+// picker's fill is already spoken for, so it gets a border instead.
+function drawSelectorRow(cx, y, opts) {
   const boxW = 360;
   const boxH = 40;
   const boxX = cx - boxW / 2;
@@ -108,19 +110,27 @@ function drawTrackSelector(cx, y, live) {
   ctx.roundRect(boxX, boxY, boxW, boxH, 8);
   ctx.fill();
 
+  if (opts.focused) {
+    ctx.strokeStyle = "#FFD700";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxW, boxH, 8);
+    ctx.stroke();
+  }
+
   ctx.font = "13px 'Courier New'";
   ctx.textAlign = "right";
-  ctx.fillStyle = "#666";
-  ctx.fillText("TRACK", boxX - 14, y - 4);
+  ctx.fillStyle = opts.focused ? "#AAA" : "#666";
+  ctx.fillText(opts.label, boxX - 14, y - 4);
 
   const arrows = [
-    { x: boxX, glyph: "◀", action: "trackPrev" },
-    { x: boxX + boxW - arrowW, glyph: "▶", action: "trackNext" },
+    { x: boxX, glyph: "◀", action: opts.prevAction },
+    { x: boxX + boxW - arrowW, glyph: "▶", action: opts.nextAction },
   ];
   ctx.font = "20px 'Courier New'";
   ctx.textAlign = "center";
   for (const a of arrows) {
-    const hovered = live && isHovered(a.x, boxY, arrowW, boxH);
+    const hovered = opts.live && isHovered(a.x, boxY, arrowW, boxH);
     menuHitAreas.push({
       x: a.x,
       y: boxY,
@@ -138,11 +148,36 @@ function drawTrackSelector(cx, y, live) {
     ctx.fillText(a.glyph, a.x + arrowW / 2, y - 4);
   }
 
-  // The label goes grey while the next circuit is still baking, which is the
-  // only sign the menu gives that ENTER is being ignored.
+  // The circuit label goes grey while the next one is still baking, which is
+  // the only sign the menu gives that ENTER is being ignored.
   ctx.font = "22px 'Courier New'";
-  ctx.fillStyle = trackLoading ? "#888" : "#FFD700";
-  ctx.fillText(currentTrack().label, cx, y - 2);
+  ctx.fillStyle = opts.dim ? "#888" : "#FFD700";
+  ctx.fillText(opts.text, cx, y - 2);
+}
+
+// The one thing on the menu that does something rather than choosing
+// something, so it is the only filled row. Focused and hovered are drawn the
+// same: there is nothing to distinguish, since either way ENTER or a click
+// starts the race that the three rows above describe.
+function drawStartButton(cx, y, live) {
+  const boxW = 300;
+  const boxH = 44;
+  const boxX = cx - boxW / 2;
+  const boxY = y - 30;
+  const hovered = live && isHovered(boxX, boxY, boxW, boxH);
+  const lit = hovered || menuRow === MENU_START_ROW;
+
+  menuHitAreas.push({ x: boxX, y: boxY, w: boxW, h: boxH, action: "start" });
+
+  ctx.fillStyle = lit ? "#FFD700" : "rgba(255,215,0,0.25)";
+  ctx.beginPath();
+  ctx.roundRect(boxX, boxY, boxW, boxH, 8);
+  ctx.fill();
+
+  ctx.font = "bold 24px 'Courier New'";
+  ctx.textAlign = "center";
+  ctx.fillStyle = lit ? "#000" : "#FFD700";
+  ctx.fillText("▶  START", cx, y);
 }
 
 function drawStartMenu() {
@@ -157,79 +192,83 @@ function drawStartMenu() {
   ctx.textAlign = "center";
   ctx.fillStyle = "#FFD700";
   ctx.font = "bold 50px 'Courier New'";
-  ctx.fillText("🏎️ CANVAS CRUISER 🏎️", camera.width / 2, 130);
+  ctx.fillText("🏎️ CANVAS CRUISER 🏎️", camera.width / 2, 118);
   ctx.font = "bold 12px 'Courier New'";
-  ctx.fillText("v" + GAME_VERSION, camera.width / 2, 172);
+  ctx.fillText("v" + GAME_VERSION, camera.width / 2, 156);
 
   const cx = camera.width / 2;
-  const modesStartY = 268;
 
   menuHitAreas = [];
 
-  drawTrackSelector(cx, 212, live);
-
-  // Mode selector
-  ctx.font = "22px 'Courier New'";
-  MODES.forEach((mode, i) => {
-    const y = modesStartY + i * 52;
-    const selected = i === selectedMode;
-
-    const boxW = 300;
-    const boxH = 40;
-    const boxX = cx - boxW / 2;
-    const boxY = y - 28;
-    const hovered = live && isHovered(boxX, boxY, boxW, boxH);
-
-    menuHitAreas.push({
-      x: boxX,
-      y: boxY,
-      w: boxW,
-      h: boxH,
-      action: "mode",
-      index: i,
-    });
-
-    // Highlight box
-    ctx.fillStyle = selected
-      ? "#FFD700"
-      : hovered
-        ? "rgba(255,215,0,0.25)"
-        : "rgba(255,255,255,0.08)";
-    ctx.beginPath();
-    ctx.roundRect(boxX, boxY, boxW, boxH, 8);
-    ctx.fill();
-
-    ctx.fillStyle = selected ? "#000" : hovered ? "#FFD700" : "#AAA";
-    ctx.fillText(selected ? `▶  ${mode.label}` : mode.label, cx, y);
+  // Three rows of the same shape — what you race on, what you race in, and
+  // what the race is. The modes were three stacked boxes and read as the only
+  // thing on the screen that could be chosen; as a picker they sit level with
+  // the other two choices.
+  drawSelectorRow(cx, 196, {
+    label: "TRACK",
+    text: currentTrack().label,
+    prevAction: "trackPrev",
+    nextAction: "trackNext",
+    live,
+    focused: menuRow === 0,
+    dim: trackLoading,
   });
+  drawSelectorRow(cx, 244, {
+    label: "CLASS",
+    text: EngineClass.label(),
+    prevAction: "classPrev",
+    nextAction: "classNext",
+    live,
+    focused: menuRow === 1,
+  });
+  drawSelectorRow(cx, 292, {
+    label: "MODE",
+    text: MODES[selectedMode].label,
+    prevAction: "modePrev",
+    nextAction: "modeNext",
+    live,
+    focused: menuRow === 2,
+  });
+
+  // START. The gold fill used to belong to the selected mode, and without it
+  // the menu is three grey rows and no way in — this is the row that says the
+  // choices above are settings and this is the button.
+  drawStartButton(cx, 366, live);
 
   // Controls — clickable actions first, then the keyboard-only hints below a
   // gap, so the two kinds never interleave. ESC swaps groups: it resumes a
   // paused race (clickable) but is only an in-race reminder otherwise.
-  const controlsY = modesStartY + MODES.length * 52 + 40;
-  const lineSpacing = 32;
+  // Three picker rows, the button and eleven control lines is as much as an
+  // 800px-tall window holds, so the spacings below are the ones that keep the
+  // last hint on screen rather than a free choice.
+  const controlsY = 430;
+  const lineSpacing = 30;
   const groupGap = 18;
   const gutter = 20;
   ctx.font = "16px 'Courier New'";
 
+  // ENTER is a hint rather than an action now: the START button above is the
+  // clickable way in, and a second one here would be the same row twice.
   const actions = [
-    { key: "ENTER", action: "Start", id: "start" },
     { key: "K", action: "Key bindings", id: "keybindings" },
     { key: "Q", action: "Records", id: "leaderboard" },
     { key: "I", action: "Credits", id: "credits" },
     { key: "M", action: Sound.muted ? "Sound: OFF" : "Sound: ON", id: "mute" },
-    { key: "B", action: "DEBUG", id: "debug" },
+    // Stated like the mute row: the tools it unlocks are listed by the debug
+    // overlay's own banner, so all the menu owes is which way the switch is.
+    { key: "B", action: DEBUG ? "DEBUG: ON" : "DEBUG: OFF", id: "debug" },
   ];
   if (racePaused) {
     actions.push({ key: "ESC", action: "Resume race", id: "resume" });
   }
 
-  // "Steer" used to live here, but LEFT / RIGHT picks the circuit on this
-  // screen now and a line claiming otherwise is worse than none — the key
-  // bindings screen is where the driving controls are.
+  // "Steer" used to live here, but the arrows work the menu on this screen and
+  // a line claiming otherwise is worse than none — the key bindings screen is
+  // where the driving controls are.
   const hints = [
-    { key: "UP / DOWN", action: "Select mode" },
-    { key: "LEFT / RIGHT", action: "Select track" },
+    { key: "UP / DOWN", action: "Select row" },
+    { key: "LEFT / RIGHT", action: "Change" },
+    { key: "ENTER", action: "Start" },
     { key: "R", action: "Reset" },
   ];
   if (!racePaused) hints.push({ key: "ESC", action: "Back to Menu" });
@@ -291,15 +330,23 @@ function handleMenuClick(x, y) {
   if (!hit) return;
 
   switch (hit.action) {
-    case "mode":
-      selectedMode = hit.index;
-      startSelectedMode();
+    case "modePrev":
+      cycleMode(-1);
+      break;
+    case "modeNext":
+      cycleMode(1);
       break;
     case "trackPrev":
       cycleTrack(-1);
       break;
     case "trackNext":
       cycleTrack(1);
+      break;
+    case "classPrev":
+      cycleClass(-1);
+      break;
+    case "classNext":
+      cycleClass(1);
       break;
     case "start":
       startSelectedMode();
@@ -745,11 +792,15 @@ function drawLeaderboard() {
   ctx.fillRect(0, 0, camera.width, camera.height);
   ctx.textAlign = "center";
 
-  // Each circuit keeps its own times, so the tables are meaningless without
-  // saying which one they belong to.
+  // Each circuit keeps its own times, and so does each engine class, so the
+  // tables are meaningless without saying which pair they belong to.
   ctx.fillStyle = "#888";
   ctx.font = "bold 18px 'Courier New'";
-  ctx.fillText(currentTrack().label.toUpperCase(), camera.width / 2, 90);
+  ctx.fillText(
+    `${currentTrack().label.toUpperCase()} · ${EngineClass.current().label}`,
+    camera.width / 2,
+    90,
+  );
 
   const colX = [camera.width * 0.2, camera.width * 0.5, camera.width * 0.8];
   const columns = [
@@ -868,7 +919,7 @@ function drawRaceFinished() {
   ctx.fillStyle = "#AAA";
   ctx.font = "20px 'Courier New'";
   ctx.fillText(
-    `${raceLapTarget()} laps · finished P${playerFinishPosition} of ${finishOrder.length}`,
+    `${EngineClass.current().label} · ${raceLapTarget()} laps · finished P${playerFinishPosition} of ${finishOrder.length}`,
     cx,
     138,
   );

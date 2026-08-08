@@ -16,21 +16,25 @@ converting the page to `type="module"`.
 | [game.js](game.js) | Game state, input, physics, collisions, lap counting, race order, the single `gameLoop`. Everything not owned by a file below lives here. Laps and standings both run on `trackProgress()` — see [Laying out a track](#laying-out-a-track). |
 | [screens.js](screens.js) | Every pixel of canvas UI: start menu, HUD, minimap, records, results, the credits popup — plus the hit-testing that makes them clickable. The credits roll is data, not code: it is fetched from `credits.json` (built-in fallback if that 404s or is malformed), wrapped to the panel width and scrolled if it outgrows the window. |
 | [rain.js](rain.js) | Weather: drop pool, puddles, screen tint. Exposes `gripScale()`/`frictionBonus()`; it must never assign to `car.driftGrip` etc. directly or it overwrites the tuning sliders. |
+| [engineClass.js](engineClass.js) | The 60/100/250cc picker. Same rule as `rain.js`: it exposes `speedScale()`/`accelScale()` and never writes to `car.maxSpeed` or `ai.baseMaxSpeed` — `DebugConfig.apply()` and `resetRace()` are the two places that multiply. Only speed and acceleration scale; steering and grip deliberately do not, which is where the difficulty comes from. 100cc is 1.0, so it is the car every pre-0.12 record was set in. |
 | [sound.js](sound.js) | WebAudio, synthesised — engine, tire squeal, impacts. No audio files. `Sound.unlock()` must be called from a user gesture or nothing plays. |
 | [quality.js](quality.js) | Render-scale governor. Probes WebGL for a software rasteriser before the first frame, then watches the frame interval and moves the dpr cap down a ladder. Owns `Quality.cap`; `resizeCanvas()` in `game.js` is what reads it. |
 | [track.js](track.js) | `Track` class. Loads a track file (tile grid), rasterises + blurs it into a "road field"; both the baked artwork and the physics sample that one field, so visuals and collision can't disagree. One instance, `worldTrack`, reloaded in place when the circuit changes. |
 | [carSprites.js](carSprites.js) | The one open-wheel car, as a pixel grid baked to a canvas per livery — no PNGs. Body colour is substituted at bake time and its shade/highlight derived, so a new rival is just a hex. Bakes in device pixels; `resizeCanvas()` must call `CarSprites.invalidate()` when the render scale moves. |
 | [ai.js](ai.js) | Opponent waypoint following, corner braking, mutual repulsion. Laps and race position are *not* here — `updateLapCounter` in `game.js` drives the player and every opponent through the same code. |
 | [trackEditor.js](trackEditor.js) | Tile map editor. DEBUG on (`B`), then `T`. `P` exports the loaded track back out under its own filename. |
-| [waypointEditor.js](waypointEditor.js) | Drag AI waypoints. DEBUG on, then `E`. |
+| [waypointEditor.js](waypointEditor.js) | Drag AI waypoints. DEBUG on, then `E`. Opened from the menu it drives the free camera in `game.js` (pan/zoom) instead of following the car; its hit testing is in world units so the grab ring survives the zoom. |
 | [debugConfig.js](debugConfig.js) | Live tuning sliders (physics, AI, spawn grid) persisted to localStorage. `spawnVersion` must be bumped when a shipped starting grid changes, or a stale saved copy overrides it; the saved copy is keyed by track as well, since the grids are per circuit. |
 | [debugHUD.js](debugHUD.js), [startLights.js](startLights.js), [keyBindings.js](keyBindings.js) | Debug overlay, countdown lights, remappable controls. |
 
 State that survives reloads lives in localStorage: `highScores`,
-`bestTotalTimes`, the chosen `track`, key bindings, debug config. Parsing is
-defensive — bad JSON is dropped, not trusted; keep it that way when adding keys.
-`highScores` and `bestTotalTimes` are keyed by track id and still accept the
-flat pre-two-track shapes, which are read as the first circuit's.
+`bestTotalTimes`, the chosen `track` and `engineClass`, key bindings, debug
+config. Parsing is defensive — bad JSON is dropped, not trusted; keep it that
+way when adding keys. `highScores` and `bestTotalTimes` are keyed
+`trackId:classId` (`"super:100cc"`); `upgradeKey()` in `game.js` reads any key
+without a colon as a pre-0.12 track id and files it under 100cc, and that
+composes with the flat pre-two-track shapes, which are still read as the first
+circuit's. Track and class ids must therefore stay colon-free.
 
 ## Running it
 
@@ -90,8 +94,7 @@ window.requestAnimationFrame = (cb) => setTimeout(() => {
 setTimeout(() => { window.requestAnimationFrame = realRaf; }, 11500);  // budget - 500
 
 const k=(t,key)=>setTimeout(()=>window.dispatchEvent(new KeyboardEvent("keydown",{key,bubbles:true})),t);
-k(100,"ArrowRight");                          // second circuit (LEFT/RIGHT)
-k(200,"ArrowDown"); k(400,"Enter");           // pick 5 Lap Race, start
+k(200,"ArrowRight"); k(400,"Enter");          // the menu opens on MODE: pick 5 Lap Race, start
 setTimeout(()=>{ keys["ArrowUp"]=true; }, 4200);   // hold the throttle
 </script></body>'''
 open('/tmp/cc-harness/drive.html','w').write(html.replace('</body>', inject))
@@ -109,9 +112,37 @@ surface it through `window.onerror`.
 Picking a circuit is a fetch and a bake, so give it a beat before ENTER —
 `startSelectedMode()` ignores the key while one is loading.
 
+**Seed the circuit and the class from localStorage, not from arrow keys.** The
+menu cursor runs over the picker rows as well as the modes, so which row LEFT /
+RIGHT lands on depends on how many presses came before it, and a harness that
+counts them breaks the next time a row is added:
+
+```js
+localStorage.setItem("track", "valley");
+localStorage.setItem("engineClass", "250cc");   // 60cc | 100cc | 250cc
+```
+
 Add keys to taste: `B` debug HUD, then (DEBUG only) `C` tuning sliders, `T`
 track editor, `E` waypoint editor; `Q` records, `M` mute, `R` reset, `Escape`
-back to menu. A lap takes ~13s of virtual time, so budget accordingly.
+back to menu. A lap takes ~13s of virtual time at 100cc, so budget accordingly
+— and the classes move that by their speed scale.
+
+All of the DEBUG keys work **on the start menu as well as in the race**, so
+anything about the overlay or the editors can be shot without starting one. An
+editor opened there hides the menu until it is closed (`ESC`, its own key, or
+`B`); until then the menu's own keys, ENTER included, are dead.
+
+An editor opened from the menu also gets the **free camera** — arrows or a
+right-drag pan, the wheel and `+`/`-` zoom, `0` back to 1x. `viewZoom` is a
+context scale wrapped around the world pass in `gameLoop`, so world-space
+drawing that goes through `- camera.x` follows it without knowing it exists;
+anything screen-space (the rain tint, the HUD, the track editor's own palette
+and grid) has to stay outside that scale. It is pinned to 1 everywhere else,
+including both editors during a race, where you still pan by driving.
+
+A pure-pursuit bot on the player car cannot get round a lap at 250cc, so
+anything needing a *completed* player lap has to run at 60cc or 100cc, or drive
+the finish through `finishRace()` directly.
 
 Everything is drawn in **CSS pixels**: `resizeCanvas()` scales the context by
 `devicePixelRatio` and `camera.width`/`camera.height` are the viewport. Never

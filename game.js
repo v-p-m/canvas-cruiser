@@ -1,4 +1,4 @@
-const GAME_VERSION = "0.11.0";
+const GAME_VERSION = "0.12.0";
 
 // --- Debug flag ---
 let DEBUG = false;
@@ -12,13 +12,14 @@ let lastLapTime = null; // the previous lap's time, or null before one is done
 let bestLapTime = 0;
 let isMenu = true;
 let isRacing = false;
-// Records are per track — a lap of Snake Valley is a different piece of road
-// from a lap of Super Circuit, so one table of times would be comparing two
-// unrelated things. Both stores are keyed by track id; `highScores` and
-// `bestTotalTimes` below are the loaded track's slice of them, which is what
-// every screen reads.
-let allHighScores = {}; // track id → [lap times]
-let allBestTotals = {}; // track id → { mode: [total times] }
+// Records are per track and per engine class — a lap of Snake Valley is a
+// different piece of road from a lap of Super Circuit, and a 250cc lap of
+// either is a different car, so one table of times would be comparing things
+// that were never in the same race. Both stores are keyed `trackId:classId`;
+// `highScores` and `bestTotalTimes` below are the loaded combination's slice of
+// them, which is what every screen reads.
+let allHighScores = {}; // "track:class" → [lap times]
+let allBestTotals = {}; // "track:class" → { mode: [total times] }
 let highScores = [];
 let bestTotalTimes = {};
 let isNewBestTotal = false;
@@ -26,7 +27,13 @@ let isLeaderboard = false;
 let savedSpeed = 0;
 let racePaused = false;
 let gameMode = "free"; // "free" | "race5" | "race10"
-let selectedMode = 0; // menu cursor
+let selectedMode = 0; // which mode START begins
+// The menu is three pickers and a button: 0 track, 1 class, 2 mode, 3 START.
+// UP/DOWN moves the cursor and LEFT/RIGHT changes whatever it is sitting on,
+// so every choice works the same way and none of them needs its own key.
+const MENU_ROWS = 4;
+const MENU_START_ROW = 3;
+let menuRow = 2; // opens on the mode, the row most races start by changing
 let weatherWetFromLap = null;
 let weatherWetToLap = null;
 let totalRaceStart = 0;
@@ -142,6 +149,129 @@ const camera = {
   width: 0,
   height: 0,
 };
+
+// --- Free camera (editors opened from the menu) ---
+// In a race you pan by driving, which is why the waypoint editor never needed
+// a camera of its own. Opened from the menu there is nothing to drive, so the
+// view becomes free: `editorView` is where it looks and `viewZoom` how far
+// out. camera.x/y is set from it every frame, so every `- camera.x` in the
+// codebase keeps working; the zoom is a context scale around the world pass,
+// which is why nothing else had to learn about it.
+// 0.4 is the rung that fits all 40×28 tiles on a 1280-wide window at once.
+const ZOOM_STEPS = [0.4, 0.55, 0.75, 1, 1.5, 2];
+const DEFAULT_ZOOM_STEP = 3; // ZOOM_STEPS[3] === 1
+let viewZoom = 1;
+const editorView = { x: 0, y: 0 };
+
+function clamp(v, lo, hi) {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+// The world rectangle on screen. At 1x this is the viewport; zoomed out it is
+// larger than it, which is the whole point.
+function viewWidth() {
+  return camera.width / viewZoom;
+}
+
+function viewHeight() {
+  return camera.height / viewZoom;
+}
+
+function screenToWorldX(sx) {
+  return sx / viewZoom + camera.x;
+}
+
+function screenToWorldY(sy) {
+  return sy / viewZoom + camera.y;
+}
+
+// True while an editor owns the screen from the menu — the only time the free
+// camera is in effect. In a race the editors keep the racing camera at 1x.
+function freeCameraActive() {
+  return menuEditorOpen() && !TrackEditor.active;
+}
+
+// Arrows pan, +/- zoom, 0 back to 1x. The step is in world pixels but scaled
+// by the zoom, so a press always moves the view one tile's worth of screen
+// rather than crawling once you are looking at the whole map.
+function handleFreeCameraKey(e) {
+  if (!freeCameraActive()) return false;
+  const step = (worldTrack.data ? worldTrack.data.tileSize : 64) / viewZoom;
+  switch (e.key) {
+    case "ArrowLeft":
+      panEditorView(-step, 0);
+      return true;
+    case "ArrowRight":
+      panEditorView(step, 0);
+      return true;
+    case "ArrowUp":
+      panEditorView(0, -step);
+      return true;
+    case "ArrowDown":
+      panEditorView(0, step);
+      return true;
+    case "+":
+    case "=":
+      zoomEditorView(1, camera.width / 2, camera.height / 2);
+      return true;
+    case "-":
+    case "_":
+      zoomEditorView(-1, camera.width / 2, camera.height / 2);
+      return true;
+    case "0":
+      // Back to 1x about the middle of the screen, so what you were looking at
+      // is still what you are looking at.
+      zoomEditorView(
+        DEFAULT_ZOOM_STEP - ZOOM_STEPS.indexOf(viewZoom),
+        camera.width / 2,
+        camera.height / 2,
+      );
+      return true;
+  }
+  return false;
+}
+
+function resetEditorView() {
+  viewZoom = 1;
+  editorView.x = camera.x;
+  editorView.y = camera.y;
+}
+
+// Keeps the map in view: pinned to its edges while it is bigger than the
+// screen, centred once the zoom has pulled far enough out to show all of it.
+function clampEditorView() {
+  const worldW = worldTrack.bakedCanvas ? worldTrack.bakedCanvas.width : 0;
+  const worldH = worldTrack.bakedCanvas ? worldTrack.bakedCanvas.height : 0;
+  const slackX = worldW - viewWidth();
+  const slackY = worldH - viewHeight();
+  editorView.x = slackX > 0 ? clamp(editorView.x, 0, slackX) : slackX / 2;
+  editorView.y = slackY > 0 ? clamp(editorView.y, 0, slackY) : slackY / 2;
+}
+
+function panEditorView(dx, dy) {
+  editorView.x += dx;
+  editorView.y += dy;
+  clampEditorView();
+}
+
+// Zoom about a screen point — the map stays under the pointer, so stepping out
+// to find a corner and back in on it is one gesture rather than a hunt.
+function zoomEditorView(dir, anchorX, anchorY) {
+  const i = ZOOM_STEPS.indexOf(viewZoom);
+  const step = clamp(
+    (i < 0 ? DEFAULT_ZOOM_STEP : i) + dir,
+    0,
+    ZOOM_STEPS.length - 1,
+  );
+  const next = ZOOM_STEPS[step];
+  if (next === viewZoom) return;
+  const wx = screenToWorldX(anchorX);
+  const wy = screenToWorldY(anchorY);
+  viewZoom = next;
+  editorView.x = wx - anchorX / viewZoom;
+  editorView.y = wy - anchorY / viewZoom;
+  clampEditorView();
+}
 
 // Render at the display's real pixel density. The CSS keeps the element at
 // 100vw/100vh whatever the backing store is, so all we do is oversize the
@@ -295,6 +425,24 @@ function skidThreshold(entity) {
 
 // --- Menu actions (shared by keyboard and mouse) ---
 
+function moveMenuCursor(dir) {
+  menuRow = (menuRow + dir + MENU_ROWS) % MENU_ROWS;
+}
+
+// LEFT / RIGHT on the row under the cursor. START is a button, so there is
+// nothing to change on it.
+function changeMenuRow(dir) {
+  if (menuRow === 0) cycleTrack(dir);
+  else if (menuRow === 1) cycleClass(dir);
+  else if (menuRow === 2) cycleMode(dir);
+}
+
+// Unlike the track and the class, the mode costs nothing to change and is not
+// persisted — it only decides what startSelectedMode() begins.
+function cycleMode(dir) {
+  selectedMode = (selectedMode + dir + MODES.length) % MODES.length;
+}
+
 // Step to another circuit. A paused race can't survive the road under it being
 // replaced, so it is dropped here rather than left to resume onto a track it
 // was never run on.
@@ -309,6 +457,20 @@ function cycleTrack(dir) {
   racePaused = false;
   savedSpeed = 0;
   applySelectedTrack();
+}
+
+// Step to another engine class. Nothing has to be reloaded — the class is two
+// multipliers — but the records on screen belong to the class as well as the
+// track, and apply() is what puts the new top speed on the car.
+function cycleClass(dir) {
+  if (ENGINE_CLASSES.length < 2) return;
+  EngineClass.cycle(dir);
+  // Pre-init the sliders have no values yet and apply() would multiply the
+  // class into `undefined`; init() is about to apply them anyway.
+  if (DebugConfig.ready) DebugConfig.apply();
+  selectRecords();
+  racePaused = false; // as in cycleTrack: a paused race can't change car
+  savedSpeed = 0;
 }
 
 function startSelectedMode() {
@@ -347,7 +509,48 @@ function closeCredits() {
 function toggleDebug() {
   DEBUG = !DEBUG;
   console.log(`Debug ${DEBUG ? "ON" : "OFF"}`);
-  if (!DEBUG) WaypointEditor.active = false; // close editor when debug turns off
+  if (!DEBUG) {
+    WaypointEditor.active = false; // close editors when debug turns off
+    TrackEditor.close();
+  }
+}
+
+// The tools DEBUG unlocks, in one place because both the race and the menu
+// reach them — B on the menu used to turn on a mode the menu had no keys for,
+// so the only way to an editor was to start a race first and edit around a
+// moving car.
+function handleDebugKey(key, e) {
+  if (!DEBUG) return false;
+  if (key === "c" && !isLeaderboard) {
+    DebugConfig.toggle();
+    return true;
+  }
+  if (key === "e") {
+    WaypointEditor.toggle();
+    return true;
+  }
+  if (key === "t") {
+    TrackEditor.toggle();
+    return true;
+  }
+  if (key === "z") {
+    WaypointEditor.undo();
+    return true;
+  }
+  if (key === "p") {
+    e.preventDefault();
+    WaypointEditor.export();
+    return true;
+  }
+  return false;
+}
+
+// An editor opened from the menu takes the screen off it: the menu is a
+// full-screen dim and would bury the very thing being edited, and its mouse
+// hit areas would eat the clicks meant for the map. Closing the editor brings
+// it back.
+function menuEditorOpen() {
+  return isMenu && DEBUG && (TrackEditor.active || WaypointEditor.active);
 }
 
 // Leaves the records screen, returning wherever it was opened from.
@@ -420,6 +623,18 @@ window.addEventListener("keydown", (e) => {
       else if (e.key === "ArrowUp") scrollCredits(-40);
       return;
     }
+    // With an editor up the menu is not on screen, so nothing that belongs to
+    // it may fire behind it — ENTER especially, which would start a race on a
+    // half-drawn map. ESC closes the editor (the track editor takes its own
+    // ESC above) rather than resuming a paused race.
+    if (menuEditorOpen()) {
+      if (key === "escape") WaypointEditor.active = false;
+      // The overlay's banner offers B as the way out, and it shuts both
+      // editors on the way — so it has to still be live behind them.
+      else if (key === "b") toggleDebug();
+      else if (!handleFreeCameraKey(e)) handleDebugKey(key, e);
+      return;
+    }
     if (key === "i") {
       openCredits();
       return;
@@ -429,19 +644,19 @@ window.addEventListener("keydown", (e) => {
       return;
     }
     if (e.key === "ArrowUp") {
-      selectedMode = (selectedMode - 1 + MODES.length) % MODES.length;
+      moveMenuCursor(-1);
       return;
     }
     if (e.key === "ArrowDown") {
-      selectedMode = (selectedMode + 1) % MODES.length;
+      moveMenuCursor(1);
       return;
     }
     if (e.key === "ArrowLeft") {
-      cycleTrack(-1);
+      changeMenuRow(-1);
       return;
     }
     if (e.key === "ArrowRight") {
-      cycleTrack(1);
+      changeMenuRow(1);
       return;
     }
     if (key === "k") {
@@ -456,6 +671,7 @@ window.addEventListener("keydown", (e) => {
       toggleDebug();
       return;
     }
+    if (handleDebugKey(key, e)) return;
     if (key === "enter" || key === " ") {
       startSelectedMode();
       return;
@@ -541,27 +757,7 @@ window.addEventListener("keydown", (e) => {
     toggleDebug();
     return;
   }
-  if (key === "c" && DEBUG && !isLeaderboard) {
-    DebugConfig.toggle();
-    return;
-  }
-  if (key === "e" && DEBUG) {
-    WaypointEditor.toggle();
-    return;
-  }
-  if (key === "t" && DEBUG) {
-    TrackEditor.toggle();
-    return;
-  }
-  if (key === "z" && DEBUG) {
-    WaypointEditor.undo();
-    return;
-  }
-  if (key === "p" && DEBUG) {
-    e.preventDefault();
-    WaypointEditor.export();
-    return;
-  }
+  if (handleDebugKey(key, e)) return;
   keys[e.key] = true;
 });
 
@@ -584,7 +780,9 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("mousedown", (e) => {
   canvas.focus();
   Sound.unlock();
-  if (isMenu) {
+  // An editor opened from the menu owns the mouse — the menu's hit areas are
+  // not drawn, so testing against them would paint tiles into dead clicks.
+  if (isMenu && !menuEditorOpen()) {
     if (e.button === 0) {
       if (isCredits) handleCreditsClick(e.clientX, e.clientY);
       else handleMenuClick(e.clientX, e.clientY);
@@ -613,18 +811,19 @@ canvas.addEventListener("mousedown", (e) => {
     TrackEditor.handleMouseDown(e.clientX, e.clientY, e.button);
     return;
   }
-  WaypointEditor.handleMouseDown(e.clientX, e.clientY);
+  WaypointEditor.handleMouseDown(e.clientX, e.clientY, e.button);
 });
 
 canvas.addEventListener("mousemove", (e) => {
   mousePos.x = e.clientX;
   mousePos.y = e.clientY;
-  if (isMenu || isKeyBindings || isLeaderboard || isRaceFinished) return;
+  if (isKeyBindings || isLeaderboard || isRaceFinished) return;
+  if (isMenu && !menuEditorOpen()) return;
   if (TrackEditor.active) {
     TrackEditor.handleMouseMove(e.clientX, e.clientY, e.buttons);
     return;
   }
-  WaypointEditor.handleMouseMove(e.clientX, e.clientY);
+  WaypointEditor.handleMouseMove(e.clientX, e.clientY, e.buttons);
 });
 
 canvas.addEventListener("mouseup", () => {
@@ -641,6 +840,13 @@ canvas.addEventListener(
     if (isMenu && isCredits) {
       scrollCredits(e.deltaY);
       e.preventDefault(); // don't rubber-band the page behind the popup
+      return;
+    }
+    // The track editor's wheel is its tile palette, so only the free camera's
+    // is spare — which is the one place a wheel means zoom anyway.
+    if (freeCameraActive()) {
+      e.preventDefault();
+      zoomEditorView(e.deltaY > 0 ? -1 : 1, e.clientX, e.clientY);
       return;
     }
     TrackEditor.handleWheel(e);
@@ -688,20 +894,34 @@ function onTrackLoaded() {
 
 // --- Scoring ---
 
+// What the stores are keyed by. Track ids never contain a colon, which is what
+// lets upgradeKey() below tell an old key from a new one.
+function recordsKey() {
+  return `${currentTrack().id}:${EngineClass.current().id}`;
+}
+
+// Every key written before engine classes existed was a bare track id, and
+// every time behind it was set in what is now 100cc.
+function upgradeKey(key) {
+  return key.includes(":") ? key : `${key}:${DEFAULT_CLASS_ID}`;
+}
+
 // Both tables were flat when there was one circuit: `highScores` an array of
 // laps, `bestTotalTimes` a map of mode → totals. Either shape read off disk is
 // taken as the first track's, so nobody loses the times they set before there
-// was a second one.
+// was a second one — and whatever shape it arrives in, a key without a class
+// becomes a 100cc key rather than being dropped.
 function loadRecords() {
   allHighScores = {};
   allBestTotals = {};
 
   try {
     const parsed = JSON.parse(localStorage.getItem("highScores"));
-    if (Array.isArray(parsed)) allHighScores[TRACKS[0].id] = parsed;
+    if (Array.isArray(parsed)) allHighScores[upgradeKey(TRACKS[0].id)] = parsed;
     else if (parsed && typeof parsed === "object") {
       for (const id of Object.keys(parsed))
-        if (Array.isArray(parsed[id])) allHighScores[id] = parsed[id];
+        if (Array.isArray(parsed[id]))
+          allHighScores[upgradeKey(id)] = parsed[id];
     } else if (parsed !== null) localStorage.removeItem("highScores");
   } catch {
     localStorage.removeItem("highScores");
@@ -715,9 +935,11 @@ function loadRecords() {
       for (const id of Object.keys(byTrack)) {
         const modes = byTrack[id];
         if (!modes || typeof modes !== "object") continue;
-        allBestTotals[id] = {};
+        const key = upgradeKey(id);
+        allBestTotals[key] = {};
         for (const mode of Object.keys(modes))
-          if (Array.isArray(modes[mode])) allBestTotals[id][mode] = modes[mode];
+          if (Array.isArray(modes[mode]))
+            allBestTotals[key][mode] = modes[mode];
       }
     } else if (parsed !== null) {
       localStorage.removeItem("bestTotalTimes");
@@ -729,11 +951,11 @@ function loadRecords() {
   selectRecords();
 }
 
-// Points the live tables at the loaded track's slice of the stores.
+// Points the live tables at the loaded track and class's slice of the stores.
 function selectRecords() {
-  const id = currentTrack().id;
-  highScores = allHighScores[id] || (allHighScores[id] = []);
-  bestTotalTimes = allBestTotals[id] || (allBestTotals[id] = {});
+  const key = recordsKey();
+  highScores = allHighScores[key] || (allHighScores[key] = []);
+  bestTotalTimes = allBestTotals[key] || (allBestTotals[key] = {});
 }
 
 function saveLapTime(time) {
@@ -743,7 +965,7 @@ function saveLapTime(time) {
   highScores.push(parsed);
   highScores.sort((a, b) => a - b);
   highScores = highScores.slice(0, 5);
-  allHighScores[currentTrack().id] = highScores;
+  allHighScores[recordsKey()] = highScores;
   localStorage.setItem("highScores", JSON.stringify(allHighScores));
 
   lastLapTime = time;
@@ -764,7 +986,7 @@ function saveTotalTime(mode, time) {
 }
 
 function clearHighScores() {
-  if (confirm("Clear all high scores and records?")) {
+  if (confirm("Clear all records, on every track and in every class?")) {
     allHighScores = {};
     allBestTotals = {};
     bestLapTime = 0;
@@ -856,8 +1078,10 @@ function resetRace() {
     ai.startDelay = Math.random() * 400;
     ai.lineOffset = (Math.random() - 0.5) * (cfg.aiLineOffsetRange ?? 40);
     ai.baseMaxSpeed =
-      (cfg.aiMaxSpeedMin ?? 8.3) +
-      Math.random() * ((cfg.aiMaxSpeedMax ?? 9.6) - (cfg.aiMaxSpeedMin ?? 8.3));
+      ((cfg.aiMaxSpeedMin ?? 8.3) +
+        Math.random() *
+          ((cfg.aiMaxSpeedMax ?? 9.6) - (cfg.aiMaxSpeedMin ?? 8.3))) *
+      EngineClass.speedScale(); // the sliders are the 100cc baseline
     ai.maxSpeed = ai.baseMaxSpeed;
     ai.laps = 0;
     ai.onFinishLine = false;
@@ -1305,6 +1529,8 @@ function updatePlayerSurface(delta) {
 function worldViewRect() {
   if (!worldTrack.bakedCanvas) return null;
 
+  // Source and destination are both in world pixels — the zoom is a context
+  // scale wrapped around the blit, not something this has to divide into.
   const view = TrackEditor.getViewOffset() || camera;
   const srcX = Math.max(0, Math.floor(view.x));
   const srcY = Math.max(0, Math.floor(view.y));
@@ -1312,11 +1538,11 @@ function worldViewRect() {
   const dstY = Math.max(0, Math.floor(-view.y));
   const srcW = Math.min(
     worldTrack.bakedCanvas.width - srcX,
-    camera.width - dstX,
+    viewWidth() - dstX,
   );
   const srcH = Math.min(
     worldTrack.bakedCanvas.height - srcY,
-    camera.height - dstY,
+    viewHeight() - dstY,
   );
 
   return srcW > 0 && srcH > 0 ? { srcX, srcY, dstX, dstY, srcW, srcH } : null;
@@ -1327,8 +1553,8 @@ function worldCoversViewport(rect) {
     !!rect &&
     rect.dstX === 0 &&
     rect.dstY === 0 &&
-    rect.srcW >= camera.width &&
-    rect.srcH >= camera.height
+    rect.srcW >= viewWidth() &&
+    rect.srcH >= viewHeight()
   );
 }
 
@@ -1577,9 +1803,17 @@ function gameLoop(timestamp) {
     isRacing && !inOverlay && !TrackEditor.active,
   );
 
-  // Camera always follows — runs during countdown too
-  camera.x = car.x - camera.width / 2;
-  camera.y = car.y - camera.height / 2;
+  // Camera always follows — runs during countdown too, except where the free
+  // camera has taken it (an editor open from the menu, with no car driving it).
+  if (freeCameraActive()) {
+    clampEditorView(); // the window can be resized under it
+    camera.x = editorView.x;
+    camera.y = editorView.y;
+  } else {
+    viewZoom = 1; // the free camera is the only thing that moves it
+    camera.x = car.x - camera.width / 2;
+    camera.y = car.y - camera.height / 2;
+  }
 
   // DRAW
   const world = worldViewRect();
@@ -1589,6 +1823,13 @@ function gameLoop(timestamp) {
   if (!worldCoversViewport(world)) {
     ctx.clearRect(0, 0, camera.width, camera.height);
   }
+
+  // Everything from here to the matching restore is drawn in world pixels
+  // relative to camera.x/y, so one scale is the whole of the free camera's
+  // zoom — the track, the cars, the waypoints and the debug rings all follow
+  // it without knowing it exists. It is exactly 1 outside the editors.
+  ctx.save();
+  ctx.scale(viewZoom, viewZoom);
 
   if (world) {
     const { srcX, srcY, dstX, dstY, srcW, srcH } = world;
@@ -1630,21 +1871,32 @@ function gameLoop(timestamp) {
     Rain.drawPuddles(); // world-space puddles, before cars
   }
 
-  // Cars — screen space
+  // Cars — world space
   if (!isMenu && !TrackEditor.active) drawCar();
   if (!TrackEditor.active) opponents.forEach((ai) => ai.draw());
 
-  Rain.drawOverlay(); // scene tint
+  ctx.restore();
+
+  Rain.drawOverlay(); // scene tint — a full-viewport fill, so outside the zoom
   Rain.drawDrops(); // screen-space streaks
 
+  // Back into world pixels: the gate band and the waypoint ring are drawn on
+  // the road, not on the screen.
+  ctx.save();
+  ctx.scale(viewZoom, viewZoom);
   if (DEBUG && !TrackEditor.active) drawLapGate(ctx);
   if (DEBUG && !TrackEditor.active) WaypointEditor.draw(ctx);
-  if (DEBUG) TrackEditor.draw(ctx);
-  if (DEBUG && !TrackEditor.active) DebugHUD.draw(ctx);
+  ctx.restore();
 
-  // The clickable overlays own the cursor; clear it everywhere else.
+  if (DEBUG) TrackEditor.draw(ctx);
+  // On the menu the overlay is drawn after the panel instead — see below.
+  if (DEBUG && !isMenu && !TrackEditor.active) DebugHUD.draw(ctx);
+
+  // The clickable overlays own the cursor; clear it everywhere else — an
+  // editor that took the screen off the menu included, or the pointer the menu
+  // left behind stays on the map.
   if (
-    !isMenu &&
+    (!isMenu || menuEditorOpen()) &&
     !isKeyBindings &&
     !isLeaderboard &&
     !isRaceFinished &&
@@ -1654,10 +1906,16 @@ function gameLoop(timestamp) {
   }
 
   if (isMenu) {
-    drawStartMenu();
-    // Drawn after the menu, so the menu's own hover pass can't take the cursor
-    // back off the popup's buttons.
-    if (isCredits) drawCredits();
+    if (!menuEditorOpen()) {
+      drawStartMenu();
+      // Drawn after the menu, so the menu's own hover pass can't take the
+      // cursor back off the popup's buttons.
+      if (isCredits) drawCredits();
+    }
+    // After the panel, not before it: the menu is a full-screen 80% dim, and
+    // under it the one line naming the keys DEBUG just enabled is unreadable.
+    // Not over the credits, which eat those keys while they are up.
+    if (DEBUG && !isCredits && !TrackEditor.active) DebugHUD.draw(ctx);
   } else if (isKeyBindings) KeyBindings.draw(ctx, camera, mousePos);
   else if (isRaceFinished) drawRaceFinished();
   else if (isLeaderboard) drawLeaderboard();
@@ -1701,6 +1959,7 @@ async function initGame() {
 async function initGameUnsafe() {
   KeyBindings.load();
   Sound.load();
+  EngineClass.load(); // before loadRecords — the class is half the records key
   await loadCredits();
   loadRecords();
   // Whichever circuit was last raced, plus everything cut to fit it — the
