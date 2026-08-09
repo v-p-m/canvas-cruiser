@@ -27,7 +27,7 @@ let isLeaderboard = false;
 let savedSpeed = 0;
 let racePaused = false;
 let gameMode = "free"; // "free" | "race5" | "race10"
-let selectedMode = 0; // which mode START begins
+let selectedMode = 1; // which mode START begins — the 5 lap race
 // The menu is three pickers and a button: 0 track, 1 class, 2 mode, 3 START.
 // UP/DOWN moves the cursor and LEFT/RIGHT changes whatever it is sitting on,
 // so every choice works the same way and none of them needs its own key.
