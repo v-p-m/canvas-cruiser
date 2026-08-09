@@ -143,7 +143,7 @@ class Track {
   }
 
   async load(url) {
-    const response = await fetch(url);
+    const response = await fetch(`${url}?v=${window.BUILD}`);
     this.data = await response.json();
     this.tileSize = this.data.tileSize;
     this.bake(); // draw once, never again

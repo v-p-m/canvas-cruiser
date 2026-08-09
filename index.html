@@ -6,28 +6,50 @@
         <link rel="icon" href="favicon.svg" type="image/svg+xml" />
         <link rel="icon" href="favicon-32.png" sizes="32x32" />
         <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-        <link rel="stylesheet" href="style.css" />
+        <script>
+            // Browsers cache by full URL, so this query string is what makes a
+            // returning player fetch the new files — and fetch them as a *set*.
+            // Without it the cache expires per file and someone ends up running
+            // new game.js against old ai.js. It lives here because index.html is
+            // the only file GitHub Pages will let go stale for just 10 minutes;
+            // a constant inside game.js cannot invalidate game.js.
+            window.BUILD = "0.13.0";
+
+            const css = document.createElement("link");
+            css.rel = "stylesheet";
+            css.href = `style.css?v=${window.BUILD}`;
+            document.head.appendChild(css);
+        </script>
     </head>
     <body>
         <canvas id="gameCanvas"></canvas>
 
-        <script src="track.js"></script>
-        <script src="trackEditor.js"></script>
-        <script src="carSprites.js"></script>
-        <script src="ai.js"></script>
-        <script src="startLights.js"></script>
-        <script src="waypointEditor.js"></script>
-        <script src="debugHUD.js"></script>
-        <script src="engineClass.js"></script>
-        <script src="debugConfig.js"></script>
-        <script src="keyBindings.js"></script>
-        <script src="sound.js"></script>
-        <script src="rain.js"></script>
-        <script src="quality.js"></script>
-        <script src="screens.js"></script>
-        <script src="game.js"></script>
-
         <script>
+            // Load order matters — see CLAUDE.md. Injected scripts default to
+            // async, so async=false is what keeps them executing in this order.
+            for (const src of [
+                "track.js",
+                "trackEditor.js",
+                "carSprites.js",
+                "ai.js",
+                "startLights.js",
+                "waypointEditor.js",
+                "debugHUD.js",
+                "engineClass.js",
+                "debugConfig.js",
+                "keyBindings.js",
+                "sound.js",
+                "rain.js",
+                "quality.js",
+                "screens.js",
+                "game.js",
+            ]) {
+                const s = document.createElement("script");
+                s.src = `${src}?v=${window.BUILD}`;
+                s.async = false;
+                document.head.appendChild(s);
+            }
+
             window.addEventListener("load", () => {
                 document.title = `Canvas Cruiser ${GAME_VERSION}`;
             });

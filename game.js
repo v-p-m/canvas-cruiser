@@ -1,4 +1,5 @@
-const GAME_VERSION = "0.12.0";
+// Declared in index.html, because that is the file that can invalidate this one.
+const GAME_VERSION = window.BUILD;
 
 // --- Debug flag ---
 let DEBUG = false;

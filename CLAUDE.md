@@ -64,8 +64,15 @@ that laps and race order depend on — see the **track-authoring** skill.
   `track.js`), not what the line does. Match that density — most code carries none.
 - Tunable constants go at the top of their file in `SCREAMING_CASE`, with the
   unit in a trailing comment (`// cells`, `// world px`).
-- Bump `GAME_VERSION` at the top of `game.js` for user-visible releases; it
-  feeds the window title and the menu.
+- Bump `window.BUILD` at the top of `index.html` for user-visible releases. It
+  is both the version — `GAME_VERSION` in `game.js` reads it, and it feeds the
+  window title and the menu — and the cache buster: the loader stamps `?v=` on
+  every script, on `style.css`, and on the `fetch()`s in `track.js` and
+  `screens.js`, so bumping it is what stops returning players running a mix of
+  old and new files. Anything new that is fetched or linked needs the same
+  stamp. GitHub Pages serves `max-age=600` on everything and its headers are not
+  configurable, so `index.html` self-heals within 10 minutes and the query
+  string does the rest.
 - Keys added to game logic that must not be remappable belong in
   `BLACKLISTED_KEYS` in `keyBindings.js`.
 - Everything is drawn in **CSS pixels**: `resizeCanvas()` scales the context by

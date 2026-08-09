@@ -394,7 +394,7 @@ let Credits = CREDITS_FALLBACK;
 // treats anything thrown out of startup as a fatal "failed to load".
 async function loadCredits() {
   try {
-    const res = await fetch("credits.json");
+    const res = await fetch(`credits.json?v=${window.BUILD}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
