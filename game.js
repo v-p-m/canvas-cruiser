@@ -577,6 +577,114 @@ function menuEditorOpen() {
   return isMenu && DEBUG && (TrackEditor.active || WaypointEditor.active);
 }
 
+// --- The waypoint editor's pace car ---
+//
+// A ring that reads fine standing still can still put a car in the grass: what
+// a marker costs only shows in the line a driver takes through it. So the
+// editor runs one opponent on the markers being edited — `ringFor()` checksums
+// them every frame, so the line rebuilds under the car while one is dragged.
+//
+// It is a reference driver rather than a rival: full skill, no line offset, no
+// wander, no grid delay, because anything random in the car is noise in the
+// answer. The other five stay parked and hidden — a queue nose to tail on the
+// same line says nothing about the line and covers the markers underneath it.
+//
+// It races nothing, so it is deliberately outside the race: no lap counting, no
+// collisions, no skid marks, no engine note. The free camera stays free as
+// well; zoom out to follow it, or leave it on the corner being cut and wait for
+// the car to come round.
+const PACE_STUCK_MS = 1200; // stationary this long and it goes back on the line
+const PACE_STUCK_SPEED = 0.3; // world px/frame that still counts as stationary
+let paceRunning = false;
+let paceStuckTimer = 0;
+
+function paceCarActive() {
+  return menuEditorOpen() && WaypointEditor.active && !TrackEditor.active;
+}
+
+function paceCar() {
+  return opponents[0] || null;
+}
+
+function parkPaceCar() {
+  const ai = paceCar();
+  if (!ai) return;
+  const s = SPAWN_POSITIONS[1];
+  ai.x = s.x;
+  ai.y = s.y;
+  ai.angle = s.angle;
+  ai.prevAngle = s.angle;
+  ai.steer = 0;
+  ai.speed = 0;
+  ai.velocityX = 0;
+  ai.velocityY = 0;
+  ai.currentWaypoint = 0;
+  ai.steerDir = 0;
+}
+
+function startPaceCar() {
+  paceRunning = true;
+  paceStuckTimer = 0;
+  parkPaceCar();
+  const ai = paceCar();
+  if (ai) applyCarStats(ai); // the class picker may have moved since the race
+}
+
+function stopPaceCar() {
+  paceRunning = false;
+  parkPaceCar();
+  const ai = paceCar();
+  if (ai) ai.rollDriver(); // hand back the traits the reference driver ate
+}
+
+// Dropped back on the ring facing the way it runs. Dragging a marker across the
+// map strands the car that was driving to it, and a dead car on the grass
+// demonstrates nothing.
+function placePaceCarOnLine(ai, waypoints) {
+  const ring = ringFor(waypoints);
+  const n = ring.pts.length;
+  const i = nearestPoint(ai.x, ai.y, ring.pts);
+  const p = ring.pts[i];
+  const q = ring.pts[(i + 1) % n];
+  ai.x = p.x;
+  ai.y = p.y;
+  ai.angle = Math.atan2(q.x - p.x, -(q.y - p.y));
+  ai.prevAngle = ai.angle;
+  ai.speed = 0;
+  ai.velocityX = 0;
+  ai.velocityY = 0;
+  ai.currentWaypoint = (i + 1) % n;
+  ai.steerDir = 0;
+  paceStuckTimer = 0;
+}
+
+function updatePaceCar(delta) {
+  const ai = paceCar();
+  const waypoints = WaypointEditor.waypoints;
+  if (!ai || waypoints.length < 2) return;
+
+  // Re-asserted every frame, not just on open: the debug panel re-rolls the
+  // whole field's traits whenever a slider moves, and a pace car that quietly
+  // picked up 40px of line offset is answering a different question.
+  ai.skill = 1;
+  ai.lineOffset = 0;
+  ai.wander = 0;
+  ai.startDelay = 0;
+
+  // No player to chase and nobody to avoid — the catch-up and avoidance terms
+  // would both move the aim point off the ring being read.
+  stepCarControls(ai, ai.drive(waypoints, null, [], delta), delta);
+  updateSteerVisual(ai, delta);
+  stepCarMotion(ai, delta);
+
+  if (Math.abs(ai.speed) < PACE_STUCK_SPEED) {
+    paceStuckTimer += (delta / 60) * 1000; // delta frames to ms
+    if (paceStuckTimer > PACE_STUCK_MS) placePaceCarOnLine(ai, waypoints);
+  } else {
+    paceStuckTimer = 0;
+  }
+}
+
 // Leaves the records screen, returning wherever it was opened from.
 function closeLeaderboard() {
   isLeaderboard = false;
@@ -1846,6 +1954,15 @@ function gameLoop(timestamp) {
     });
   }
 
+  // The waypoint editor's pace car runs where the race does not — the menu is
+  // an overlay, so the block above never ran this frame.
+  if (paceCarActive()) {
+    if (!paceRunning) startPaceCar();
+    updatePaceCar(delta);
+  } else if (paceRunning) {
+    stopPaceCar();
+  }
+
   Sound.update(
     car.speed,
     car.maxSpeed,
@@ -1924,7 +2041,8 @@ function gameLoop(timestamp) {
 
   // Cars — world space
   if (!isMenu && !TrackEditor.active) drawCar();
-  if (!TrackEditor.active) opponents.forEach((ai) => ai.draw());
+  if (paceCarActive()) paceCar()?.draw();
+  else if (!TrackEditor.active) opponents.forEach((ai) => ai.draw());
 
   ctx.restore();
 

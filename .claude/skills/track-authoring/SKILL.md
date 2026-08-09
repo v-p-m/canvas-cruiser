@@ -76,3 +76,13 @@ waypoint ring says where the lap is. Both live in the track file.
 `B` then the debug overlay draws all of this: the ring, the gate band, and each
 car's projection onto it with its lap percentage. It is the fastest way to see
 that a new track's gate landed somewhere sane.
+
+`E` is the waypoint editor. A click drops a marker at the end of the ring, or
+**into** it when the click lands on the line — the segment under the cursor
+lights up with the index the new marker would take, so refining one corner does
+not mean re-ordering the exported list by hand. Nothing can displace waypoint 0:
+a click on the closing segment appends. `Z` undoes the last edit, insert or drag
+alike. Opened from the menu the editor also runs a **pace car** on the markers as
+they are edited, with the rest of the field hidden — the ring rebuilds under it
+while a marker is dragged, so what a change costs is visible without starting a
+race.

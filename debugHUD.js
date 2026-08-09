@@ -136,19 +136,29 @@ const DebugHUD = {
       const view = freeCameraActive()
         ? `  |  RMB / ARROWS: pan  |  WHEEL: zoom ${viewZoom}x (0: reset)`
         : "";
-      ctx.fillText(
-        `WAYPOINT EDITOR  |  CLICK: place  |  DRAG: move  |  Z: undo  |  P: export${view}  |  ${WaypointEditor.waypoints.length} points`,
-        camera.width / 2,
-        camera.height - 18,
+      this.banner(
+        ctx,
+        `WAYPOINT EDITOR  |  CLICK: place  |  ON LINE: insert  |  DRAG: move  |  Z: undo  |  P: export${view}  |  ${WaypointEditor.waypoints.length} points`,
       );
     } else {
-      ctx.fillText(
+      this.banner(
+        ctx,
         `DEBUG | E: waypoint editor  | T: track editor | C: config | B: debug off`,
-        camera.width / 2,
-        camera.height - 18,
       );
     }
 
     ctx.restore();
+  },
+
+  // The key line across the bottom of an editor. It has outgrown 1280px once
+  // per hint added to it, and it is centred, so overflowing loses both ends of
+  // it at the same time — it shrinks to the window rather than being trimmed
+  // by hand every time.
+  banner(ctx, text) {
+    for (let size = 14; size >= 9; size--) {
+      ctx.font = `${size}px monospace`;
+      if (ctx.measureText(text).width <= camera.width - 24) break;
+    }
+    ctx.fillText(text, camera.width / 2, camera.height - 18);
   },
 };
