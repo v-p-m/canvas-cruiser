@@ -62,7 +62,8 @@ const LapBanner = {
   draw(ctx) {
     if (!this.active) return;
 
-    const text = this.best ? `🏆 NEW BEST: ${this.time}s` : `LAP: ${this.time}s`;
+    const time = formatTime(this.time);
+    const text = this.best ? `🏆 NEW BEST: ${time}s` : `LAP: ${time}s`;
     const cx = camera.width / 2;
     const y = 120;
 
@@ -686,10 +687,10 @@ function drawUI() {
     // completed, so it gives way to the total the player actually earned.
     let timeText;
     if (finishHoldTimer > 0) {
-      timeText = `TOTAL: ${totalRaceTime}s`;
+      timeText = `TOTAL: ${formatTime(totalRaceTime)}s`;
     } else {
-      currentLapTime = ((performance.now() - lapStartTime) / 1000).toFixed(2);
-      timeText = `TIME: ${currentLapTime}s`;
+      currentLapTime = (performance.now() - lapStartTime) / 1000;
+      timeText = `TIME: ${formatTime(currentLapTime)}s`;
     }
     ctx.fillText(timeText, camera.width / 2, 35);
 
@@ -699,13 +700,12 @@ function drawUI() {
     // is the record. Narrow windows drop it instead of overlapping the lap
     // and position block — those two are load-bearing, this is reference.
     if (lastLapTime !== null) {
-      const lastText = `LAST: ${lastLapTime}s`;
+      const lastText = `LAST: ${formatTime(lastLapTime)}s`;
       const right =
         camera.width / 2 - ctx.measureText(timeText).width / 2 - HUD_GAP;
       if (right - ctx.measureText(lastText).width > leftBlockEnd + HUD_GAP) {
         ctx.textAlign = "right";
-        ctx.fillStyle =
-          parseFloat(lastLapTime) === highScores[0] ? "#FFD700" : "#00AA44";
+        ctx.fillStyle = lastLapTime === highScores[0] ? "#FFD700" : "#00AA44";
         ctx.fillText(lastText, right, 35);
         ctx.fillStyle = "#00FF00";
         ctx.textAlign = "center";
@@ -831,7 +831,7 @@ function drawLeaderboard() {
       ctx.fillText("— no times yet —", x, 220);
     } else {
       col.entries.forEach((score, i) =>
-        ctx.fillText(`${i + 1}. ${score}s`, x, 220 + i * 36),
+        ctx.fillText(`${i + 1}. ${formatTime(score)}s`, x, 220 + i * 36),
       );
     }
   });
@@ -964,7 +964,9 @@ function drawRaceFinished() {
     ctx.textAlign = "right";
     ctx.fillStyle = entry.dnf ? "#777" : entry.isPlayer ? "#FFD700" : "#DDD";
     ctx.fillText(
-      entry.dnf ? `lap ${entry.laps}/${raceLapTarget()}` : `${entry.time}s`,
+      entry.dnf
+        ? `lap ${entry.laps}/${raceLapTarget()}`
+        : `${formatTime(entry.time)}s`,
       colTime,
       y,
     );

@@ -982,28 +982,40 @@ function selectRecords() {
   bestTotalTimes = allBestTotals[key] || (allBestTotals[key] = {});
 }
 
+// The clock's resolution is the millisecond: a recorded time is rounded to one
+// the moment it is taken, so what gets sorted, compared against the record and
+// written to localStorage is the same number the player is shown. Rounding
+// only at the point of drawing would let two laps print 36.500 with one of
+// them holding the record.
+const toMillis = (ms) => Math.round(ms) / 1000;
+
+// Times are carried as numbers of seconds and only ever turned into text here
+// — a lap that came out at exactly 36.5, or 36, would print a digit or two
+// short of every other time on the same screen.
+function formatTime(seconds) {
+  return Number(seconds).toFixed(3);
+}
+
 function saveLapTime(time) {
-  const parsed = parseFloat(time);
   const previousBest = highScores[0] || null;
 
-  highScores.push(parsed);
+  highScores.push(time);
   highScores.sort((a, b) => a - b);
   highScores = highScores.slice(0, 5);
   allHighScores[recordsKey()] = highScores;
   localStorage.setItem("highScores", JSON.stringify(allHighScores));
 
   lastLapTime = time;
-  LapBanner.show(time, highScores[0] === parsed && parsed !== previousBest);
+  LapBanner.show(time, highScores[0] === time && time !== previousBest);
 }
 
 function saveTotalTime(mode, time) {
-  const parsed = parseFloat(time);
   const list = bestTotalTimes[mode] || [];
   const previousBest = list[0];
 
-  isNewBestTotal = previousBest === undefined || parsed < previousBest;
+  isNewBestTotal = previousBest === undefined || time < previousBest;
 
-  list.push(parsed);
+  list.push(time);
   list.sort((a, b) => a - b);
   bestTotalTimes[mode] = list.slice(0, 3);
   localStorage.setItem("bestTotalTimes", JSON.stringify(allBestTotals));
@@ -1449,7 +1461,7 @@ function updateLapCounter(entity, isPlayer) {
   // is usually the quickest one. Recording it below the finish branch meant a
   // 5-lap race only ever offered four of its laps to the records.
   if (isPlayer) {
-    const lapTime = ((now - lapStartTime) / 1000).toFixed(2);
+    const lapTime = toMillis(now - lapStartTime);
     lapStartTime = now;
     saveLapTime(lapTime);
   }
@@ -1457,7 +1469,7 @@ function updateLapCounter(entity, isPlayer) {
   if (target && entity.laps > target) {
     entity.finished = true;
     entity.finishPosition = nextFinishPosition++;
-    entity.finishTime = ((now - entity.raceStart) / 1000).toFixed(2);
+    entity.finishTime = toMillis(now - entity.raceStart);
 
     if (isPlayer) {
       totalRaceTime = entity.finishTime;
