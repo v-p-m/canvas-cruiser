@@ -309,6 +309,7 @@ function resizeCanvas() {
   ctx.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
   ctx.imageSmoothingEnabled = true;
   CarSprites.invalidate(); // the sprites are baked at the old renderDpr
+  Night.resize(); // the darkness veil is a viewport-sized layer of its own
 }
 resizeCanvas();
 
@@ -507,6 +508,7 @@ function startSelectedMode() {
   isMenu = false;
   isRacing = false;
   scheduleWeather();
+  scheduleNight();
   StartLights.begin();
 }
 
@@ -704,6 +706,7 @@ function restartRace() {
   resetRace();
   racePaused = false;
   scheduleWeather();
+  scheduleNight();
   isMenu = false;
   isRacing = false;
   StartLights.begin();
@@ -857,6 +860,7 @@ window.addEventListener("keydown", (e) => {
     resetRace();
     racePaused = false;
     scheduleWeather();
+    scheduleNight();
     isMenu = false;
     isRacing = false;
     StartLights.begin();
@@ -883,6 +887,11 @@ window.addEventListener("keydown", (e) => {
 
   if (key === "p" && !isMenu && !DEBUG) {
     Rain.toggle();
+    return;
+  }
+
+  if (key === "n" && !isMenu && !DEBUG) {
+    Night.toggle();
     return;
   }
 
@@ -1018,6 +1027,7 @@ async function applySelectedTrack() {
 // the skid layer's world size, and which records table is on screen.
 function onTrackLoaded() {
   WaypointEditor.init(worldTrack.data.waypoints);
+  Night.buildLights(); // the pylons stand on this circuit's verges
   applyTrackSpawns();
   DebugConfig.adoptSpawns();
   selectRecords();
@@ -1143,8 +1153,21 @@ function clearHighScores() {
 }
 
 // ─────────────────────────────────────────
-// WEATHER SCHEDULING
+// RACE CONDITIONS
 // ─────────────────────────────────────────
+
+// Rolled per race and independent of the weather, so the four combinations all
+// come up — including the one worth turning up for, rain at night. Unlike the
+// rain it does not move mid-race: a circuit that got dark on lap 4 would read
+// as a bug, and the lights coming up over the countdown is the shot.
+const NIGHT_CHANCE = 0.3;
+
+function scheduleNight() {
+  Night.clear();
+  if (gameMode !== "race5" && gameMode !== "race10") return; // free drive: N
+  if (Math.random() < NIGHT_CHANCE) Night.toggle();
+}
+
 function scheduleWeather() {
   weatherWetFromLap = null;
   weatherWetToLap = null;
@@ -1186,8 +1209,9 @@ function resetRace() {
   playerFinishPosition = 0;
   nextFinishPosition = 1;
 
-  // Clear rain
+  // Clear rain and put the lights back up
   if (Rain.targetIntensity > 0) Rain.toggle();
+  Night.clear();
 
   // Player
   car.x = SPAWN_POSITIONS[0].x;
@@ -1756,6 +1780,21 @@ function drawCar() {
   CarSprites.draw(ctx, car, PLAYER_COLOR);
 }
 
+// Whoever is on track this frame, in the same order the sprites are drawn in.
+// Night lights every car the same way, so this has to agree with the block in
+// gameLoop that draws them or a car ends up with headlights and no body.
+function litCars() {
+  const out = [];
+  if (!isMenu && !TrackEditor.active) out.push(car);
+  if (paceCarActive()) {
+    const p = paceCar();
+    if (p) out.push(p);
+  } else if (!TrackEditor.active) {
+    for (const ai of opponents) out.push(ai);
+  }
+  return out;
+}
+
 
 let lastTime = 0;
 
@@ -1872,6 +1911,7 @@ function gameLoop(timestamp) {
   Quality.sample(dt);
   DebugHUD.update(timestamp);
   Rain.update(delta);
+  Night.update(delta);
 
   // Same reason the countdown is held above: a hold left running behind the
   // menu would drop the player onto the results the moment they came back.
@@ -2041,6 +2081,8 @@ function gameLoop(timestamp) {
   }
 
   // Cars — world space
+  // Only night reads this, so a day frame does not even build the list.
+  const lit = Night.active && !TrackEditor.active ? litCars() : [];
   if (!isMenu && !TrackEditor.active) drawCar();
   if (paceCarActive()) paceCar()?.draw();
   else if (!TrackEditor.active) opponents.forEach((ai) => ai.draw());
@@ -2048,12 +2090,14 @@ function gameLoop(timestamp) {
   ctx.restore();
 
   Rain.drawOverlay(); // scene tint — a full-viewport fill, so outside the zoom
-  Rain.drawDrops(); // screen-space streaks
+  if (!TrackEditor.active) Night.drawLightLayer(lit); // the night goes over the
+  Rain.drawDrops(); // tint and under the rain, so the streaks read as caught in it
 
-  // Back into world pixels: the gate band and the waypoint ring are drawn on
-  // the road, not on the screen.
+  // Back into world pixels: the lamps, the gate band and the waypoint ring are
+  // drawn on the road, not on the screen.
   ctx.save();
   ctx.scale(viewZoom, viewZoom);
+  if (!TrackEditor.active) Night.drawLamps(lit); // over the veil, or it puts them out
   if (DEBUG && !TrackEditor.active) drawLapGate(ctx);
   if (DEBUG && !TrackEditor.active) WaypointEditor.draw(ctx);
   ctx.restore();
@@ -2101,6 +2145,7 @@ function gameLoop(timestamp) {
   if (!inOverlay && !TrackEditor.active) {
     LapBanner.draw(ctx);
     Rain.drawHUD();
+    Night.drawHUD();
   }
 
   DebugHUD.endFrame();

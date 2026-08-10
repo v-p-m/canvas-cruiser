@@ -25,6 +25,7 @@ python3 -m http.server 8123
 | Q | Records (best laps and race totals) |
 | C | Clear records (on the records screen) |
 | P | Toggle rain (Free Drive) |
+| N | Toggle night (Free Drive) |
 | M | Mute / unmute |
 | K | Remap the driving keys (from the menu) |
 | I | Credits (from the menu) |
@@ -61,6 +62,10 @@ missing or malformed the game falls back to a built-in roll.
 - Dynamic weather — rain cuts grip for player and AI alike, draws puddles and
   screen streaks, and is scheduled per race (a coin-flip for 5 laps, a rain
   window for 10)
+- Night races, rolled independently of the weather, so a race can be dry-day,
+  wet-day, dry-night or a night thunderstorm. Floodlights are placed around
+  each circuit's verges automatically, and every car runs headlights and tail
+  lights
 - Skid marks baked to an offscreen canvas
 - AI opponents with waypoint navigation, corner braking and mutual repulsion
 - A real race: opponents are lap-counted and ranked against you, your position

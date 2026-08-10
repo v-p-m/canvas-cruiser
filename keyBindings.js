@@ -16,6 +16,8 @@ const BLACKLISTED_KEYS = [
   "E",
   "m",
   "M",
+  "n",
+  "N",
   "z",
   "Z",
   "f2",
