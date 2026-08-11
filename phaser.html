@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Canvas Cruiser — Phaser port</title>
+        <script>
+            // The 0.14.0 port target. index.html is untouched and still runs
+            // the legacy loop, so both can be opened side by side.
+            window.BUILD = "0.14.0-dev";
+        </script>
+    </head>
+    <body style="margin: 0; background: #111">
+        <div id="game"></div>
+
+        <script>
+            for (const src of [
+                "vendor/phaser.min.js",
+                "track.js",
+                "rain.js",
+                "phaser/matterCar.js",
+                "phaser/raceScene.js",
+            ]) {
+                const s = document.createElement("script");
+                s.src = `${src}?v=${window.BUILD}`;
+                s.async = false;
+                document.head.appendChild(s);
+            }
+
+            window.addEventListener("load", () => {
+                window.phaserGame = new Phaser.Game({
+                    type: Phaser.AUTO,
+                    parent: "game",
+                    width: window.innerWidth,
+                    height: window.innerHeight,
+                    physics: {
+                        default: "matter",
+                        matter: { gravity: { x: 0, y: 0 }, debug: false },
+                    },
+                    scene: [RaceScene],
+                });
+            });
+        </script>
+    </body>
+</html>

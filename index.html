@@ -13,7 +13,7 @@
             // new game.js against old ai.js. It lives here because index.html is
             // the only file GitHub Pages will let go stale for just 10 minutes;
             // a constant inside game.js cannot invalidate game.js.
-            window.BUILD = "0.13.0";
+            window.BUILD = "0.14.0-dev";
 
             const css = document.createElement("link");
             css.rel = "stylesheet";
@@ -27,7 +27,12 @@
         <script>
             // Load order matters — see CLAUDE.md. Injected scripts default to
             // async, so async=false is what keeps them executing in this order.
+            // Phaser is vendored rather than pulled from a CDN so the "serve
+            // the folder and reload" dev loop keeps working offline, and so a
+            // CDN outage cannot take the game down. It is first because every
+            // scene file below reads the `Phaser` global at parse time.
             for (const src of [
+                "vendor/phaser.min.js",
                 "track.js",
                 "trackEditor.js",
                 "carSprites.js",
