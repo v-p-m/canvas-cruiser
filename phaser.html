@@ -17,6 +17,16 @@
                 "vendor/phaser.min.js",
                 "track.js",
                 "rain.js",
+                // The opponent driver and the numbers it drives on, straight
+                // out of the legacy game: debugConfig.js is loaded for its
+                // defaults literal only (init() wants globals game.js owns),
+                // engineClass.js and rain.js hand out scalars, and ai.js needs
+                // no changes at all — drive() already returns the input shape
+                // MatterCar.step takes.
+                "debugConfig.js",
+                "engineClass.js",
+                "ai.js",
+                "phaser/carStats.js",
                 "phaser/matterCar.js",
                 "phaser/raceGrid.js",
                 "phaser/raceScene.js",

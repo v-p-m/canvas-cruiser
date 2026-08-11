@@ -14,6 +14,8 @@ Committed on branch `0.14.0` (`0544629`):
 - `phaser/matterCar.js` — the car as a Matter body.
 - `phaser/raceScene.js` — one scene: track texture, the field on the grid.
 - `phaser/raceGrid.js` — the spawn grid, the start line and the lap gate.
+- `phaser/carStats.js` — `applyCarStats()`, ported. One set of numbers for the
+  whole grid.
 
 Verified headlessly: the track renders, Matter carries the car, off-road drag
 pins full throttle to 2.3 against a ceiling of 10, and a rear-ended car gets
@@ -69,19 +71,59 @@ filled it, and `spawnVersion` (debugConfig.js:47) — keyed by track — is what
 stops a saved copy overriding a shipped grid that has moved. The port has no
 panel, so the track file is the only source until step 5 brings one back.
 
-### 2. Opponents through the same machinery
-Run the AI cars through `MatterCar.step` — same function, same stats, same
-`entity.mods`. CLAUDE.md's central warning applies unchanged: **a stat, force
-or penalty added to one and not the other is how the opponents stopped being
-real competitors.** `ai.js` needs no physics changes at all; `drive()` returns
-`{accel, brake, left, right}` and that is already the input `MatterCar.step`
-takes. Note the parked cars in the scene today get no drag precisely because
-`step` isn't run for them — that goes away here.
+### 2. Opponents through the same machinery — DONE
+`ai.js` came across **unmodified**. The opponents *are* `AICar`s: `spawnCar()`
+builds slot 0 as a plain object and every other slot as an `AICar`, then runs
+both through the same `Object.assign` of entity fields, the same
+`applyCarStats()` and the same `MatterCar.step()`. `phaser.html` gained
+`debugConfig.js` (for its `defaults` literal only — `init()` wants globals
+game.js owns), `engineClass.js`, `ai.js` and `phaser/carStats.js`.
+
+Three things worth not re-deriving:
+
+- `ai.js` reads the track off the **`worldTrack` global** (`clearRing` /
+  `ringFor`) to push its line clear of the kerbs. `raceScene.create()` sets it.
+  Without it the driver runs an uncleared ring and spends most of a lap on the
+  grass.
+- The placeholder car was 18x32. The real one is **34x56** — `CAR_SPRITE_W/H`
+  and `car.width/height` agree on that — and it starts mattering here, because
+  `AVOID_RADIUS`/`AVOID_STRENGTH` are tuned against a car that size and six
+  bodies are now touching. `CAR_W`/`CAR_H` were corrected.
+- The panel is step 5, so `carStats.js` seeds `DebugConfig.values` from
+  `DebugConfig.defaults`. Skip that and ai.js falls through its `??` fallbacks
+  to a skill floor of 0.9 against the shipped 0.85.
+
+What makes an opponent slower is `rollDriver()` — skill, line offset, aim
+wander — and nothing else. Every car's `mods` is null and all six carry
+identical `acceleration/maxSpeed/turnSpeed/driftGrip/friction`.
+
+Verified headlessly, 32s of virtual time on Super Circuit: all five opponents
+complete 3 laps, **10.2–10.8s** each, with 3.9–11.5% of the lap carrying any
+off-road drag at all and a mean drag of 0.004–0.019 — the same neighbourhood
+`ai.js`'s own clearance readings quote for the legacy loop. And a scripted
+600-frame stint (throttle, both locks, brakes, coast, off-road) fed to a player
+entity and to an `AICar` through `MatterCar.step` is **bit-identical in
+x/y/angle/speed on every frame**.
+
+One number to carry into step 7: 10.2–10.8s is quicker than the recorded
+ghost-pacer reference of 11.4–11.7s for Super 100cc dry. That may be the
+five-car figure rather than the ghost, or it may be the port. Do not tune
+anything until it has been measured against the legacy loop like for like.
+
+**Harness gotcha, and it invalidates results silently:** Matter integrates with
+the frame delta, and headless delivers a jittery one, so an auto-stepped world
+is not repeatable *against itself* — a player-vs-player control run diverged
+5.3px. Take the wheel off it (`matter.world.setAutoUpdate(false)`, then
+`Matter.Engine.update(world.engine, 1000/60)` by hand) before comparing two
+runs. Note `world.update(time, delta)` is **not** the engine step — with
+autoUpdate off it silently leaves every body where it was, and the resulting
+"identical" is two cars that never moved.
 
 ### 3. Laps and standings
 `trackProgress`, the gate and the tile-9 test came across with step 1 —
-`RaceGrid.progress/updateGate/onStartLine`. What is left is `updateLapCounter`
-and the standings. Cheap (see above), but the player and every opponent must go
+`RaceGrid.progress/updateGate/onStartLine`, and step 2's harness counts laps by
+watching `progress` wrap, which is not the same thing and is not shipped. What
+is left is `updateLapCounter` and the standings. Cheap (see above), but the player and every opponent must go
 through the *same* call, as they do now. Carry `laps`/`onFinishLine`/`passedGate`/`finished`/`finishPosition`/
 `raceStart` on the entities.
 

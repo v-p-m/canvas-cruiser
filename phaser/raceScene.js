@@ -11,20 +11,12 @@
 // The starting grid, the start line and the lap gate come out of the same file
 // through `RaceGrid` — see phaser/raceGrid.js.
 
-const CAR_W = 18; // world px
-const CAR_H = 32; // world px
-
-// The 100cc baseline, matching DebugConfig.defaults. In the legacy loop this
-// is applyCarStats()'s job and every car on the grid gets the same set — the
-// port keeps that, one object copied per car, until the debug panel and the
-// engine classes come across.
-const CAR_STATS = {
-  acceleration: 0.2,
-  maxSpeed: 10,
-  turnSpeed: 0.06,
-  driftGrip: 0.1,
-  friction: 0.96,
-};
+// The car, at the size the game has always drawn it — CAR_SPRITE_W/H in
+// carSprites.js and car.width/height in game.js are the same 34x56. Step 1's
+// placeholder was smaller than that, which stopped mattering the moment six
+// bodies started racing each other for the same piece of road.
+const CAR_W = 34; // world px
+const CAR_H = 56; // world px
 
 class RaceScene extends Phaser.Scene {
   constructor() {
@@ -39,6 +31,12 @@ class RaceScene extends Phaser.Scene {
     this.world = new Track(null);
     await this.world.load("tracks/super-circuit.json");
 
+    // ai.js pushes its racing line clear of the kerbs by sampling the road
+    // field, and it reads the track off this global (`clearRing`, `ringFor`).
+    // The legacy page has the same one; the driver comes across untouched, so
+    // the scene is what supplies it.
+    window.worldTrack = this.world;
+
     this.textures.addCanvas("bake", this.world.bakedCanvas);
     this.add.image(0, 0, "bake").setOrigin(0, 0).setDepth(0);
 
@@ -51,8 +49,15 @@ class RaceScene extends Phaser.Scene {
     // facing the start line. Index 0 is the player, exactly as SPAWN_POSITIONS
     // is ordered in game.js.
     this.grid = RaceGrid.build(this.world);
-    this.cars = this.grid.map((slot) => this.spawnCar(slot));
+    this.cars = this.grid.map((slot, i) => this.spawnCar(slot, i));
     this.player = this.cars[0];
+
+    // The field, as the drivers see each other: AICar.aimPoint steers away
+    // from everyone in this list, and the player is deliberately not in it —
+    // exactly as game.js passes `opponents`. Built once; it is read every
+    // frame by every car.
+    this.aiCars = this.cars.slice(1);
+    this.opponents = this.aiCars.map((c) => c.entity);
 
     this.cameras.main.startFollow(this.player.sprite);
 
@@ -63,17 +68,31 @@ class RaceScene extends Phaser.Scene {
     this.reportGrid();
   }
 
-  // One car, on its grid slot. The opponents are built the same way as the
-  // player and carry the same stats — running them through MatterCar.step is
-  // the next step of the port, and nothing here should have to change for it.
-  spawnCar(slot) {
-    const entity = {
+  // One car, on its grid slot. Index 0 is the player and the rest are AICars,
+  // and that is the *only* difference between them: an AICar is a driver
+  // wrapped round the same entity fields the player's object carries, so the
+  // same applyCarStats fills its stats and the same MatterCar.step moves it.
+  // Anything that ends up on one and not the other is the regression CLAUDE.md
+  // is about — that is why there is one spawn function and not two.
+  spawnCar(slot, index) {
+    const entity =
+      index === 0 ? {} : new AICar(null, slot.x, slot.y, slot.color);
+
+    Object.assign(entity, {
       x: slot.x,
       y: slot.y,
+      // AICar's constructor guesses north because it predates a grid; the
+      // track file knows which way the road goes.
       angle: slot.angle,
       speed: 0,
       velocityX: 0,
       velocityY: 0,
+      width: CAR_W,
+      height: CAR_H,
+      // Per-car machinery differences hang here and nowhere else. Empty for
+      // every car on the grid: the field is separated by driving, not by
+      // parts — see rollDriver() below.
+      mods: null,
       // Race state, the same shape the legacy entities carry so the lap
       // counter can treat every car as one more entry.
       laps: 0,
@@ -82,8 +101,14 @@ class RaceScene extends Phaser.Scene {
       finished: false,
       finishPosition: 0,
       raceStart: 0,
-      ...CAR_STATS,
-    };
+    });
+
+    applyCarStats(entity);
+
+    // What makes an opponent slower than the player: skill, line offset and
+    // aim wander, re-rolled per race. All three cost time through cornering
+    // scrub and corner entry speed — none of them touches the car.
+    if (entity.rollDriver) entity.rollDriver();
 
     const body = MatterCar.create(
       this,
@@ -169,15 +194,20 @@ class RaceScene extends Phaser.Scene {
       rollOut: false,
     };
 
-    // Only the player is driven for now — the opponents come through this same
-    // call in the next step, which is also when they start getting drag.
+    // Six drivers, one car. The only difference between these two calls is
+    // where the four booleans came from — the keyboard, or drive() reading the
+    // track. Everything downstream of them is the same function, the same
+    // stats and the same Matter world.
     const me = this.player;
     MatterCar.step(me.body, me.entity, input, delta, this.world);
 
+    const wps = this.world.data.waypoints;
+    for (const c of this.aiCars) {
+      const driving = c.entity.drive(wps, me.entity, this.opponents, delta);
+      MatterCar.step(c.body, c.entity, driving, delta, this.world);
+    }
+
     for (const c of this.cars) {
-      // Parked cars still track their body: a shunt on the grid moves them.
-      c.entity.x = c.body.position.x;
-      c.entity.y = c.body.position.y;
       c.sprite.setPosition(c.body.position.x, c.body.position.y);
       c.sprite.setRotation(c.entity.angle);
       RaceGrid.updateGate(this.world, c.entity);
