@@ -27,8 +27,11 @@ const MatterCar = {
   // Matter's own damping would fight the `friction`/`OFFROAD_DRAG` terms below
   // and make the sliders lie, so the body is created inert and this file does
   // all of the forcing.
-  create(scene, x, y, w, h) {
+  // `angle` is the grid's, in the game's convention (0 = north): the field has
+  // to be pointing down the road from frame zero, before step() has run once.
+  create(scene, x, y, w, h, angle = 0) {
     const body = scene.matter.add.rectangle(x, y, w, h, {
+      angle,
       frictionAir: MATTER_CAR.FRICTION_AIR,
       density: MATTER_CAR.DENSITY,
       restitution: MATTER_CAR.RESTITUTION,
