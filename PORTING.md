@@ -16,6 +16,8 @@ Committed on branch `0.14.0` (`0544629`):
 - `phaser/raceGrid.js` — the spawn grid, the start line and the lap gate.
 - `phaser/carStats.js` — `applyCarStats()`, ported. One set of numbers for the
   whole grid.
+- `phaser/raceLaps.js` — the lap counter and the standings, one call for all
+  six cars.
 
 Verified headlessly: the track renders, Matter carries the car, off-road drag
 pins full throttle to 2.3 against a ceiling of 10, and a rear-ended car gets
@@ -119,13 +121,40 @@ runs. Note `world.update(time, delta)` is **not** the engine step — with
 autoUpdate off it silently leaves every body where it was, and the resulting
 "identical" is two cars that never moved.
 
-### 3. Laps and standings
-`trackProgress`, the gate and the tile-9 test came across with step 1 —
-`RaceGrid.progress/updateGate/onStartLine`, and step 2's harness counts laps by
-watching `progress` wrap, which is not the same thing and is not shipped. What
-is left is `updateLapCounter` and the standings. Cheap (see above), but the player and every opponent must go
-through the *same* call, as they do now. Carry `laps`/`onFinishLine`/`passedGate`/`finished`/`finishPosition`/
-`raceStart` on the entities.
+### 3. Laps and standings — DONE
+`phaser/raceLaps.js`: `updateLapCounter` / `raceScore` / `raceStandings` /
+`finishRace`, ported. `RaceLaps.update()` runs the gate, the tile-9 crossing and
+the flag for one car, and the scene runs all six through it in one loop — the
+player is not a special case anywhere in the file. `RaceLaps.initEntity()` owns
+the race fields (`laps`/`onFinishLine`/`passedGate`/`finished`/`finishPosition`/
+`finishTime`/`raceStart`/`lapStart`/`lastLapTime`/`bestLapTime`), so `spawnCar`
+can no longer fill in a different set for an AICar than for the player.
+
+Three things worth not re-deriving:
+
+- The legacy counter's `isPlayer` branch is the HUD lap number, the records and
+  the per-lap weather — steps 5, 6 and 8. The port has no branch at all: every
+  car keeps its own lap times and race clock on itself, and whatever draws the
+  HUD later reads the player's entity like any other car's. Do not reintroduce
+  an `isPlayer` argument to get one number onto the screen.
+- The clock is a parameter (`update(world, entity, now)`) and the scene passes
+  Phaser's loop `time`, not `performance.now()` — a hand-stepped headless run
+  then counts laps on the same clock it integrates on.
+- No menu until step 5, so the page is a 5-lap race and `?laps=N` is the mode
+  picker (`?laps=0` runs free, as "Free Drive" does).
+
+Verified headlessly, and the harness is two checks rather than one, because a
+race alone cannot tell a working gate from a lucky one:
+- A bare entity walked round the ring — no car, no Matter — counts 3 laps from
+  4 crossings, takes the flag on the 4th, and reports the walk's exact times
+  (40s laps, 120s race). Walked back and forth over the line 20 times
+  afterwards it stays on the lap it had: the gate refuses all 20.
+- A full 3-lap race, all six cars driven (the player by a bot on the same
+  `AICar.drive`): laps 10.1–10.8s — step 2's numbers, so counting laps did not
+  move the pace — every car finishing on lap 4, `finishPosition` 1–6 in crossing
+  order, and the standings agreeing with the on-track order at every sample.
+  The order frozen at the player's flag put the three cars still circulating in
+  the order they went on to finish in.
 
 ### 4. Cars that look like cars
 Swap the placeholder rectangles for `CarSprites`. It bakes to a canvas per
@@ -172,6 +201,15 @@ working.
   recipe in the headless-testing skill.
 - Page `console.log` never reaches stderr here. Report through the DOM and
   `--dump-dom`.
+- `phaser.html` appends its `<script>`s from an inline loop, so **none of them
+  have run when an injected inline script parses** — a harness that touches
+  `RaceScene` at the top level throws a ReferenceError, takes the rAF trap and
+  every reporter down with it, and leaves an empty page with no console to say
+  so. Patch on `window.load`: phaser.html's own listener is registered first, so
+  the game exists and `create()` has not finished.
+- The scene reads its input off `this.keys`, so a harness can drive the player
+  by replacing that object with `{UP:{isDown},…}` — no synthetic key events, and
+  an `AICar` mirrored onto the player entity makes a six-car race run itself.
 - Stale `python3 -m http.server` processes from old sessions squat on
   8123/8124/8137. A silent bind failure just serves the *old* directory, so you
   get 404s on a file you can see on disk. Check `ss -ltnp` before trusting a

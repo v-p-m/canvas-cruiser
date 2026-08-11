@@ -52,6 +52,23 @@ class RaceScene extends Phaser.Scene {
     this.cars = this.grid.map((slot, i) => this.spawnCar(slot, i));
     this.player = this.cars[0];
 
+    // The race, as the standings see it: six identical entries, the player's
+    // marked only by a name and a flag. Built once — `RaceLaps.standings()`
+    // re-sorts it every frame it is asked for.
+    this.entries = this.cars.map((c, i) => ({
+      entity: c.entity,
+      isPlayer: i === 0,
+      name: i === 0 ? "YOU" : `CPU ${i}`,
+      color: this.grid[i].color,
+    }));
+
+    // No menu until step 5, so the page is a 5-lap race and the query string
+    // is the mode picker: ?laps=0 runs free, as "Free Drive" does.
+    const laps = new URLSearchParams(location.search).get("laps");
+    if (laps !== null) RaceLaps.target = Number(laps) || null;
+    RaceLaps.reset(this.entries);
+    this.finishOrder = null;
+
     // The field, as the drivers see each other: AICar.aimPoint steers away
     // from everyone in this list, and the player is deliberately not in it —
     // exactly as game.js passes `opponents`. Built once; it is read every
@@ -93,15 +110,12 @@ class RaceScene extends Phaser.Scene {
       // every car on the grid: the field is separated by driving, not by
       // parts — see rollDriver() below.
       mods: null,
-      // Race state, the same shape the legacy entities carry so the lap
-      // counter can treat every car as one more entry.
-      laps: 0,
-      onFinishLine: false,
-      passedGate: false,
-      finished: false,
-      finishPosition: 0,
-      raceStart: 0,
     });
+
+    // Race state — laps, the gate latch, the finish. One list, filled by the
+    // counter that reads it, so the player and an AICar cannot end up carrying
+    // different fields.
+    RaceLaps.initEntity(entity);
 
     applyCarStats(entity);
 
@@ -207,11 +221,20 @@ class RaceScene extends Phaser.Scene {
       MatterCar.step(c.body, c.entity, driving, delta, this.world);
     }
 
+    // Laps, for six cars, through one call — the gate included, since
+    // RaceLaps.update() arms it. `time` is the loop's clock rather than
+    // performance.now() so a hand-stepped headless run counts on the same
+    // clock it integrates on.
     for (const c of this.cars) {
       c.sprite.setPosition(c.body.position.x, c.body.position.y);
       c.sprite.setRotation(c.entity.angle);
-      RaceGrid.updateGate(this.world, c.entity);
+      RaceLaps.update(this.world, c.entity, time);
     }
+
+    // The order is frozen the moment the player takes the flag, not when the
+    // last car does — everyone still out there is classified where they stand.
+    if (!this.finishOrder && this.player.entity.finished)
+      this.finishOrder = RaceLaps.classify(this.world, this.entries);
 
     const p = this.player.entity;
     this.report.speed = p.speed.toFixed(2);
@@ -220,6 +243,12 @@ class RaceScene extends Phaser.Scene {
     this.report.progress = RaceGrid.progress(this.world, p).toFixed(3);
     this.report.onStartLine = RaceGrid.onStartLine(this.world, p);
     this.report.passedGate = p.passedGate;
+    this.report.laps = p.laps;
+    this.report.standings = RaceLaps.standings(this.world, this.entries).map(
+      (e) =>
+        `${e.position}. ${e.name} L${e.laps} ${e.score === Infinity ? "FIN" : e.score.toFixed(3)}`,
+    );
+    if (this.finishOrder) this.report.finishOrder = this.finishOrder;
   }
 
   // Everything a headless check needs to see that the grid is the track's and
