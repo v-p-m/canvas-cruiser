@@ -200,10 +200,182 @@ before it's a rendering-logic one.
 
 ### 5. screens.js
 The big one — menu, HUD, minimap, records, results, credits, and the
-hit-testing that makes them clickable. Decide up front whether these become
-Phaser scenes or stay a 2D overlay canvas; a UI scene per screen is the
-idiomatic answer and keeps the input handling Phaser's problem. The credits
-roll is data (`credits.json`, with a built-in fallback) — keep it that way.
+hit-testing that makes them clickable.
+
+**Decided: a 2D overlay canvas, not Phaser UI scenes.** screens.js is ~1000
+lines of exact `ctx` drawing — `roundRect` fills, a clipped-and-faded scroll
+region for the credits roll, gradient fades, `measureText`-driven hit boxes —
+that already matches the shipped game pixel for pixel, and Phaser's
+GameObject API (`Text`/`Graphics`/`Container`) has no equivalent for most of
+it. Re-deriving all of that as Phaser objects is a rewrite with every chance
+of moving a pixel, for a screen that never touches Matter or a camera. So:
+`phaser/uiCanvas.js` is a second `<canvas>`, absolutely positioned over
+Phaser's own, resized/dpr-scaled the way `resizeCanvas()` scales the legacy
+one. `screens.js`'s draw functions and its `hitTest`/`mousePos`/hit-area-array
+model port across nearly verbatim onto it — only the globals they read
+(`camera.width`, `ctx`, `canvas.style.cursor`, game state) change. Trade-off:
+no idiomatic Phaser input/scene-lifecycle and no running UI through Phaser's
+renderer/post-fx pipeline — nothing here needs either.
+
+**Menu — done.** `phaser/menuData.js` (a small, deliberately duplicated
+`PHASER_TRACKS`/`PHASER_MODES` — see its header for why not shared with
+game.js), `phaser/menuScreen.js` (the ported `drawStartMenu` /
+`drawSelectorRow` / `drawStartButton` / `handleMenuClick`), and
+`phaser/menuScene.js` (a `Phaser.Scene` owning the picker state and the
+hand-off to `RaceScene`). `RaceScene.create(data)` now takes
+`data.trackFile` instead of a hardcoded path, falling back to Super Circuit
+for a bare `scene.start("race")` with no menu in front of it. TRACK/CLASS/
+MODE all work, by mouse and by keyboard, and START hands off to a real race
+on the chosen circuit.
+
+Three things worth not re-deriving:
+
+- **Synthetic keydown+keyup dispatched back-to-back, in the same tick, does
+  not register with Phaser's keyboard plugin — `JustDown` never fires.** A
+  real keypress has nonzero duration; a harness that fires `keydown` and
+  `keyup` in the same callback gives the plugin a zero-duration event that
+  its internal `_justDown` latch doesn't catch. Separate them by ~100ms+.
+  Phaser reads `event.keyCode` (not `.code`), and this Chromium's
+  `KeyboardEvent` constructor does honour a `keyCode` passed in the init
+  dict — but only if it's actually there; `{key, code}` alone dispatches
+  cleanly and is silently ignored.
+- **A canvas's CSS box does not follow `position:absolute; inset:0` the way
+  a `<div>`'s would.** `<canvas>` is a replaced element; with `width`/`height`
+  left as `auto`, an absolutely-positioned replaced element sizes itself from
+  its intrinsic dimensions (its `width`/`height` *attributes*) and only uses
+  `inset` to place that box, not to stretch it. `uiCanvas.js` sets the backing
+  store to `devicePixelRatio` for crisp text, so without an explicit
+  `canvas.style.width`/`height` in CSS pixels, the overlay only happened to
+  fill the viewport at dpr 1 — at 2x it would render at backing-store size,
+  visibly oversized and out of register with Phaser's own canvas. Caught by
+  testing `--force-device-scale-factor=2`, per the existing habit from step 4.
+- The menu still names K (key bindings), Q (records), I (credits), M (mute),
+  B (debug) for visual parity with the legacy row, since dropping them would
+  make the layout jump again as each lands. None of those systems exist on
+  this page yet, so clicking or pressing one logs
+  `"not yet ported, see PORTING.md step 5"` and does nothing else — a stub,
+  not a dead end. Sound.js isn't loaded on this page (step 6), so the mute
+  label always reads "Sound: ON". `B` only flips a label for now; there's no
+  debug overlay on the Phaser page to toggle yet.
+
+The menu also gets a live backdrop: `MenuScene` bakes the selected circuit
+with the same `Track` class RaceScene uses (no spawn grid, no cars, no Matter
+world — a static cover-fit image) so cycling TRACK previews the circuit
+you're choosing, the way the legacy menu sits over its own paused race.
+Switching circuits re-bakes with the same "last press wins" guard
+`applySelectedTrack()` uses in game.js — a fetch-and-bake can be asked to
+change again before it finishes.
+
+Verified headlessly: menu screenshots clean at dpr 1 and 2 (matched pixel-for
+-pixel against an equivalent legacy-loop screenshot for the emoji-glyph and
+kerb-dash details that turned out not to be bugs), no console errors; a
+mouse-driven run (click TRACK▶, click CLASS▶, click START) landed on Snake
+Valley at 250cc with the race scene's own grid report confirming the right
+track loaded; a keyboard-driven run (`UP UP` to row 0, `RIGHT` to cycle the
+track, `DOWN DOWN DOWN` to START, `ENTER`) moved the cursor 2→1→0, cycled
+super→valley, moved 0→3, and landed on `raceActive: true` — both input paths
+work end to end.
+
+**HUD and minimap — done.** `phaser/hudScreen.js`: the ported `drawUI`/
+`drawMinimap`/`LapBanner`, called from `RaceScene.update()` every frame a race
+is live. Read its header before touching it — the legacy HUD leans on
+`updateLapCounter`'s `isPlayer` branch for `laps`/`lastLapTime`/etc., and
+`RaceLaps.update()` deliberately has no such branch (step 3), so this file
+reads `scene.player.entity` directly instead. That makes it the *one* place
+on this page allowed to treat the player as special, which is fine — a HUD
+showing one car's numbers is what a HUD is, and nothing about the race
+machinery bends to make it possible.
+
+The lap banner needed its own trigger, for the same reason: nothing calls
+`LapBanner.show()` on a lap completing anymore, because nothing owns an
+`isPlayer` branch to call it from. `RaceScene.update()` now watches
+`player.entity.lastLapTime` itself and fires the banner the frame it changes
+(guarded against the arming crossing, which leaves `lastLapTime` `null`) —
+see `this.playerLastLapSeen` there. Everything else in `hudScreen.js` is a
+straight read of fields `RaceGrid`/`RaceLaps` already maintain: lap fraction
+for the lap counter, `RaceLaps.standings()` (computed once a frame and shared
+with the scene's own debug report, not duplicated) for the position readout,
+`cameras.main.scrollX/Y`/`.width`/`.height` in place of `camera.x/y/width/
+height` for the minimap viewport box.
+
+The roll-out hold between the flag and the results screen (`finishHoldTimer`)
+is not carried over — it exists to delay a results screen that, at the time
+the HUD was built, didn't exist yet. Now that it does (below), `TOTAL`/the
+results screen simply appear the instant `entity.finished` flips true, and
+the player switches to `rollOut: true` (the same coast-to-a-stop `MatterCar`
+already had ported) that same frame rather than idling on dead input.
+
+Verified headlessly: a forged lap completion (`entity.laps`/`lastLapTime` set
+directly, the same fields `RaceLaps.update()` would have written, so what's
+under test is `RaceScene.update()`'s own detection of the change rather than
+lap-counting itself, which step 3 already verified) made the banner go
+active, then inactive again after `LAP_MS` — confirmed against `HudBanner`'s
+own state, not just a screenshot. Full-race screenshots show `LAP 3 / 5`,
+`P1/6` in gold, `LAST:`/`TIME:` both live and correctly positioned, the
+lap-complete banner centred and legible, and the minimap with all six dots,
+the ringed player marker, and the viewport rectangle tracking the camera —
+matching the legacy HUD's layout call for call. No console errors in any run.
+
+**Records, results and credits — done.** This resolved step 8's open question
+sooner than planned, by decision rather than default — see the next
+paragraph. `phaser/records.js` (the store), `phaser/recordsScreen.js` +
+`phaser/recordsScene.js` (the `Q` screen), `phaser/resultsScreen.js` (the
+post-flag overlay, drawn by `RaceScene` itself rather than a separate scene —
+see its header for why), `phaser/credits.js` + `phaser/creditsScreen.js` (the
+`I` modal, still data-driven off `credits.json` with the same built-in
+fallback). `RaceScene` now saves every completed player lap and, on a scored
+finish, the total — `Records.saveLapTime()`/`saveTotalTime()` both return
+whether it's a new best, which is what feeds `HudBanner`'s gold treatment and
+the results screen's "New Best Total!" line. Free Drive laps are saved too,
+unconditionally, matching `saveLapTime()`'s own unconditional call in the
+legacy loop's `isPlayer` branch.
+
+**Step 8 is therefore decided: reset, not namespaced.** Lap times from the two
+physics models aren't comparable, and asked directly, the call was to clear
+`highScores`/`bestTotalTimes` rather than carry pre-port times forward under a
+second set of keys — there are no released players yet to preserve them for.
+`RECORDS_PHYSICS_VERSION` in `records.js` gates it: the *first* `Records.load()`
+call on a page that hasn't seen this version wipes both keys once and stamps a
+marker, every call after that is a no-op. Bump the version string if the
+physics changes meaningfully again. Track/class ids are still colon-free and
+`upgradeKey()`'s compatibility path is still there (mechanically correct, just
+moot immediately after a reset, since there's nothing pre-colon left to
+upgrade) — the constraint was about not breaking the mechanism, not about
+never clearing data.
+
+Two bugs the new navigation surfaced, neither about records specifically:
+- **Restarting or re-entering a scene Phaser is reusing (`scene.restart()`,
+  or `scene.start()` back to one that's run before) re-runs an `async
+  create()` from the top — but any `window`/global-manager listener it
+  registered on its first life (a `window.resize` handler, `this.scale.on`)
+  is still attached, and a *second* one now stacks on top of it.** Both
+  `RaceScene` and `MenuScene` register their listener into a named handler
+  and remove it in `this.events.once("shutdown", ...)`, the scene-local event
+  that *does* fire reliably on every exit. The overlay canvas's own click
+  handlers get the same treatment.
+- **The same reused-instance restart leaves `this.ready` stale-`true` from
+  the scene's previous life for the whole `await` gap inside the new
+  `create()`**, and Phaser keeps calling `update()` during that gap — against
+  a `this.world` that exists but has no `.data` yet. Both scenes now set
+  `this.ready = false` as the first line of `create()`, before any `await`.
+  Caught by a THROW in a full menu→race→race-again→menu headless run, not by
+  either screen in isolation — worth re-running the whole loop, not just the
+  new step, after a change like this.
+
+Verified headlessly, one full loop: menu → Q (records, empty) → ESC → I
+(credits, real `credits.json` data, not the fallback) → ESC → START → a
+forged lap (saved, `HudBanner` gold) → a forged finish (`isNewBestTotal:
+true`, saved to `bestTotalTimes`) → click "R — race again" (fresh race,
+laps reset to 0, no stale texture-key warning) → forge a second, better
+finish (`isNewBestTotal: true` again) → click "ESC — Main menu" → Q again —
+`Records.highScores` correctly showed both forged lap times sorted
+(`[11.9, 12.5]`) and both totals sorted (`[50, 58.3]`) → `C` (clear, `confirm()`
+stubbed in the harness) → everything empty again. Screenshots of records
+(seeded data), credits (real data) and results ("YOU WIN", classification
+table, gold "New Best Total!") all match the legacy layout. No console errors
+in any run.
+
+**Step 5 is done.**
 
 ### 6. rain / night / sound / quality
 - `rain.js` and `engineClass.js` keep their rule: expose scalars, never assign

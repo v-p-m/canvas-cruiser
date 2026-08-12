@@ -23,13 +23,41 @@ class RaceScene extends Phaser.Scene {
     super({ key: "race" });
   }
 
-  async create() {
+  // `data.trackFile` comes from MenuScene's START handoff — the same file
+  // path TRACKS/PHASER_TRACKS carry in game.js and phaser/menuData.js. A
+  // direct scene.start(this.scene) restart (headless, or a future "race
+  // again") has no menu in front of it, so this falls back to Super Circuit
+  // rather than throwing on a missing key.
+  async create(data) {
     this.report = {};
+    // `scene.restart()` ("race again") reuses this same Scene instance rather
+    // than a fresh one, and create() awaits a fetch-and-bake below — so
+    // without resetting this up front, `ready` is still true from the
+    // instance's *previous* life for the whole async gap, and Phaser keeps
+    // calling update() into a scene whose `this.world` exists but has no
+    // `.data` yet.
+    this.ready = false;
+
+    // Idempotent — MenuScene already did this, but a headless check (or a
+    // future direct restart) that starts this scene without going through
+    // the menu still needs a HUD to draw onto.
+    UI.init();
+    UI.setInteractive(false); // the HUD has no buttons of its own until the flag
+    this.playerLastLapSeen = null;
+    this.finishOrder = null;
+    this.isNewBestTotal = false;
+
+    // Falls back to Super Circuit for a direct scene.start("race")/restart
+    // with no menu in front of it — a headless check, mainly.
+    this.trackFile = (data && data.trackFile) || "tracks/super-circuit.json";
+    this.trackId = (data && data.trackId) || PHASER_TRACKS[0].id;
+    Records.load();
+    Records.select(this.trackId, EngineClass.current().id);
 
     // Track.draw() is the only thing that wants a 2D context and the scene
     // never calls it, so the bake can run without one.
     this.world = new Track(null);
-    await this.world.load("tracks/super-circuit.json");
+    await this.world.load(this.trackFile);
 
     // ai.js pushes its racing line clear of the kerbs by sampling the road
     // field, and it reads the track off this global (`clearRing`, `ringFor`).
@@ -37,6 +65,12 @@ class RaceScene extends Phaser.Scene {
     // the scene is what supplies it.
     window.worldTrack = this.world;
 
+    // "Race again"/menu->race->menu->race all reuse this scene's key, and
+    // the texture manager is global — a second addCanvas("bake", ...) under
+    // a key that's still registered from this scene's previous life logs a
+    // warning and keeps the *old* bake, which would be the wrong track the
+    // moment "race again" or a return trip picks a different circuit.
+    if (this.textures.exists("bake")) this.textures.remove("bake");
     this.textures.addCanvas("bake", this.world.bakedCanvas);
     this.add.image(0, 0, "bake").setOrigin(0, 0).setDepth(0);
 
@@ -51,7 +85,16 @@ class RaceScene extends Phaser.Scene {
     // which is why this comes before the spawns that call carTexture().
     this.carTextureKeys = new Set();
     RenderScale.apply(this);
-    window.addEventListener("resize", () => RenderScale.apply(this));
+    // A plain `window` listener outlives the scene unless removed by hand —
+    // and this scene is now restarted ("race again") or re-started (from the
+    // menu) rather than created exactly once per page load, so without the
+    // shutdown cleanup below each return trip would stack another one.
+    this.resizeHandler = () => RenderScale.apply(this);
+    window.addEventListener("resize", this.resizeHandler);
+    this.events.once("shutdown", () => {
+      window.removeEventListener("resize", this.resizeHandler);
+      UI.clickHandlers = UI.clickHandlers.filter((h) => h !== this.resultsClickHandler);
+    });
 
     // The real grid: pole first, the field staggered behind it, all of it
     // facing the start line. Index 0 is the player, exactly as SPAWN_POSITIONS
@@ -70,12 +113,13 @@ class RaceScene extends Phaser.Scene {
       color: this.grid[i].color,
     }));
 
-    // No menu until step 5, so the page is a 5-lap race and the query string
-    // is the mode picker: ?laps=0 runs free, as "Free Drive" does.
+    // MenuScene sets RaceLaps.target from the MODE row before handing off
+    // here. The query string still overrides it — ?laps=0 runs free, as
+    // "Free Drive" does — which is what a headless check that skips the menu
+    // (a direct scene.start("race")) needs to pick a race length at all.
     const laps = new URLSearchParams(location.search).get("laps");
     if (laps !== null) RaceLaps.target = Number(laps) || null;
     RaceLaps.reset(this.entries);
-    this.finishOrder = null;
 
     // The field, as the drivers see each other: AICar.aimPoint steers away
     // from everyone in this list, and the player is deliberately not in it —
@@ -88,9 +132,24 @@ class RaceScene extends Phaser.Scene {
 
     if (new URLSearchParams(location.search).has("debug")) this.drawGridDebug();
 
-    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT");
+    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,R,ESC");
+
+    // Registered up front rather than when the flag falls: UI.onClick only
+    // ever sees clicks while UI.setInteractive(true), which finishRace()
+    // below is what flips, so this sits idle and harmless until then.
+    this.resultsClickHandler = (x, y) =>
+      ResultsScreen.handleClick(this.resultsActions(), x, y);
+    UI.onClick(this.resultsClickHandler);
+
     this.ready = true;
     this.reportGrid();
+  }
+
+  resultsActions() {
+    return {
+      again: () => this.scene.restart({ trackFile: this.trackFile, trackId: this.trackId }),
+      menu: () => this.scene.start("menu"),
+    };
   }
 
   // One car, on its grid slot. Index 0 is the player and the rest are AICars,
@@ -262,12 +321,18 @@ class RaceScene extends Phaser.Scene {
     // model is expressed per frame, so the port has to feed it the same unit.
     const delta = Math.min(deltaMs / (1000 / 60), 3);
 
+    // Past the flag the player is a passenger — same rollOut coast-down the
+    // legacy loop's finishHoldTimer window uses, just without the timer:
+    // there's no roll-out draw to hold it open for yet (see resultsScreen.js's
+    // header), so the results screen appears the instant `finished` does and
+    // this only matters to whatever a headless check reads off the entity.
+    const finished = this.player.entity.finished;
     const input = {
-      accel: this.keys.UP.isDown,
-      brake: this.keys.DOWN.isDown,
-      left: this.keys.LEFT.isDown,
-      right: this.keys.RIGHT.isDown,
-      rollOut: false,
+      accel: !finished && this.keys.UP.isDown,
+      brake: !finished && this.keys.DOWN.isDown,
+      left: !finished && this.keys.LEFT.isDown,
+      right: !finished && this.keys.RIGHT.isDown,
+      rollOut: finished,
     };
 
     // Six drivers, one car. The only difference between these two calls is
@@ -314,10 +379,54 @@ class RaceScene extends Phaser.Scene {
 
     // The order is frozen the moment the player takes the flag, not when the
     // last car does — everyone still out there is classified where they stand.
-    if (!this.finishOrder && this.player.entity.finished)
-      this.finishOrder = RaceLaps.classify(this.world, this.entries);
-
+    // This is also the one-time transition into the results screen: the
+    // instant finishOrder exists is the instant the HUD stops drawing and the
+    // overlay starts taking clicks for "race again"/"main menu".
     const p = this.player.entity;
+    if (!this.finishOrder && p.finished) {
+      this.finishOrder = RaceLaps.classify(this.world, this.entries);
+      const modeId = RaceLaps.target === 5 ? "race5" : RaceLaps.target === 10 ? "race10" : null;
+      if (modeId)
+        this.isNewBestTotal = Records.saveTotalTime(
+          this.trackId,
+          EngineClass.current().id,
+          modeId,
+          p.finishTime,
+        );
+      UI.setInteractive(true);
+    }
+
+    // Computed once and shared: the HUD's position readout and the debug
+    // report below are the same sort, and six cars is cheap but no reason to
+    // pay for it twice a frame.
+    const standings = RaceLaps.standings(this.world, this.entries);
+
+    // The banner announces a *lap*, and RaceLaps.update() has no isPlayer
+    // branch to hang that off (see phaser/raceLaps.js) — so this is the one
+    // place that watches the player's own entity for lastLapTime changing,
+    // which is exactly the crossing that just completed a lap. Excludes the
+    // arming crossing: laps 0→1 leaves lastLapTime null. Every completed lap
+    // is a record attempt regardless of game mode, same as saveLapTime()'s
+    // unconditional call in the legacy loop's isPlayer branch — a Free Drive
+    // lap counts too.
+    if (p.lastLapTime !== null && p.lastLapTime !== this.playerLastLapSeen) {
+      this.playerLastLapSeen = p.lastLapTime;
+      const isBest = Records.saveLapTime(this.trackId, EngineClass.current().id, p.lastLapTime);
+      HudBanner.show(p.lastLapTime, isBest);
+    }
+    HudBanner.update(deltaMs);
+
+    if (this.finishOrder) {
+      ResultsScreen.draw(this);
+      // R/ESC only mean anything once the results screen is showing — there's
+      // no in-race reset or pause on this page yet, so these keys are silent
+      // until then rather than double as a shortcut mid-race.
+      if (Phaser.Input.Keyboard.JustDown(this.keys.R)) this.resultsActions().again();
+      if (Phaser.Input.Keyboard.JustDown(this.keys.ESC)) this.resultsActions().menu();
+    } else {
+      HudScreen.draw(this, standings, time);
+    }
+
     this.report.speed = p.speed.toFixed(2);
     this.report.pos = `${Math.round(p.x)},${Math.round(p.y)}`;
     this.report.offRoad = this.world.offRoad(p.x, p.y).toFixed(2);
@@ -325,11 +434,14 @@ class RaceScene extends Phaser.Scene {
     this.report.onStartLine = RaceGrid.onStartLine(this.world, p);
     this.report.passedGate = p.passedGate;
     this.report.laps = p.laps;
-    this.report.standings = RaceLaps.standings(this.world, this.entries).map(
+    this.report.standings = standings.map(
       (e) =>
         `${e.position}. ${e.name} L${e.laps} ${e.score === Infinity ? "FIN" : e.score.toFixed(3)}`,
     );
-    if (this.finishOrder) this.report.finishOrder = this.finishOrder;
+    if (this.finishOrder) {
+      this.report.finishOrder = this.finishOrder;
+      this.report.isNewBestTotal = this.isNewBestTotal;
+    }
   }
 
   // Everything a headless check needs to see that the grid is the track's and
