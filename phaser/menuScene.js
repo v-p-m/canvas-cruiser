@@ -27,6 +27,14 @@ class MenuScene extends Phaser.Scene {
 
     EngineClass.load(); // the class survives a reload; the menu should open on it
 
+    // Silences the engine/tire voices a race in progress may have left
+    // playing — RaceScene calls Sound.update() every frame it's live, this
+    // scene never does, so without one call here to schedule the fade
+    // (setTargetAtTime keeps approaching 0 on its own after) "ESC — Main
+    // menu" from the results screen would leave the last lap's engine note
+    // holding forever.
+    Sound.update(0, 1, false, 0, false);
+
     this.state = {
       row: 2, // opens on MODE, same as game.js's menuRow default
       selectedTrack: this.loadSavedTrack(),

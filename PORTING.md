@@ -377,16 +377,150 @@ in any run.
 
 **Step 5 is done.**
 
-### 6. rain / night / sound / quality
-- `rain.js` and `engineClass.js` keep their rule: expose scalars, never assign
-  to `car.driftGrip` / `car.maxSpeed`. `MatterCar.step` already calls
-  `Rain.gripScale()` and `Rain.frictionBonus()` correctly.
-- `night.js` is the risky one. The dark and the light are **one** half-res
-  layer blitted once — an additive pass plus a veil measured 3x the whole day
-  frame. Re-implementing it over Phaser's renderer must preserve that, and must
-  be re-measured, not assumed.
-- `quality.js` owns `Quality.cap`; whatever replaces `resizeCanvas()` reads it.
-- `sound.js` still needs `Sound.unlock()` from a user gesture.
+### 6. rain / night / sound / quality — DONE
+All four legacy files load on `phaser.html` **completely unmodified** — same
+"port, don't rewrite" rule as `ai.js`. What changed is four small new files
+that give them the globals they read and the call sites that drive them.
+
+- `phaser/worldCamera.js` — `camera`/`viewZoom`/`viewWidth()`/`viewHeight()`/
+  `ctx`, standing in for game.js's own. `viewZoom` is pinned at 1 — there's no
+  free camera on this page — so `camera.x/y` (world scroll) and `camera.width/
+  height` (CSS px) are all `rain.js`/`night.js` need, and `RaceScene.update()`
+  keeps `camera.x/y` in step with `cameras.main.scrollX/Y` every frame.
+  `ctx = UI.ctx`: both files draw *over* the whole scene, which is exactly what
+  the overlay canvas already sits on top of.
+- `phaser/raceConditions.js` — the ported `scheduleWeather`/`scheduleNight`/
+  `applyWeatherForLap` (game.js:1155-1200), keyed off the same "free"/"race5"/
+  "race10" id PHASER_MODES already carries rather than a `gameMode` global
+  RaceLaps deliberately doesn't have. It also declares `hasStarted`/`isMenu`/
+  `gameMode`/`weatherWetFromLap`/`weatherWetToLap` as the same bare globals
+  game.js itself uses — `Rain.drawHUD()`'s pre-race forecast line reads all
+  five directly, unmodified, and `weatherWetFromLap`/`weatherWetToLap` **are**
+  `RaceConditions`'s own state (not copies kept in sync), so scheduling and the
+  HUD read the identical value with no per-frame sync code.
+- `phaser/renderScale.js` grew `MAX_DPR`/`currentMaxDpr()` (ports game.js's own
+  cap) and a global `resizeCanvas()` that re-runs `RenderScale.apply()` against
+  whichever scene last called it — the exact function name `quality.js`'s own
+  `Quality._commit()` calls, unmodified, to push a resolution change. `apply()`
+  also keeps `camera.width/height` current and calls `Night.resize()`, the same
+  job `resizeCanvas()` does in game.js.
+- `RaceScene` — `Night.buildLights()` after `worldTrack` is set; puddles
+  **before** the cars, night's veil/lamps and rain's tint/drops **after**, in
+  the same order game.js's own gameLoop draws them; `Quality.sample()`/
+  `Rain.update()`/`Night.update()` every frame; P/N as manual toggles, same
+  guard as game.js (never in a menu, always in a race); a lap-number watch that
+  calls `applyWeatherForLap()` the same two places game.js's `isPlayer` branch
+  of `updateLapCounter` does (the gate arming, and every completed lap);
+  `Sound.update()` fed the player's own state every frame, and a
+  `matter.world.on("collisionstart", …)` listener that calls `Sound.impact()`
+  for car-to-car pairs only (`pair.collision.depth`, the closest analog to
+  `resolveCollision()`'s own push-based force now that Matter resolves contacts
+  itself — see matterCar.js's header).
+- `phaser/soundHooks.js` — `Sound.load()` once, plus a page-wide `keydown`/
+  `mousedown` → `Sound.unlock()` and `M` → `Sound.toggleMute()`, matching
+  game.js's own window/canvas listeners. One set for the whole page rather than
+  one per scene, since MenuScene, RaceScene and RecordsScene all want the same
+  behaviour. The menu's own `M` row (`menuScreen.js`, stubbed since step 5) now
+  calls `Sound.toggleMute()` on click instead of logging "not yet ported".
+  `menuScene.js` also calls `Sound.update(0, 1, false, 0, false)` once on
+  entry, so leaving a race silences whatever engine/tire note it left playing.
+
+**Puddles are the one thing that doesn't go through `Rain.drawPuddles()`.**
+That function manually undoes the camera transform to draw in screen space,
+which is right for a single canvas but wrong here: the UI overlay canvas sits
+on top of *everything* Phaser draws, so anything painted there lands over the
+cars, not under them, the way the legacy loop draws puddles before its own car
+sprites. `RaceScene.drawPuddles()` instead draws `Rain.puddles` as a Phaser
+Graphics object at depth 1 (track is 0, cars are 2) — Phaser's own camera
+scroll/zoom applies for free, no manual transform needed, and the depth keeps
+a car legitimately driving over a puddle in front of it.
+
+**Two real bugs, not design questions, turned up under headless testing —
+both would have shipped invisibly because nothing exercised these paths before
+this step:**
+- `Rain.drawHUD()` throws (`hasStarted is not defined`) the instant rain or
+  night are on, because it reads three legacy globals (`hasStarted`/`isMenu`/
+  `gameMode`) this page never had. Worse than a visual bug: the throw happens
+  inside `RaceScene.update()`, which Phaser calls from inside its own render
+  step — an uncaught exception there kills the scene's `requestAnimationFrame`
+  chain outright, not just that frame. Headless caught it in 12 ticks; a
+  virtual-time-budget screenshot alone would have shown a plausible-looking
+  frame and missed it, because the *next* frame simply never happens and the
+  screenshot is of the last one that worked. Fixed by the `raceConditions.js`
+  globals above.
+- **The UI overlay canvas was never cleared.** Every other screen on it
+  (menu, records, results, credits) covers the full canvas with an opaque-ish
+  fill every frame, which incidentally erases the previous one — the race HUD
+  never did, because it was never meant to (it only owns its own widgets, and
+  the game underneath has to show through). That was fine while the only
+  things drawn there were small, self-covering widgets; the moment rain's
+  screen tint and night's veil joined them — full-viewport, semi-transparent,
+  drawn *every frame* — the frame would have compounded into black within
+  about a second, never fully clearing. `RaceScene.update()` now clears the
+  overlay once a frame before drawing on it, ahead of the tint/veil/drops.
+
+**Verified headlessly**, on `phaser.html?debug=1`-equivalent forced state
+(`RaceLaps.target` zeroed before `scene.start("race", …)`, since it defaults to
+5 and would otherwise roll real weather/night before a harness gets a say):
+- A day run (rain/night both explicitly off) and a rain+night run (both forced
+  on) each ran 311 update ticks with an empty `errors` array and sane
+  in-race numbers (grid, laps, standings) — the rain+night run additionally
+  reporting `puddles: 40` (the shipped quota) and `lights: 21` (this circuit's
+  floodlight count from `buildLights()`).
+- `RaceConditions` checked directly against a seeded `Math.random`: `race5`'s
+  50/50 wet roll and 30% night roll both land exactly on the documented
+  thresholds; `race10`'s wet window matches `1+floor(rand·6)` /
+  `4+floor(rand·3)` at both ends of the roll; `applyWeatherForLap` toggles rain
+  on exactly at `wetFromLap` and off exactly at `wetToLap`, holding wet
+  in between.
+- Screenshots at both dpr 1: a clean day frame (HUD, minimap, kerbs, no menu
+  bleed-through — an earlier harness bug called `SceneManager.start()`
+  directly instead of the scene's own `this.scene.start()`, which doesn't stop
+  the caller and left the menu drawing over the HUD every frame; fixed in the
+  harness, not the game) and a rain+night frame showing puddles, drops, the
+  floodlight pools cutting through the veil with correctly-tinted grass
+  underneath, headlight/taillight glow, and both HUD labels ("NIGHT RACE",
+  "WET TRACK").
+- `Sound`: a synthetic keydown unlocks a real (suspended, as headless always
+  leaves it) `AudioContext`; `Sound.update()`/`Sound.impact()` run without
+  throwing; `M` flips `Sound.muted` and persists it to `localStorage`.
+- `Quality`/`RenderScale`: forcing `Quality.cap` down and calling
+  `Quality._commit()` directly (the exact path a slow-frame verdict takes)
+  correctly drops `renderDpr` through the global `resizeCanvas()` and back up
+  again on release, with `camera.width` unchanged (CSS px, not device px) and
+  no exception — confirming `Night.resize()` survives a mid-race resolution
+  change. A dispatched `resize` event round-trips through `RenderScale.apply()`
+  + `Quality.viewportChanged()` the same way.
+
+**Frame cost, measured, not assumed** — the whole point of the risk flagged at
+the top of this step. `--virtual-time-budget` fakes `performance.now()` (see
+the headless-timing-harness memory), so this used real wall-clock time around
+the whole headless process instead: `Quality.auto = false` pinned to a fixed
+`renderDpr` (1, since the SwiftShader probe caps it there regardless), an
+identical boot-and-spawn sequence, then 360 trapped-`requestAnimationFrame`
+ticks either left alone or with rain/night forced to full intensity before the
+tick loop starts — same machine, same page, only the forced state differs, 3
+runs each (1280×800, `--disable-gpu`, software raster):
+
+| configuration | wall time (360 ticks) | delta vs day |
+|---|---|---|
+| day (dry, no night) | 9.22s | — |
+| rain only | 9.59s | +0.37s → **+1.03 ms/tick** |
+| night only | 10.80s | +1.58s → **+4.39 ms/tick** |
+| rain + night | 11.03s | +1.81s → **+5.03 ms/tick** |
+
+Run-to-run spread was under 0.1s per config (9.15-9.26s day, 10.78-10.82s
+night) — the deltas are well clear of noise. Night dominates, rain is cheap
+(matches [[canvas-cruiser-perf-baseline]]'s finding that drops/puddles/tint
+together are under 1ms on the legacy loop), and rain+night together is close
+to additive rather than compounding (5.03ms vs. 5.42ms summed separately) —
+there's no sign of the interaction cost that made the legacy loop's first,
+two-pass night build measure 3x the whole day frame. That build was
+`lighter`-composited light on top of a *separate* `destination-out` veil, two
+full-viewport passes; `night.js`'s actual code — reused verbatim here, not
+reimplemented — was already rebuilt as the one half-resolution layer
+[[night-one-layer]] describes, and this measurement is that same design
+surviving a renderer swap, not a new optimisation.
 
 ### 7. Re-tune the AI, then measure
 Only once the above is stable. Re-measure reference lap times against the

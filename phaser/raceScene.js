@@ -43,7 +43,12 @@ class RaceScene extends Phaser.Scene {
     // the menu still needs a HUD to draw onto.
     UI.init();
     UI.setInteractive(false); // the HUD has no buttons of its own until the flag
+    // rain.js/night.js draw through the bare `ctx` name (see
+    // phaser/worldCamera.js) — UI.ctx never changes reference once UI.init()
+    // has run once, so this only needs setting, not re-setting, on a restart.
+    ctx = UI.ctx;
     this.playerLastLapSeen = null;
+    this.playerLapsSeen = 0;
     this.finishOrder = null;
     this.isNewBestTotal = false;
 
@@ -64,6 +69,7 @@ class RaceScene extends Phaser.Scene {
     // The legacy page has the same one; the driver comes across untouched, so
     // the scene is what supplies it.
     window.worldTrack = this.world;
+    Night.buildLights(); // the pylons stand on this circuit's verges
 
     // "Race again"/menu->race->menu->race all reuse this scene's key, and
     // the texture manager is global — a second addCanvas("bake", ...) under
@@ -73,6 +79,15 @@ class RaceScene extends Phaser.Scene {
     if (this.textures.exists("bake")) this.textures.remove("bake");
     this.textures.addCanvas("bake", this.world.bakedCanvas);
     this.add.image(0, 0, "bake").setOrigin(0, 0).setDepth(0);
+
+    // World-space puddles, before cars — same ordering Rain.drawPuddles()
+    // gives them in the legacy loop. They can't go through that function
+    // here: the UI overlay canvas sits on top of *everything* Phaser draws,
+    // so anything painted there would land over the cars instead of under
+    // them. A Phaser Graphics object at a depth below the cars' own (2) gets
+    // Phaser's camera scroll/zoom for free instead of the manual transform
+    // Rain.drawPuddles() has to do for the legacy single-canvas loop.
+    this.puddleGfx = this.add.graphics().setDepth(1);
 
     const w = this.world.bakedCanvas.width;
     const h = this.world.bakedCanvas.height;
@@ -89,10 +104,20 @@ class RaceScene extends Phaser.Scene {
     // and this scene is now restarted ("race again") or re-started (from the
     // menu) rather than created exactly once per page load, so without the
     // shutdown cleanup below each return trip would stack another one.
-    this.resizeHandler = () => RenderScale.apply(this);
+    this.resizeHandler = () => {
+      RenderScale.apply(this);
+      // A resize is a step change in workload, not a slow frame — judging the
+      // new backing store on samples taken at the old one is how dragging a
+      // window bigger would drop the resolution permanently. Same call the
+      // legacy loop's own resize listener makes (game.js:917).
+      Quality.viewportChanged();
+    };
     window.addEventListener("resize", this.resizeHandler);
+    this.collisionHandler = (event) => this.onCollisionStart(event);
+    this.matter.world.on("collisionstart", this.collisionHandler);
     this.events.once("shutdown", () => {
       window.removeEventListener("resize", this.resizeHandler);
+      this.matter.world.off("collisionstart", this.collisionHandler);
       UI.clickHandlers = UI.clickHandlers.filter((h) => h !== this.resultsClickHandler);
     });
 
@@ -102,6 +127,10 @@ class RaceScene extends Phaser.Scene {
     this.grid = RaceGrid.build(this.world);
     this.cars = this.grid.map((slot, i) => this.spawnCar(slot, i));
     this.player = this.cars[0];
+    // So onCollisionStart() can tell a car-to-car hit (worth a thud) from a
+    // car meeting the map-bounds wall setBounds() above put up (not what
+    // Sound.impact() was ever tuned against).
+    this.carBodies = new Set(this.cars.map((c) => c.body));
 
     // The race, as the standings see it: six identical entries, the player's
     // marked only by a name and a flag. Built once — `RaceLaps.standings()`
@@ -121,6 +150,20 @@ class RaceScene extends Phaser.Scene {
     if (laps !== null) RaceLaps.target = Number(laps) || null;
     RaceLaps.reset(this.entries);
 
+    // Same "free"/"race5"/"race10" id PHASER_MODES carries, and the one
+    // finishRace() already derives from RaceLaps.target for the total-time
+    // record save — see game.js:1281's raceLapTarget() for the legacy twin.
+    this.modeId =
+      RaceLaps.target === 5 ? "race5" : RaceLaps.target === 10 ? "race10" : "free";
+
+    // Clear rain and put the lights back up before rolling the next race's
+    // conditions — a restart ("race again") must not carry the last race's
+    // weather into this one. Ported from resetRace() (game.js:1202-1214).
+    if (Rain.targetIntensity > 0) Rain.toggle();
+    Night.clear();
+    RaceConditions.scheduleWeather(this.modeId);
+    RaceConditions.scheduleNight(this.modeId);
+
     // The field, as the drivers see each other: AICar.aimPoint steers away
     // from everyone in this list, and the player is deliberately not in it —
     // exactly as game.js passes `opponents`. Built once; it is read every
@@ -132,7 +175,10 @@ class RaceScene extends Phaser.Scene {
 
     if (new URLSearchParams(location.search).has("debug")) this.drawGridDebug();
 
-    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,R,ESC");
+    // P/N are the legacy loop's manual weather/night toggles (game.js:888-896)
+    // — never active in its menu, but always live in a race, DEBUG or not,
+    // since this page has no DEBUG editor mode to reclaim them for.
+    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,R,ESC,P,N");
 
     // Registered up front rather than when the flag falls: UI.onClick only
     // ever sees clicks while UI.setInteractive(true), which finishRace()
@@ -266,6 +312,40 @@ class RaceScene extends Phaser.Scene {
     this.carTextureKeys.clear();
   }
 
+  // Rain.drawPuddles(), redone against Phaser's own scene graph instead of a
+  // manually camera-transformed 2D context — see this.puddleGfx's own comment
+  // in create() for why. Redrawn every frame rather than built once: the
+  // ripple ring animates (Rain.update() advances p.ripple), and the whole
+  // layer fades in/out with Rain.intensity.
+  drawPuddles() {
+    const g = this.puddleGfx;
+    g.clear();
+    if (Rain.intensity <= 0) return;
+    for (const p of Rain.puddles) {
+      g.fillStyle(0x6aaccc, p.alpha * Rain.intensity);
+      g.fillEllipse(p.x, p.y, p.rx * 2, p.ry * 2);
+
+      const rScale = 0.5 + 0.5 * Math.abs(Math.sin(p.ripple));
+      g.lineStyle(1, 0x96c8e6, 0.5 * Rain.intensity);
+      g.strokeEllipse(p.x, p.y, p.rx * 2 * rScale, p.ry * 2 * rScale);
+    }
+  }
+
+  // Sound.impact() was tuned against resolveCollision()'s own push-based
+  // overlap measure (game.js:1862) — Matter resolves contacts itself now (see
+  // matterCar.js's header), and pair.collision.depth, the penetration Matter
+  // measured at the moment it registered the contact, is the closest analog:
+  // both are a "how hard did these overlap" distance in world px. Filtered to
+  // car-vs-car — setBounds() above put a wall at the map edge, and grazing
+  // that was never what this sound was for.
+  onCollisionStart(event) {
+    for (const pair of event.pairs) {
+      if (!this.carBodies.has(pair.bodyA) || !this.carBodies.has(pair.bodyB))
+        continue;
+      Sound.impact(pair.collision.depth);
+    }
+  }
+
   // The track-authoring skill's debug overlay, in Phaser terms: the waypoint
   // ring, the gate band and the start line. It is the fastest way to see that a
   // grid faces the line and that the gate landed somewhere sane, which is the
@@ -350,9 +430,9 @@ class RaceScene extends Phaser.Scene {
       updateSteerVisual(c.entity, delta);
     }
 
-    // Night isn't ported yet (step 6), so this is always 0 for now — reading
-    // it fresh every frame, the same way CarSprites.draw() does in the
-    // legacy loop, is what makes the dim fold in for free once it is.
+    // Read fresh every frame, the same way CarSprites.draw() does in the
+    // legacy loop — that's what makes the livery dim fade in with the rest of
+    // night rather than snapping once at spawn.
     const dim = typeof Night === "undefined" ? 0 : Night.liveryDim();
     const wheelKey = this.wheelTexture(dim);
 
@@ -416,6 +496,45 @@ class RaceScene extends Phaser.Scene {
     }
     HudBanner.update(deltaMs);
 
+    // Weather is scheduled by lap the same way the legacy loop's isPlayer
+    // branch of updateLapCounter drives it (game.js:1580, 1618) — every
+    // player lap number the gate arms or completes is a chance for the
+    // forecast to change. The crossing that takes the flag also increments
+    // `laps` (to target+1), which the legacy branch never reaches because it
+    // returns first — mirrored here by not calling past target.
+    if (p.laps !== this.playerLapsSeen) {
+      this.playerLapsSeen = p.laps;
+      if (!(RaceLaps.target && p.laps > RaceLaps.target))
+        RaceConditions.applyWeatherForLap(this.modeId, p.laps);
+    }
+
+    // camera.x/y (phaser/worldCamera.js) is what rain.js/night.js place
+    // world-space things against — kept in step with the real camera every
+    // frame, the same way camera.x/y just *is* the legacy loop's scroll.
+    camera.x = this.cameras.main.scrollX;
+    camera.y = this.cameras.main.scrollY;
+
+    // hasStarted/gameMode (phaser/raceConditions.js) — Rain.drawHUD()'s own
+    // pre-race forecast line reads these two bare globals directly, same as
+    // it reads weatherWetFromLap/weatherWetToLap, which RaceConditions
+    // already writes straight to. isMenu stays false: there is no menu state
+    // to be in inside a race scene.
+    hasStarted = p.laps > 0;
+    gameMode = this.modeId;
+
+    Quality.sample(deltaMs); // raw interval, not the clamped/frame-unit `delta` above
+    Rain.update(delta);
+    Night.update(delta);
+    if (Phaser.Input.Keyboard.JustDown(this.keys.P)) Rain.toggle();
+    if (Phaser.Input.Keyboard.JustDown(this.keys.N)) Night.toggle();
+
+    const slip = Math.abs(
+      p.velocityX * Math.cos(p.angle) + p.velocityY * Math.sin(p.angle),
+    );
+    Sound.update(p.speed, p.maxSpeed, input.accel, slip, !this.finishOrder);
+
+    this.drawPuddles(); // Phaser's own scene graph — stays live through the results screen too
+
     if (this.finishOrder) {
       ResultsScreen.draw(this);
       // R/ESC only mean anything once the results screen is showing — there's
@@ -424,7 +543,24 @@ class RaceScene extends Phaser.Scene {
       if (Phaser.Input.Keyboard.JustDown(this.keys.R)) this.resultsActions().again();
       if (Phaser.Input.Keyboard.JustDown(this.keys.ESC)) this.resultsActions().menu();
     } else {
+      // UI.ctx is one persistent canvas, never cleared for us — HudScreen's
+      // own draws only ever repaint their own widgets, so without this the
+      // rain tint/night veil/drops below (all full-viewport, semi-transparent)
+      // would layer onto last frame's instead of replacing it.
+      UI.ctx.clearRect(0, 0, UI.width, UI.height);
+
+      // Cars this frame, in draw order — Night lights every one the same way,
+      // so this has to agree with the loop above that actually draws them or
+      // a car ends up lit with no body (see litCars(), game.js:1786).
+      const lit = Night.active ? this.cars.map((c) => c.entity) : [];
+      Rain.drawOverlay(); // scene tint — a full-viewport fill
+      Night.drawLightLayer(lit); // one half-res layer, blitted once — see night.js's header
+      Rain.drawDrops(); // over the tint and the veil, so streaks read as caught in the light
+      Night.drawLamps(lit); // pylon heads and tail lights, over the veil or it puts them out
+
       HudScreen.draw(this, standings, time);
+      Rain.drawHUD();
+      Night.drawHUD();
     }
 
     this.report.speed = p.speed.toFixed(2);
@@ -434,6 +570,11 @@ class RaceScene extends Phaser.Scene {
     this.report.onStartLine = RaceGrid.onStartLine(this.world, p);
     this.report.passedGate = p.passedGate;
     this.report.laps = p.laps;
+    this.report.rain = +Rain.intensity.toFixed(3);
+    this.report.night = +Night.intensity.toFixed(3);
+    this.report.puddles = Rain.puddles.length;
+    this.report.lights = Night.lights.length;
+    this.report.quality = Quality.status();
     this.report.standings = standings.map(
       (e) =>
         `${e.position}. ${e.name} L${e.laps} ${e.score === Infinity ? "FIN" : e.score.toFixed(3)}`,

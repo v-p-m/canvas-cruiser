@@ -2,9 +2,10 @@
 // drawStartButton / handleMenuClick (screens.js:94-374) onto the UI overlay
 // canvas (phaser/uiCanvas.js). The drawing is verbatim where the legacy
 // globals it read have a Phaser-side equivalent; where they don't yet (no
-// pause screen, no Sound, no DEBUG tools on this page) the row is either
-// dropped or left visible but wired to a "not yet ported" stub — see
-// PORTING.md step 5.
+// pause screen, no DEBUG tools on this page) the row is either dropped or
+// left visible but wired to a "not yet ported" stub — see PORTING.md step 5.
+// Sound landed in step 6: M mutes, by key (phaser/soundHooks.js, page-wide)
+// or by clicking this row.
 //
 // State lives on the caller (MenuScene), not in here, so this file stays the
 // same shape as screens.js: a draw function and a click handler that agree on
@@ -256,8 +257,10 @@ const MenuScreen = {
       case "credits":
         actions.openCredits();
         break;
-      case "keybindings":
       case "mute":
+        if (typeof Sound !== "undefined") Sound.toggleMute();
+        break;
+      case "keybindings":
         console.info(`[menu] ${hit.action} — not yet ported, see PORTING.md step 5`);
         break;
     }
