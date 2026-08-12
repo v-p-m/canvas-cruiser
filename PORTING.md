@@ -156,11 +156,47 @@ race alone cannot tell a working gate from a lucky one:
   The order frozen at the player's flag put the three cars still circulating in
   the order they went on to finish in.
 
-### 4. Cars that look like cars
-Swap the placeholder rectangles for `CarSprites`. It bakes to a canvas per
-livery in **device pixels**, so whatever replaces `resizeCanvas()`'s role must
-still call `CarSprites.invalidate()` when the render scale moves, and the cache
-key still has to include `Night.liveryDim()`.
+### 4. Cars that look like cars — DONE
+`phaser/renderScale.js` is the new file: it owns the render scale the way
+`resizeCanvas()` does for the legacy loop, because nothing did before this and
+`CarSprites` needs a `renderDpr` and an invalidation hook to bake against.
+Phaser's own canvas is not devicePixelRatio-aware — there is no working
+`resolution`-style config in this vendored build (the only game-wide knob that
+name suggests is a text-object style property, not the renderer) — so
+`RenderScale.apply()` oversizes the backing store by `renderDpr` and zooms
+every camera back down by the same factor, exactly mirroring the
+`ctx.setTransform(dpr,...)` trick the raw canvas plays. `raceScene.js` calls it
+once from `create()` (before any car is spawned) and again on every window
+resize; both times it calls `CarSprites.invalidate()` and a scene-local
+`invalidateCarTextures()`, because the Phaser `TextureManager` caches canvases
+under their own keys and doesn't know to throw them out just because
+`CarSprites`'s own cache did.
+
+Each car is a `Container` holding a body `Image` plus two wheel `Image`s, a
+direct port of `CarSprites.draw()`'s `ctx.translate`/`ctx.rotate` nesting onto
+Phaser's scene graph. `updateSteerVisual()` — carSprites.js's own function,
+unmodified — runs once a frame per car, same as the legacy loop, so the front
+wheels steer off the yaw the physics actually produced. The livery/dim texture
+key (`car:<color>@<dim>`) is re-resolved every frame the same way
+`CarSprites.draw()` re-reads `Night.liveryDim()` every frame in the legacy
+loop — cheap when the key hasn't changed, and it means night (step 6) will
+fold in for free.
+
+Verified headlessly: all six cars render with real sprites (not rectangles),
+correct per-car liveries, and steering wheels, at `devicePixelRatio` 1 and
+again forced to 2 — the backing store doubles (`2560x1426` against `1280x713`
+CSS), `cameraZoom` reads back `2`, and the car art is crisp at both, with no
+console errors either mode.
+
+**Harness gotcha, cost most of a session:** restoring the real `rAF` too close
+to the screenshot (500ms of real wall-clock time before an 8000ms
+`--virtual-time-budget` capture) reproducibly rendered only one car out of six
+— every entity, texture and scene-graph field was correct on inspection, only
+the compositor output was short. Headless compositing needs several genuine
+`rAF`-driven ticks to paint every sprite, not just the last one drawn; giving
+it 3000ms instead of 500ms fixed it outright. A screenshot that's missing
+objects the object model swears are there is a compositing-timing question
+before it's a rendering-logic one.
 
 ### 5. screens.js
 The big one — menu, HUD, minimap, records, results, credits, and the
@@ -199,6 +235,15 @@ working.
   callbacks and then stops — **Phaser's loop dies with it**. Trap `rAF` onto
   `setTimeout` and hand back to the real one shortly before the capture. Full
   recipe in the headless-testing skill.
+- "Shortly before" needs to mean **seconds**, not milliseconds. Restoring the
+  real `rAF` 500ms before an 8-second `--virtual-time-budget` capture
+  reproducibly rendered only one car out of six — every entity, texture and
+  scene-graph field checked out fine on inspection, the compositor output was
+  just short. Headless compositing wants several genuine `rAF` ticks to paint
+  everything, not the one that happens to land last. Give it 3000ms+. A
+  screenshot missing objects the object model swears are there is a
+  compositing-timing bug in the harness before it's a rendering bug in the
+  page.
 - Page `console.log` never reaches stderr here. Report through the DOM and
   `--dump-dom`.
 - `phaser.html` appends its `<script>`s from an inline loop, so **none of them

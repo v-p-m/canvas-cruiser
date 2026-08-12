@@ -45,6 +45,14 @@ class RaceScene extends Phaser.Scene {
     this.matter.world.setBounds(0, 0, w, h);
     this.cameras.main.setBounds(0, 0, w, h);
 
+    // Car sprites registered as Phaser textures this render scale — tracked
+    // so RenderScale.apply() can throw them out along with CarSprites' own
+    // cache when the scale moves. Must exist before RenderScale.apply(),
+    // which is why this comes before the spawns that call carTexture().
+    this.carTextureKeys = new Set();
+    RenderScale.apply(this);
+    window.addEventListener("resize", () => RenderScale.apply(this));
+
     // The real grid: pole first, the field staggered behind it, all of it
     // facing the start line. Index 0 is the player, exactly as SPAWN_POSITIONS
     // is ordered in game.js.
@@ -132,17 +140,71 @@ class RaceScene extends Phaser.Scene {
       CAR_H,
       slot.angle,
     );
-    const sprite = this.add.rectangle(
-      slot.x,
-      slot.y,
-      CAR_W,
-      CAR_H,
-      parseInt(slot.color.slice(1), 16),
-    );
-    sprite.setRotation(slot.angle);
-    sprite.setDepth(2);
 
-    return { entity, body, sprite };
+    // The car itself: a body Image plus its two front wheels, grouped in a
+    // Container so position/rotation only has to be set once a frame, on the
+    // container — a direct port of CarSprites.draw()'s ctx.translate/rotate
+    // nesting, just handed to Phaser's scene graph instead of the 2D context.
+    const dim = typeof Night === "undefined" ? 0 : Night.liveryDim();
+    const sprite = this.add
+      .container(slot.x, slot.y)
+      .setRotation(slot.angle)
+      .setDepth(2);
+
+    const bodyImg = this.add
+      .image(0, 0, this.carTexture(slot.color, dim))
+      .setDisplaySize(entity.width, entity.height);
+
+    const wheelKey = this.wheelTexture(dim);
+    const sx = entity.width / CAR_SPRITE_W;
+    const sy = entity.height / CAR_SPRITE_H;
+    const wheelImgs = FRONT_WHEELS.map((b) =>
+      this.add
+        .image(
+          (b.x + b.w / 2 - CAR_SPRITE_W / 2) * sx,
+          (b.y + b.h / 2 - CAR_SPRITE_H / 2) * sy,
+          wheelKey,
+        )
+        .setDisplaySize(b.w * sx, b.h * sy),
+    );
+
+    sprite.add([bodyImg, ...wheelImgs]);
+
+    return { entity, body, sprite, bodyImg, wheelImgs, color: slot.color };
+  }
+
+  // CarSprites bakes a plain canvas; Phaser needs that canvas registered as a
+  // texture before an Image can show it. Keyed the same way CarSprites caches
+  // internally (colour + dim), so a re-bake only touches the keys that
+  // actually changed and every other livery's texture is untouched. Tracked
+  // in carTextureKeys so RenderScale.apply() knows what to throw out.
+  carTexture(color, dim) {
+    const key = `car:${color}@${dim}`;
+    if (!this.textures.exists(key)) {
+      this.textures.addCanvas(key, CarSprites.get(color, dim));
+      this.carTextureKeys.add(key);
+    }
+    return key;
+  }
+
+  // One wheel texture serves every car, same as CarSprites.wheel() serves one
+  // baked canvas for the legacy loop's ctx.drawImage calls.
+  wheelTexture(dim) {
+    const key = `wheel@${dim}`;
+    if (!this.textures.exists(key)) {
+      this.textures.addCanvas(key, CarSprites.wheel(dim));
+      this.carTextureKeys.add(key);
+    }
+    return key;
+  }
+
+  // RenderScale calls this right after CarSprites.invalidate(): the baked
+  // canvases behind these keys are gone, but the Phaser textures still point
+  // at them by the same key string, so they have to go too — otherwise every
+  // car keeps showing the old render scale's sprite forever.
+  invalidateCarTextures() {
+    for (const key of this.carTextureKeys) this.textures.remove(key);
+    this.carTextureKeys.clear();
   }
 
   // The track-authoring skill's debug overlay, in Phaser terms: the waypoint
@@ -214,12 +276,20 @@ class RaceScene extends Phaser.Scene {
     // stats and the same Matter world.
     const me = this.player;
     MatterCar.step(me.body, me.entity, input, delta, this.world);
+    updateSteerVisual(me.entity, delta);
 
     const wps = this.world.data.waypoints;
     for (const c of this.aiCars) {
       const driving = c.entity.drive(wps, me.entity, this.opponents, delta);
       MatterCar.step(c.body, c.entity, driving, delta, this.world);
+      updateSteerVisual(c.entity, delta);
     }
+
+    // Night isn't ported yet (step 6), so this is always 0 for now — reading
+    // it fresh every frame, the same way CarSprites.draw() does in the
+    // legacy loop, is what makes the dim fold in for free once it is.
+    const dim = typeof Night === "undefined" ? 0 : Night.liveryDim();
+    const wheelKey = this.wheelTexture(dim);
 
     // Laps, for six cars, through one call — the gate included, since
     // RaceLaps.update() arms it. `time` is the loop's clock rather than
@@ -228,6 +298,17 @@ class RaceScene extends Phaser.Scene {
     for (const c of this.cars) {
       c.sprite.setPosition(c.body.position.x, c.body.position.y);
       c.sprite.setRotation(c.entity.angle);
+      c.bodyImg.setTexture(this.carTexture(c.color, dim));
+
+      // Front wheels only — the rest of the car doesn't steer, exactly as
+      // CarSprites.draw() only rotates the two wheel boxes it lifted out of
+      // the body bake.
+      const steer = (c.entity.steer || 0) * MAX_STEER_ANGLE;
+      for (const w of c.wheelImgs) {
+        w.setTexture(wheelKey);
+        w.setRotation(steer);
+      }
+
       RaceLaps.update(this.world, c.entity, time);
     }
 
