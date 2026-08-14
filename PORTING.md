@@ -522,18 +522,67 @@ reimplemented — was already rebuilt as the one half-resolution layer
 [[night-one-layer]] describes, and this measurement is that same design
 surviving a renderer swap, not a new optimisation.
 
-### 7. Re-tune the AI, then measure
-Only once the above is stable. Re-measure reference lap times against the
-recorded ones and re-tune. Bump `DebugConfig.aiVersion` (debugConfig.js:60) or
-anyone who has opened the panel keeps the old balance.
+### 7. Re-tune the AI, then measure — gap accepted, tuning deferred
+First measurement (2026-08-14): a legacy-vs-Phaser A/B, same seed, one
+deterministic AI car (`skill=1, wander=0, lineOffset=0`, `drive()`'s `player`
+argument nulled to kill catchup — see [[ai-wet-margin]]'s harness), Super
+Circuit, 100cc, dry, hand-stepped Matter (`scene.matter.world.autoUpdate =
+false` — **a plain boolean field on this Phaser 4 build, not the
+`setAutoUpdate()` method** [[matter-headless-determinism]] names; that memory
+needs correcting) plus `Matter.Engine.update()` on `postupdate`. Legacy:
+**10.06–10.16s**, mean 10.10s (matches the neighbourhood of every prior
+reference — the harness is trustworthy). Phaser, same everything: **9.79–
+9.84s**, mean 9.81s. **The port changed the physics — do not tune AI
+constants against this gap, it isn't a driver problem.**
 
-### 8. Records migration — open decision
-`highScores` and `bestTotalTimes` are keyed `trackId:classId`. Lap times are
-**not comparable** across a physics change. Either namespace the keys (so
-pre-0.14 records survive but are shown separately) or reset them. Not yet
-decided — needs a call before release. Whatever happens, track and class ids
-must stay colon-free, and `upgradeKey()`'s existing legacy paths must keep
-working.
+One real bug found and fixed: `MatterCar.step()` sampled off-road drag at a
+single centre point (`world.offRoad(body.position.x, body.position.y)`)
+instead of porting `wheelOffRoad()`'s 4-corner average (game.js:1659) — a car
+clipping the grass with one wheel while its centre stayed on tarmac paid
+nothing. Fixed by porting `wheelOffRoad()` verbatim into matterCar.js.
+**This did not close the gap** (still 9.82–9.87s after the fix, off-road
+frames still 0% against legacy's 1.6%) — worth keeping, but it wasn't the
+(main) explanation.
+
+Second hypothesis, checked and ruled out: the legacy harness's
+`opponents.length = 1` leaves the other five `AICar` objects with no physical
+presence at all — nothing in `opponents` means nothing collides against them.
+The Phaser equivalent only stopped *driving* the other five; their Matter
+bodies were still live, parked on the grid the test car passes every lap.
+Removed with `scene.matter.world.remove(body)` for true parity — no change to
+the measured gap.
+
+**Leading unconfirmed hypothesis: a one-frame position-read lag.** Legacy's
+`stepCarMotion` blends velocity and moves `entity.x/y` synchronously, in the
+same call, so the *next* frame's `ai.js` reads a position that already
+includes that motion. `MatterCar.step()` sets velocity via `Body.setVelocity`
+(position not yet moved) and writes `entity.x = body.position.x` from
+*before* this frame's motion; the advanced position only lands in
+`body.position` once the hand-stepped `Engine.update()` runs in `postupdate`,
+*after* `scene.update()` (and thus `ai.js`'s decision for this frame) has
+already run. `ai.js` is therefore always steering off a position one
+integration step older than what the legacy loop gives it. Not proven —
+confirming it means reordering `RaceScene.update()` so Matter steps before
+`ai.js` reads position, which is more invasive than a formula fix and hasn't
+been attempted yet.
+
+**Decided (2026-08-14): accept ~9.8s as the Phaser baseline, on purpose,
+without chasing the frame-lag hypothesis.** The gap is real and now measured
+three ways (raw, off-road-fix, parked-body-fix) without closing, so it's
+being treated as this port's physics baseline rather than a bug to keep
+hunting. Actually re-tuning the AI constants against that baseline is
+deferred to a later session — do not bump `aiVersion` or touch `ai.js`'s
+constants until that session happens. The frame-lag hypothesis is still on
+the table if a future session wants to chase it instead, but it's no longer
+blocking anything.
+
+### 8. Records migration — DONE, decided in step 5
+Confirmed: reset, not namespaced. This was already implemented ahead of
+schedule while step 5 built `phaser/records.js` — see "Records, results and
+credits — done" above for the reasoning and the headless verification.
+`RECORDS_PHYSICS_VERSION` in `records.js` wipes `highScores`/`bestTotalTimes`
+once per player on this page's first load and never again. Track and class
+ids stayed colon-free and `upgradeKey()`'s legacy paths are untouched.
 
 ## Harness gotchas
 
@@ -642,24 +691,19 @@ frame and report the numbers — do not assume it is fine.
 
 **Step 7 — re-tune the AI**
 ```
-Continue the 0.14.0 Phaser port on branch 0.14.0. Read PORTING.md, then do step 7:
-re-measure and re-tune the AI against the new physics. Use the balance A/B
-harness approach from my memory — seed Math.random or the comparison is noise.
-Compare measured lap times against the recorded reference times before re-tuning
-anything, and tell me whether the port changed the physics before you change any
-constants. Bump DebugConfig.aiVersion if the tuning changes meaning.
+Continue the 0.14.0 Phaser port on branch 0.14.0. Read PORTING.md, then finish step
+7: re-tune the AI against the Phaser physics baseline. The physics gap itself is
+already measured and DECIDED — accept ~9.8s (Super Circuit, 100cc, dry, one
+deterministic AI car) as the Phaser baseline, do not re-open the frame-lag
+hypothesis unless I ask for it. Use the balance A/B harness approach from my
+memory — seed Math.random or the comparison is noise. Tune ai.js's constants
+against the ~9.8s baseline (not the legacy 10.10s reference) and bump
+DebugConfig.aiVersion once the tuning changes meaning.
 ```
 
-**Step 8 — records migration**
-```
-Continue the 0.14.0 Phaser port on branch 0.14.0. Read PORTING.md, then do step 8:
-the records migration. highScores and bestTotalTimes are keyed trackId:classId
-and lap times are not comparable across the physics change. Lay out the options
-— namespace the keys so pre-0.14 records survive but display separately, versus
-reset — with the consequences of each, and recommend one. Don't implement until
-I choose. Track and class ids must stay colon-free and upgradeKey()'s existing
-legacy paths must keep working.
-```
+**Step 8 — records migration** — DONE, decided during step 5 (reset, not
+namespaced). See `phaser/records.js`'s `RECORDS_PHYSICS_VERSION`. No prompt
+needed.
 
 ## Housekeeping
 

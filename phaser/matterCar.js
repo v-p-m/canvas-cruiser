@@ -23,6 +23,30 @@ const MATTER_CAR = {
   RESTITUTION: 0.2, // arcade-ish nudge, not a billiard-ball bounce
 };
 
+// game.js:1656 — same insets, same four corners. Kept as a straight copy
+// rather than a shared import (there are no modules on this page) so a
+// change to one has to be a conscious change to both.
+const WHEEL_INSET_X = 0.36; // of half-width
+const WHEEL_INSET_Y = 0.34; // of half-height
+
+function wheelOffRoad(entity, world) {
+  const cos = Math.cos(entity.angle);
+  const sin = Math.sin(entity.angle);
+  const hw = (entity.width / 2) * WHEEL_INSET_X * 2;
+  const hh = (entity.height / 2) * WHEEL_INSET_Y * 2;
+
+  let sum = 0;
+  for (let i = 0; i < 4; i++) {
+    const lx = i & 1 ? hw : -hw;
+    const ly = i & 2 ? hh : -hh;
+    sum += world.offRoad(
+      entity.x + lx * cos - ly * sin,
+      entity.y + lx * sin + ly * cos,
+    );
+  }
+  return sum / 4;
+}
+
 const MatterCar = {
   // Matter's own damping would fight the `friction`/`OFFROAD_DRAG` terms below
   // and make the sliders lie, so the body is created inert and this file does
@@ -89,9 +113,14 @@ const MatterCar = {
     M.Body.setAngle(body, entity.angle);
 
     // --- off-road drag (stepCarMotion) ---
-    // Sampled from the same blurred road field the artwork is painted from, so
+    // The legacy loop's wheelOffRoad() (game.js:1659), verbatim — a single
+    // centre-point sample here measured 0% of frames over the wheel-clip
+    // threshold against the legacy loop's 1.6%, for the same AI line on the
+    // same circuit, and cost ~3% of a lap: a car clipping the grass with one
+    // wheel while its centre is still on tarmac paid nothing. Sampled from
+    // the same blurred road field the artwork is painted from either way, so
     // the physics still cannot disagree with what the player can see.
-    const offRoad = world ? world.offRoad(body.position.x, body.position.y) : 0;
+    const offRoad = world ? wheelOffRoad(entity, world) : 0;
     if (offRoad > 0)
       entity.speed *= Math.pow(1 - MatterCar.OFFROAD_DRAG * offRoad, delta);
 
