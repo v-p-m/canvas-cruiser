@@ -92,6 +92,12 @@ class RaceScene extends Phaser.Scene {
     // Rain.drawPuddles() has to do for the legacy single-canvas loop.
     this.puddleGfx = this.add.graphics().setDepth(1);
 
+    // Rubber on the road, under the puddles — see phaser/skidMarks.js. Built
+    // here rather than lazily, because it is sized from the circuit that has
+    // just been baked and a "race again" onto a different one must not inherit
+    // the last track's layer.
+    SkidMarks.init(this, this.world);
+
     // Wet spray, kicked up behind a car at speed — a rooster tail the legacy
     // canvas loop has no equivalent for (Rain.drawDrops()/drawPuddles() are
     // screen- and world-space respectively, but neither is per-car). Below
@@ -554,14 +560,25 @@ class RaceScene extends Phaser.Scene {
     if (!blocking) {
       MatterCar.step(me.body, me.entity, input, delta, this.world);
       updateSteerVisual(me.entity, delta);
+      // Marks are laid here, not in the sprite loop below, because this is
+      // where each car's four booleans exist: braking and wheelspin are things
+      // the driver is *doing*, and the opponents' inputs are gone by the time
+      // the frame gets to drawing them (see wheelLoad()).
+      SkidMarks.trail(me.entity, input);
 
       const wps = this.world.data.waypoints;
       for (const c of this.aiCars) {
         const driving = c.entity.drive(wps, me.entity, this.opponents, delta);
         MatterCar.step(c.body, c.entity, driving, delta, this.world);
         updateSteerVisual(c.entity, delta);
+        SkidMarks.trail(c.entity, driving);
       }
     }
+    // Outside the `blocking` gate, and before the results branch: this is one
+    // draw of the frame's quads, but it is also the rain's wash pass, and the
+    // marks have to keep fading whether or not anything is still driving over
+    // them.
+    SkidMarks.draw(deltaMs);
 
     // Read fresh every frame, the same way CarSprites.draw() does in the
     // legacy loop — that's what makes the livery dim fade in with the rest of

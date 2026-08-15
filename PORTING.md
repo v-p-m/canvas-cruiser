@@ -18,6 +18,11 @@ Committed on branch `0.14.0` (`0544629`):
   whole grid.
 - `phaser/raceLaps.js` — the lap counter and the standings, one call for all
   six cars.
+- `phaser/skidMarks.js` — the marks the tires leave, which the port had been
+  missing outright since step 1 (there is no `paintSkidMark` on this page).
+  A world-sized RenderTexture under the cars, not a re-blitted canvas; the
+  model is rewritten rather than ported, and dry rubber and wet
+  water-clearing are two different marks. Its header has the reasoning.
 
 Verified headlessly: the track renders, Matter carries the car, off-road drag
 pins full throttle to 2.3 against a ceiling of 10, and a rear-ended car gets
@@ -645,6 +650,31 @@ the old default held.
   page.
 - Page `console.log` never reaches stderr here. Report through the DOM and
   `--dump-dom`.
+- **Phaser re-arms its own `rAF` inside the callback that throws**, so the
+  known headless render throw (`Cannot read properties of null (reading
+  'resolution')`) kills the loop after a *single* frame — a harness that only
+  catches the throw gets 30 frames of race and no error to explain it. Take the
+  loop away from Phaser entirely instead: `window.requestAnimationFrame = () =>
+  0`, then `setInterval(() => phaserGame.loop.step(performance.now()), 16)` in a
+  `try/catch`. That runs thousands of frames, and swapping the timer for a
+  self-rescheduling **real**-`rAF` chain (still calling `loop.step` by hand) for
+  the last few seconds is what makes the page screenshot, which under the plain
+  trap it never did.
+- With that pump the Phaser page **does** screenshot headlessly — the whole
+  race, cars, HUD, rain and all. The "screenshots of this page are blocked"
+  note this file used to carry was the dead loop, not the renderer.
+- **A Phaser 4 `DynamicTexture` is a command buffer, not a canvas.** `draw()`,
+  `fill()` and `erase()` only *queue* commands; `render()` executes them; and
+  the RenderTexture game object's default `renderMode` ("render") blits the
+  texture without ever executing its buffer. Queue without `render()` and
+  nothing is ever drawn — no error, no warning, an empty layer and a buffer
+  that grows forever. Worse, a queued `DRAW` holds a **reference** to the
+  Graphics, so clearing that Graphics before `render()` executes the commands
+  against an emptied object. Order is: draw → `render()` → clear. What the
+  texture already holds is not in the buffer, so marks accumulate across
+  frames, which is what makes the skid layer possible at all. This cost most
+  of a session; it is the whole reason `phaser/skidMarks.js` drew nothing the
+  first time.
 - `phaser.html` appends its `<script>`s from an inline loop, so **none of them
   have run when an injected inline script parses** — a harness that touches
   `RaceScene` at the top level throws a ReferenceError, takes the rAF trap and
