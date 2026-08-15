@@ -8,8 +8,27 @@
             // the legacy loop, so both can be opened side by side.
             window.BUILD = "0.14.0-dev";
         </script>
+        <style>
+            /* This page does not load style.css — the legacy sheet pins the
+               one canvas to the viewport with position:fixed/100vw, which
+               would fight RenderScale.apply()'s explicit CSS size. These are
+               the three rules of it that still apply: a canvas left at its
+               default display:inline sits on a text baseline, and the few
+               pixels of descender space under it grow #game past the viewport
+               and put a scrollbar on the page. */
+            html,
+            body {
+                margin: 0;
+                height: 100%;
+                overflow: hidden;
+                background: #111;
+            }
+            canvas {
+                display: block;
+            }
+        </style>
     </head>
-    <body style="margin: 0; background: #111">
+    <body>
         <div id="game"></div>
 
         <script>
