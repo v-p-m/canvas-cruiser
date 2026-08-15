@@ -113,7 +113,14 @@ class RaceScene extends Phaser.Scene {
     const w = this.world.bakedCanvas.width;
     const h = this.world.bakedCanvas.height;
     this.matter.world.setBounds(0, 0, w, h);
-    this.cameras.main.setBounds(0, 0, w, h);
+    // No cameras.main.setBounds(): the legacy loop's own camera
+    // (game.js:2024-2025, `camera.x = car.x - camera.width / 2`) never clamps
+    // to the map rectangle, so the car stays dead-centre right up to the
+    // track's own edges. A Phaser bounds box the size of the baked canvas
+    // clamps scrollX/Y at the map's edge instead — on any corner within half
+    // a viewport of that rectangle (most of them, on a track that fills its
+    // canvas) the camera stops tracking and the car drifts off-centre. Only
+    // the physics wall above needs the map's real extent.
 
     // Car sprites registered as Phaser textures this render scale — tracked
     // so RenderScale.apply() can throw them out along with CarSprites' own
