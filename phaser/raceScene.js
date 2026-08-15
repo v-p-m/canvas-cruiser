@@ -18,6 +18,11 @@
 const CAR_W = 34; // world px
 const CAR_H = 56; // world px
 
+// The flag does not cut straight to the results: the car brakes itself to a
+// stop and the last lap's time gets its moment on the HUD first. Same 3s the
+// legacy loop holds (FINISH_HOLD_MS, game.js).
+const FINISH_HOLD_MS = 3000; // ms between taking the flag and the results
+
 class RaceScene extends Phaser.Scene {
   constructor() {
     super({ key: "race" });
@@ -50,6 +55,8 @@ class RaceScene extends Phaser.Scene {
     this.playerLastLapSeen = null;
     this.playerLapsSeen = 0;
     this.finishOrder = null;
+    this.pendingFinishOrder = null; // classified at the flag, shown after the hold
+    this.finishHoldTimer = 0; // ms left of the roll-out
     this.isNewBestTotal = false;
     // Armed lazily on the first update() — see there for why begin() can't
     // just be called here.
@@ -538,11 +545,10 @@ class RaceScene extends Phaser.Scene {
     // it every car is free to leave the grid before the lights go off.
     const blocking = StartLights.isBlocking();
 
-    // Past the flag the player is a passenger — same rollOut coast-down the
-    // legacy loop's finishHoldTimer window uses, just without the timer:
-    // there's no roll-out draw to hold it open for yet (see resultsScreen.js's
-    // header), so the results screen appears the instant `finished` does and
-    // this only matters to whatever a headless check reads off the entity.
+    // Past the flag the player is a passenger — the keys do nothing and the
+    // car brakes itself down through the finish hold below. The opponents are
+    // deliberately left racing: they are still on their own lap, and the
+    // table was already taken.
     const finished = this.player.entity.finished;
     const input = {
       accel: !blocking && !finished && PlayerInput.isDown("accelerate"),
@@ -611,13 +617,14 @@ class RaceScene extends Phaser.Scene {
     }
 
     // The order is frozen the moment the player takes the flag, not when the
-    // last car does — everyone still out there is classified where they stand.
-    // This is also the one-time transition into the results screen: the
-    // instant finishOrder exists is the instant the HUD stops drawing and the
-    // overlay starts taking clicks for "race again"/"main menu".
+    // last car does — everyone still out there is classified where they stand,
+    // and nothing in the table can drift while the roll-out plays out. An
+    // opponent gaining a place after the player is done would read as the
+    // results reordering themselves.
     const p = this.player.entity;
-    if (!this.finishOrder && p.finished) {
-      this.finishOrder = RaceLaps.classify(this.world, this.entries);
+    if (!this.finishOrder && !this.pendingFinishOrder && p.finished) {
+      this.pendingFinishOrder = RaceLaps.classify(this.world, this.entries);
+      this.finishHoldTimer = FINISH_HOLD_MS;
       const modeId = RaceLaps.target === 5 ? "race5" : RaceLaps.target === 10 ? "race10" : null;
       if (modeId)
         this.isNewBestTotal = Records.saveTotalTime(
@@ -626,7 +633,21 @@ class RaceScene extends Phaser.Scene {
           modeId,
           p.finishTime,
         );
-      UI.setInteractive(true);
+    }
+
+    // The transition into the results screen, once the hold runs out: the
+    // instant finishOrder exists is the instant the HUD stops drawing and the
+    // overlay starts taking clicks for "race again"/"main menu" — so the
+    // clicks are armed here, not at the flag, or the invisible buttons would
+    // be live over the coast-down.
+    if (this.pendingFinishOrder) {
+      this.finishHoldTimer -= deltaMs;
+      if (this.finishHoldTimer <= 0) {
+        this.finishHoldTimer = 0;
+        this.finishOrder = this.pendingFinishOrder;
+        this.pendingFinishOrder = null;
+        UI.setInteractive(true);
+      }
     }
 
     // Computed once and shared: the HUD's position readout and the debug
@@ -662,10 +683,13 @@ class RaceScene extends Phaser.Scene {
     }
 
     // camera.x/y (phaser/worldCamera.js) is what rain.js/night.js place
-    // world-space things against — kept in step with the real camera every
-    // frame, the same way camera.x/y just *is* the legacy loop's scroll.
-    camera.x = this.cameras.main.scrollX;
-    camera.y = this.cameras.main.scrollY;
+    // world-space things against: the world coordinate at the top-left of the
+    // viewport. That is `worldView`, *not* `scrollX/Y` — Phaser zooms about
+    // the camera's midpoint, so with RenderScale's setZoom(renderDpr) the two
+    // differ by (cam.width/2)(1 - 1/zoom), a third of a screen on a retina
+    // display, and every floodlight and headlight beam lands that far off.
+    camera.x = this.cameras.main.worldView.x;
+    camera.y = this.cameras.main.worldView.y;
 
     // hasStarted/gameMode (phaser/raceConditions.js) — Rain.drawHUD()'s own
     // pre-race forecast line reads these two bare globals directly, same as

@@ -4,11 +4,9 @@
 // the way there's none for the in-race HUD, because it's an overlay on a race
 // that's still there underneath, not a screen you navigate to.
 //
-// Skips the legacy screen's roll-out hold (finishHoldTimer): that exists to
-// delay this screen behind a few seconds of the car coasting past the flag,
-// and the coast itself is real (RaceScene switches the player to
-// `rollOut: true` the instant it finishes) but nothing currently draws during
-// that hold, so results simply appear the same frame the flag does.
+// The legacy screen's roll-out hold is kept: RaceScene classifies the field at
+// the flag but sits on the table for FINISH_HOLD_MS while the car coasts to a
+// stop under the HUD, and only then does `scene.finishOrder` exist.
 const ResultsScreen = {
   hitAreas: [],
 

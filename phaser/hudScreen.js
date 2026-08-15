@@ -12,13 +12,13 @@
 // that is allowed to treat the player as special, because a HUD showing one
 // car's numbers is what a HUD *is*.
 //
-// Not carried over yet, and each is a separate later step, not an oversight:
-// - The gold "beat the record" treatment on LAP_BEST and the LAST readout —
-//   there is no loaded highScores table on this page until step 8 decides
-//   how records survive the physics change.
-// - The roll-out hold between the flag and the results screen
-//   (finishHoldTimer) — it exists to delay a results screen that isn't
-//   ported yet, so TOTAL simply appears the instant the player finishes.
+// Not carried over yet, and a separate later step, not an oversight: the gold
+// "beat the record" treatment on LAP_BEST and the LAST readout — there is no
+// loaded highScores table on this page until step 8 decides how records
+// survive the physics change. TOTAL does appear the instant the player
+// finishes, and the HUD keeps drawing through RaceScene's finish hold, which
+// is the point of the hold — the last lap and the total get their moment
+// before the results cover them.
 const HUD_GAP = 20; // px between readouts in the top bar, same as screens.js
 
 function formatTime(seconds) {
@@ -174,14 +174,18 @@ const HudScreen = {
     ctx.drawImage(src, x, y, w, h);
     ctx.globalAlpha = 1;
 
-    const cam = scene.cameras.main;
+    // worldView, not scrollX/Y + width/height: those are the camera's scroll
+    // before its zoom and its size in *backing-store* pixels, so under
+    // RenderScale's setZoom(renderDpr) the box would sit off-centre and be
+    // renderDpr times too big. worldView is the span actually on screen.
+    const view = scene.cameras.main.worldView;
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
     ctx.lineWidth = 1;
     ctx.strokeRect(
-      x + cam.scrollX * scale,
-      y + cam.scrollY * scale,
-      cam.width * scale,
-      cam.height * scale,
+      x + view.x * scale,
+      y + view.y * scale,
+      view.width * scale,
+      view.height * scale,
     );
 
     const dot = (wx, wy, color, r) => {
