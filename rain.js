@@ -8,6 +8,8 @@
 // Sizes come from `camera`, not `canvas`: on a HiDPI display the canvas
 // backing store is bigger than the drawing surface by devicePixelRatio.
 // ─────────────────────────────────────────
+const DROP_MARGIN = 40; // world px a drop may sit outside the view before recycling
+
 const Rain = {
   active: false,
   intensity: 0, // 0→1, lerps toward targetIntensity
@@ -98,18 +100,27 @@ const Rain = {
     }
   },
 
-  _spawnDrop() {
+  // World-space, like the puddles — a drop pinned to the viewport is towed
+  // along by the camera, so the shower never passes the car and the splash it
+  // leaves slides across the road instead of marking the spot it hit. The pool
+  // is still only ever viewport-sized: a drop is recycled the moment it lands
+  // or the camera drives out from under it, and respawns over the view again.
+  _spawnDrop(above) {
+    const w = viewWidth();
+    const h = viewHeight();
+    const y = camera.y + (above ? -20 : Math.random() * h);
+    // Where this drop lands and splashes — spread across the depth of the
+    // view, or every splash would queue up in one line at the bottom instead
+    // of reading as rain hitting the road across the whole screen.
+    let landY = camera.y + h * (0.3 + Math.random() * 0.7);
+    if (landY <= y) landY = y + Math.random() * h * 0.3;
     return {
-      // screen-space — reposition each frame so they always fill viewport
-      x: Math.random() * camera.width,
-      y: Math.random() * camera.height,
+      x: camera.x + Math.random() * w,
+      y,
       len: 8 + Math.random() * 10,
       speed: 14 + Math.random() * 10,
       alpha: 0.25 + Math.random() * 0.35,
-      // Where this drop lands and splashes — not the bottom of the viewport,
-      // or every splash would queue up in one line there instead of reading
-      // as rain hitting the road across the whole screen.
-      landY: camera.height * (0.3 + Math.random() * 0.7),
+      landY,
     };
   },
 
@@ -132,17 +143,25 @@ const Rain = {
     while (this.drops.length < desiredDrops) this.drops.push(this._spawnDrop());
     while (this.drops.length > desiredDrops) this.drops.pop();
 
-    // Move drops
-    this.drops.forEach((d) => {
+    // Move drops. The bounds are the world rect the camera is looking at, so a
+    // drop the car has driven past is retired and respawned ahead rather than
+    // dragged along — that dragging is what made the rain look pinned to the
+    // windscreen.
+    const left = camera.x - DROP_MARGIN;
+    const right = camera.x + viewWidth() + DROP_MARGIN;
+    const top = camera.y - viewHeight(); // drops spawn above the view
+    const bottom = camera.y + viewHeight() + DROP_MARGIN;
+    for (let i = 0; i < this.drops.length; i++) {
+      const d = this.drops[i];
       d.y += d.speed * delta;
       d.x += 2 * delta; // slight angle
       if (d.y >= d.landY) {
         this.splashes.push({ x: d.x, y: d.landY, age: 0 });
-        d.y = -20;
-        d.x = Math.random() * camera.width;
-        d.landY = camera.height * (0.3 + Math.random() * 0.7);
+        this.drops[i] = this._spawnDrop(true);
+      } else if (d.x < left || d.x > right || d.y < top || d.y > bottom) {
+        this.drops[i] = this._spawnDrop(true);
       }
-    });
+    }
 
     // Age out splashes. Bounded by drop count and fall speed, not a cap of
     // its own — at MAX_DROPS a handful are ever alive at once.
@@ -236,19 +255,25 @@ const Rain = {
     ctx.save();
     ctx.strokeStyle = `rgba(174, 214, 241, ${0.55 * this.intensity})`;
     ctx.lineWidth = 1;
+    // Drawn outside the world transform (game.js does the zoom scale itself
+    // around the track and the cars), so the camera offset is applied here.
     this.drops.forEach((d) => {
+      const sx = (d.x - camera.x) * viewZoom;
+      const sy = (d.y - camera.y) * viewZoom;
       ctx.globalAlpha = d.alpha * this.intensity;
       ctx.beginPath();
-      ctx.moveTo(d.x, d.y);
-      ctx.lineTo(d.x + 2, d.y + d.len);
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + 2 * viewZoom, sy + d.len * viewZoom);
       ctx.stroke();
     });
     ctx.restore();
   },
 
-  // Screen-space, same as the drops that spawn them — a flattened ellipse so
-  // it reads as a ring on the ground plane rather than a circle floating in
-  // front of the camera, same trick drawPuddles() uses for its ripple.
+  // World-space, same as the drops that spawn them — the ring marks the patch
+  // of road the drop hit and stays on it while the car drives past. A
+  // flattened ellipse so it reads as lying on the ground plane rather than a
+  // circle floating in front of the camera, the same trick drawPuddles() uses
+  // for its ripple.
   drawSplashes() {
     if (this.intensity <= 0 || this.splashes.length === 0) return;
     ctx.save();
@@ -257,9 +282,17 @@ const Rain = {
     this.splashes.forEach((s) => {
       const t = s.age / this.SPLASH_LIFE;
       ctx.globalAlpha = (1 - t) * 0.5 * this.intensity;
-      const r = 2 + t * 5;
+      const r = (2 + t * 5) * viewZoom;
       ctx.beginPath();
-      ctx.ellipse(s.x, s.y, r, r * 0.4, 0, 0, Math.PI * 2);
+      ctx.ellipse(
+        (s.x - camera.x) * viewZoom,
+        (s.y - camera.y) * viewZoom,
+        r,
+        r * 0.4,
+        0,
+        0,
+        Math.PI * 2,
+      );
       ctx.stroke();
     });
     ctx.restore();
