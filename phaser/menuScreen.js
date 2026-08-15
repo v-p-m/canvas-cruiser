@@ -108,7 +108,16 @@ const MenuScreen = {
 
   draw(state) {
     const ctx = UI.ctx;
-    ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+    // A scrim, not a blackout. At the legacy 0.8 the backdrop was a bake of a
+    // mostly-dark circuit under near-opaque black and the menu read as sitting
+    // on nothing; MenuScene now drifts a lit, rained-on track behind it, which
+    // is worth seeing. Everything on top is either gold or in its own panel,
+    // so this only has to knock the tarmac back, not hide it.
+    // It eases off after dark, where night.js's own veil (DARKNESS 0.88) has
+    // already done the job twice over and the two stacked put the floodlights
+    // out.
+    const dark = typeof Night === "undefined" ? 0 : Night.intensity;
+    ctx.fillStyle = `rgba(0, 0, 0, ${0.5 - 0.22 * dark})`;
     ctx.fillRect(0, 0, UI.width, UI.height);
 
     ctx.textBaseline = "alphabetic";

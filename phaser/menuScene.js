@@ -6,11 +6,25 @@
 // and I hand off to RecordsScene and the credits modal respectively.
 //
 // The track behind the dim overlay is a real bake of the selected circuit —
-// same Track class, same tracks/*.json — but static: no spawn grid, no cars,
-// no Matter world. It exists so cycling TRACK shows the circuit you're
-// choosing, the way the legacy menu sits over its own (paused) race; wiring
-// an actual idle grid in behind the menu is more machinery than a backdrop
-// needs.
+// same Track class, same tracks/*.json — but with no grid, no cars and no
+// Matter world. It exists so cycling TRACK shows the circuit you're choosing,
+// the way the legacy menu sits over its own (paused) race; wiring an actual
+// idle grid in behind the menu is more machinery than a backdrop needs.
+//
+// It is shown at 1:1 and drifted along the waypoint ring rather than shrunk to
+// fit the window. Both choices are the weather's: rain.js and night.js measure
+// drops, puddles and floodlight pools in world px against a viewZoom of 1
+// (phaser/worldCamera.js), so under a cover-fit bake — the whole circuit at
+// about a third scale — the rain would have fallen as a grey haze and every
+// light pool would have swallowed half the track. At 1:1 they land exactly as
+// they do in a race, which is the point: the menu shows the weather the game
+// actually has.
+const MENU_PAN_SPEED = 1.2; // world px per 60fps frame the backdrop drifts along the ring
+// Rolled per visit, independent of each other and of the race's own roll
+// (phaser/raceConditions.js) — this is scenery, not a forecast.
+const MENU_NIGHT_CHANCE = 0.45;
+const MENU_RAIN_CHANCE = 0.4;
+
 class MenuScene extends Phaser.Scene {
   constructor() {
     super({ key: "menu" });
@@ -47,10 +61,22 @@ class MenuScene extends Phaser.Scene {
 
     UI.init(); // one overlay canvas for the page's whole life
     UI.setInteractive(true);
+    // rain.js/night.js draw through the bare `ctx` name — see
+    // phaser/worldCamera.js. RaceScene sets the same one; whichever scene runs
+    // first, it is the same never-replaced UI.ctx.
+    ctx = UI.ctx;
+    // The backdrop is world-space now, so the menu needs the render scale a
+    // race gets: camera zoom renderDpr, camera.width/height in CSS px, and the
+    // night veil sized to the viewport. Only RaceScene used to call this, so
+    // the menu's own canvas stayed whatever size the window was when the page
+    // loaded — a resize on the menu moved nothing but the overlay.
+    RenderScale.apply(this);
 
-    this.bg = this.add.image(0, 0, "__DEFAULT").setDepth(0).setAlpha(0.9);
+    this.panDist = 0; // world px travelled along the ring by the backdrop camera
+    this.bg = this.add.image(0, 0, "__DEFAULT").setOrigin(0, 0).setDepth(0);
     this.preview = new Track(null);
     await this.applySelectedTrack();
+    this.rollConditions();
     await loadCredits(); // never throws; keeps the built-in fallback on failure
     CreditsScreen.reset();
 
@@ -80,7 +106,7 @@ class MenuScene extends Phaser.Scene {
     // MenuScene is re-created every time RecordsScene/ResultsScreen hand back
     // to "menu", so without the shutdown cleanup below each return trip would
     // stack another one.
-    this.resizeHandler = () => this.fitBackground();
+    this.resizeHandler = () => RenderScale.apply(this);
     this.scale.on("resize", this.resizeHandler);
     this.events.once("shutdown", () => {
       this.scale.off("resize", this.resizeHandler);
@@ -157,21 +183,91 @@ class MenuScene extends Phaser.Scene {
     if (this.textures.exists("menuBake")) this.textures.remove("menuBake");
     this.textures.addCanvas("menuBake", this.preview.bakedCanvas);
     this.bg.setTexture("menuBake");
-    this.fitBackground();
+    this.bg.setDisplaySize(this.preview.bakedCanvas.width, this.preview.bakedCanvas.height);
+
+    // night.js's pylon walk and rain.js's puddle scatter both read the circuit
+    // off this global (the same one RaceScene supplies), so the weather has to
+    // be re-placed onto whichever track is now baked — otherwise cycling TRACK
+    // leaves the last circuit's floodlights standing in this one's grass.
+    window.worldTrack = this.preview;
+    Night.buildLights();
+    if (Rain.targetIntensity > 0) Rain._spawnPuddles();
+
+    this.panDist = 0;
+    this.buildPanPath();
   }
 
-  // Cover-fit: scaled to fill the viewport without distorting the track's
-  // aspect ratio, centered. Purely decorative, so exactness doesn't matter —
-  // legibility of the dimmed backdrop does.
-  fitBackground() {
-    const tex = this.textures.get("menuBake");
-    if (!tex || tex.key === "__MISSING") return;
-    const src = tex.getSourceImage();
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    const scale = Math.max(w / src.width, h / src.height);
-    this.bg.setPosition(w / 2, h / 2);
-    this.bg.setDisplaySize(src.width * scale, src.height * scale);
+  // The ring the backdrop camera drifts along, as segment lengths — the same
+  // waypoint polygon the AI drives, walked at a crawl. Cached per bake because
+  // it only changes when the circuit does.
+  buildPanPath() {
+    const wps = (this.preview.data && this.preview.data.waypoints) || [];
+    this.panWps = wps.length >= 2 ? wps : null;
+    this.panTotal = 0;
+    if (!this.panWps) return;
+    for (let i = 0; i < wps.length; i++) {
+      const b = wps[(i + 1) % wps.length];
+      this.panTotal += Math.hypot(b.x - wps[i].x, b.y - wps[i].y);
+    }
+  }
+
+  // Where on the ring the backdrop is looking, clamped so the pan never walks
+  // the viewport off the baked canvas into the scene's own black. A circuit
+  // narrower than the window is simply centred on that axis.
+  panTarget() {
+    const data = this.preview.data;
+    if (!data) return null;
+    const worldW = data.map[0].length * data.tileSize;
+    const worldH = data.map.length * data.tileSize;
+
+    let px = worldW / 2;
+    let py = worldH / 2;
+    if (this.panWps && this.panTotal > 0) {
+      let d = this.panDist % this.panTotal;
+      for (let i = 0; i < this.panWps.length; i++) {
+        const a = this.panWps[i];
+        const b = this.panWps[(i + 1) % this.panWps.length];
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        if (d < len) {
+          const t = len > 0 ? d / len : 0;
+          px = a.x + (b.x - a.x) * t;
+          py = a.y + (b.y - a.y) * t;
+          break;
+        }
+        d -= len;
+      }
+    }
+
+    const halfW = camera.width / 2;
+    const halfH = camera.height / 2;
+    return {
+      x: worldW > camera.width ? Phaser.Math.Clamp(px, halfW, worldW - halfW) : worldW / 2,
+      y: worldH > camera.height ? Phaser.Math.Clamp(py, halfH, worldH - halfH) : worldH / 2,
+    };
+  }
+
+  updateBackdrop(delta) {
+    this.panDist += MENU_PAN_SPEED * delta;
+    const at = this.panTarget();
+    if (at) this.cameras.main.centerOn(at.x, at.y);
+
+    // worldView, not scrollX/Y, and after preRender() — the same two traps
+    // RaceScene.update() documents at length: Phaser zooms about the camera's
+    // midpoint, and a scroll set this frame is not resolved into worldView
+    // until the camera renders.
+    this.cameras.main.preRender();
+    camera.x = this.cameras.main.worldView.x;
+    camera.y = this.cameras.main.worldView.y;
+  }
+
+  // Menu weather. Cleared first, because Rain.toggle() is a toggle and this
+  // scene is re-created on every trip back from the records screen or the
+  // flag — rolling on top of what the last race left running would invert it.
+  rollConditions() {
+    if (Rain.targetIntensity > 0) Rain.toggle();
+    Night.clear();
+    if (Math.random() < MENU_NIGHT_CHANCE) Night.toggle();
+    if (Math.random() < MENU_RAIN_CHANCE) Rain.toggle();
   }
 
   startRace() {
@@ -246,8 +342,30 @@ class MenuScene extends Phaser.Scene {
     }
   }
 
-  update() {
+  update(time, deltaMs) {
     if (!this.ready) return;
+
+    // Frame units, same conversion RaceScene.update() makes — every constant
+    // in rain.js and night.js is per 60fps frame.
+    const delta = Math.min(deltaMs / (1000 / 60), 3);
+    Rain.update(delta);
+    Night.update(delta);
+    this.updateBackdrop(delta);
+
+    // One transparent overlay canvas, never cleared for us. A race can get
+    // away without this (HudScreen clears it); here the scrim MenuScreen.draw()
+    // lays down is translucent enough to see the weather through, so an
+    // uncleared canvas would stack five seconds of rain into a solid sheet.
+    UI.ctx.clearRect(0, 0, UI.width, UI.height);
+    // Same order RaceScene draws them in, minus the cars: puddles on the road,
+    // the wet tint over the scene, the night layer, then the drops and the
+    // pylon heads over both so streaks read as caught in the light.
+    Rain.drawPuddles();
+    Rain.drawOverlay();
+    Night.drawLightLayer([]);
+    Rain.drawDrops();
+    Rain.drawSplashes();
+    Night.drawLamps([]);
 
     if (this.state.keybinds) {
       // Keys here are the window listener's (handleRebindKey) — a rebind takes
