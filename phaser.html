@@ -36,6 +36,12 @@
                 // The real car art. Bakes to a canvas per livery — see
                 // phaser/renderScale.js for who tells it when to re-bake.
                 "carSprites.js",
+                // Remappable controls, straight out of the legacy game and
+                // unmodified: keyBindings.js owns the store and the rebind
+                // screen's own drawing, phaser/playerInput.js is what turns a
+                // binding into the four booleans RaceScene feeds MatterCar.
+                "keyBindings.js",
+                "phaser/playerInput.js",
                 "phaser/carStats.js",
                 "phaser/matterCar.js",
                 "phaser/raceGrid.js",
@@ -80,6 +86,11 @@
             }
 
             window.addEventListener("load", () => {
+                // Page-level, exactly where init() does it in the legacy loop
+                // (game.js:2177): both scenes read the bindings, and neither
+                // owns them.
+                KeyBindings.load();
+
                 window.phaserGame = new Phaser.Game({
                     type: Phaser.AUTO,
                     parent: "game",

@@ -42,6 +42,7 @@ class MenuScene extends Phaser.Scene {
       trackLoading: false,
       debug: false,
       credits: false, // a modal over this screen, not a screen of its own
+      keybinds: false, // ditto — the legacy loop's isKeyBindings, an overlay
     };
     this.loadedTrack = -1;
 
@@ -54,7 +55,16 @@ class MenuScene extends Phaser.Scene {
     await loadCredits(); // never throws; keeps the built-in fallback on failure
     CreditsScreen.reset();
 
-    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,ENTER,Q,I,ESC");
+    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,ENTER,Q,I,K,ESC");
+    PlayerInput.init(); // so the rebind screen's own keys can't stick down
+
+    // The rebind screen has to see the raw `e.key` of whatever was pressed —
+    // that string *is* the binding — which Phaser's KeyCodes enum can't give
+    // us, so this one screen listens to the DOM directly. It runs on keydown,
+    // ahead of update(), and swallows the press by clearing the Phaser key
+    // states it would otherwise reach; see keydownHandler.
+    this.keydownHandler = (e) => this.handleRebindKey(e);
+    window.addEventListener("keydown", this.keydownHandler);
 
     this.clickHandler = (x, y) => this.handleClick(x, y);
     UI.onClick(this.clickHandler);
@@ -75,6 +85,7 @@ class MenuScene extends Phaser.Scene {
     this.scale.on("resize", this.resizeHandler);
     this.events.once("shutdown", () => {
       this.scale.off("resize", this.resizeHandler);
+      window.removeEventListener("keydown", this.keydownHandler);
       UI.canvas.removeEventListener("wheel", this.wheelHandler);
       UI.clickHandlers = UI.clickHandlers.filter((h) => h !== this.clickHandler);
     });
@@ -100,6 +111,7 @@ class MenuScene extends Phaser.Scene {
       start: () => this.startRace(),
       openRecords: () => this.openRecords(),
       openCredits: () => this.openCredits(),
+      openKeyBindings: () => this.openKeyBindings(),
     };
   }
 
@@ -186,17 +198,62 @@ class MenuScene extends Phaser.Scene {
     this.state.credits = false;
   }
 
-  // While credits is open it owns clicks — everything under it (the click-away
-  // dismissal included) goes through CreditsScreen, not the menu rows.
+  openKeyBindings() {
+    if (this.state.credits) return;
+    this.state.keybinds = true;
+    KeyBindings.listening = null;
+    KeyBindings.lastRejected = null;
+    // The K that opened this is still "just down" as far as Phaser is
+    // concerned, and nothing reads its keys while the screen is up — so
+    // without a reset here and on the way out, every press made *inside* the
+    // screen would fire its menu meaning in the first frame after closing.
+    this.input.keyboard.resetKeys();
+  }
+
+  closeKeyBindings() {
+    this.state.keybinds = false;
+    KeyBindings.listening = null;
+    this.input.keyboard.resetKeys();
+  }
+
+  // The DOM-level half of the rebind screen — ported from game.js:818-838. It
+  // only ever runs while the screen is open; handleRebind() is what consumes a
+  // press as the new binding, and everything below it is the screen's own
+  // fixed keys.
+  handleRebindKey(e) {
+    if (!this.ready || !this.state.keybinds) return;
+
+    if (KeyBindings.handleRebind(e.key)) return; // consumed as a binding
+    const key = e.key.toLowerCase();
+    if (key === "escape") this.closeKeyBindings();
+    else if (key === "r") KeyBindings.reset();
+    else if (key === "enter") {
+      // ENTER walks the rows, so the screen is usable without a mouse
+      const actions = ["accelerate", "brake", "left", "right"];
+      const cur = actions.indexOf(KeyBindings.listening);
+      KeyBindings.startListening(actions[(cur + 1) % actions.length]);
+    }
+  }
+
+  // Whichever overlay is on top owns clicks — everything under it (the
+  // click-away dismissal included) goes through that screen, not the menu rows.
   handleClick(x, y) {
-    if (this.state.credits) CreditsScreen.handleClick(() => this.closeCredits(), x, y);
-    else MenuScreen.handleClick(this.state, this.menuActions(), x, y);
+    if (this.state.keybinds) {
+      if (KeyBindings.handleClick(x, y) === "back") this.closeKeyBindings();
+    } else if (this.state.credits) {
+      CreditsScreen.handleClick(() => this.closeCredits(), x, y);
+    } else {
+      MenuScreen.handleClick(this.state, this.menuActions(), x, y);
+    }
   }
 
   update() {
     if (!this.ready) return;
 
-    if (this.state.credits) {
+    if (this.state.keybinds) {
+      // Keys here are the window listener's (handleRebindKey) — a rebind takes
+      // whatever `e.key` arrives, which is not something addKeys can express.
+    } else if (this.state.credits) {
       if (Phaser.Input.Keyboard.JustDown(this.keys.ESC)) this.closeCredits();
       if (Phaser.Input.Keyboard.JustDown(this.keys.DOWN)) CreditsScreen.scrollBy(40);
       if (Phaser.Input.Keyboard.JustDown(this.keys.UP)) CreditsScreen.scrollBy(-40);
@@ -210,10 +267,18 @@ class MenuScene extends Phaser.Scene {
       if (Phaser.Input.Keyboard.JustDown(this.keys.ENTER)) this.startRace();
       if (Phaser.Input.Keyboard.JustDown(this.keys.Q)) this.openRecords();
       if (Phaser.Input.Keyboard.JustDown(this.keys.I)) this.openCredits();
+      if (Phaser.Input.Keyboard.JustDown(this.keys.K)) this.openKeyBindings();
     }
 
     MenuScreen.draw(this.state);
     if (this.state.credits) CreditsScreen.draw();
+    // Over the menu it was opened from, drawn last so its hover cursor wins.
+    // It takes the viewport in CSS pixels; in the legacy loop that's `camera`,
+    // but worldCamera.js's stand-in is only kept current inside a race, so
+    // this hands it UI's own size.
+    if (this.state.keybinds) {
+      KeyBindings.draw(UI.ctx, { width: UI.width, height: UI.height }, mousePos);
+    }
 
     this.report.row = this.state.row;
     this.report.track = PHASER_TRACKS[this.state.selectedTrack].id;
@@ -221,6 +286,9 @@ class MenuScene extends Phaser.Scene {
     this.report.mode = PHASER_MODES[this.state.selectedMode].id;
     this.report.trackLoading = this.state.trackLoading;
     this.report.credits = this.state.credits;
+    this.report.keybinds = this.state.keybinds;
+    this.report.bindings = { ...KeyBindings.bindings };
+    this.report.listening = KeyBindings.listening;
     this.report.hitAreas = MenuScreen.hitAreas.length;
   }
 }

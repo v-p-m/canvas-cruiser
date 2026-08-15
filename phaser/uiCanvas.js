@@ -23,6 +23,7 @@ const UI = {
     if (this.canvas) return this; // one overlay for the page's whole life
 
     this.canvas = document.createElement("canvas");
+    canvas = this.canvas;
     Object.assign(this.canvas.style, {
       position: "absolute",
       inset: "0",
@@ -82,3 +83,11 @@ const UI = {
 // Last known mouse position, read by screens.js's isHovered() — ported
 // verbatim from screens.js, which owns this same name.
 const mousePos = { x: -1, y: -1 };
+
+// keyBindings.js draws itself and sets `canvas.style.cursor` at the end of it;
+// that global is the only thing in the file that belongs to game.js. Aliasing
+// the overlay to the name lets the rebind screen run here completely
+// unmodified — the same stand-in worldCamera.js provides for rain.js/night.js
+// — rather than being ported into a second copy of the same 130 lines of
+// drawing. Assigned in init(), since the element doesn't exist before it.
+let canvas = null;

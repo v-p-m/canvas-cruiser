@@ -147,12 +147,11 @@ const MenuScreen = {
 
     this.drawStartButton(cx, 366, state.row === this.START_ROW);
 
-    // Controls. K/Q/I/M/B name screens and systems this page hasn't grown
-    // yet (key bindings, records, credits, sound, debug tools) — steps 5
-    // (later parts), 6 and 8. They stay on the menu for visual parity with
-    // the legacy screen and so the layout doesn't jump as each one lands;
-    // clicking or pressing one now is a no-op stub, not a dead end, so the
-    // menu never claims to do something it silently doesn't.
+    // Controls. B is the last one still naming something this page hasn't
+    // grown (the DEBUG tools — step 8); it stays on the menu for visual parity
+    // with the legacy screen and so the layout doesn't jump when it lands, and
+    // toggling it is a no-op flag rather than a dead end. K/Q/I/M all do what
+    // they say now.
     const controlsY = 430;
     const lineSpacing = 30;
     const groupGap = 18;
@@ -220,8 +219,8 @@ const MenuScreen = {
       : "default";
   },
 
-  // `actions` is the bag of callbacks MenuScene supplies: cycleTrack/
-  // cycleClass/start are the only ones with anything behind them yet.
+  // `actions` is the bag of callbacks MenuScene supplies — everything the menu
+  // can do that isn't purely its own picker state.
   handleClick(state, actions, x, y) {
     const hit = hitTest(this.hitAreas, x, y);
     if (!hit) return;
@@ -261,7 +260,7 @@ const MenuScreen = {
         if (typeof Sound !== "undefined") Sound.toggleMute();
         break;
       case "keybindings":
-        console.info(`[menu] ${hit.action} — not yet ported, see PORTING.md step 5`);
+        actions.openKeyBindings();
         break;
     }
   },

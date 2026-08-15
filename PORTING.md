@@ -257,6 +257,8 @@ Three things worth not re-deriving:
   not a dead end. Sound.js isn't loaded on this page (step 6), so the mute
   label always reads "Sound: ON". `B` only flips a label for now; there's no
   debug overlay on the Phaser page to toggle yet.
+  *(Superseded: Q and I landed later in this step, M in step 6, K in "Key
+  bindings" below. `B` is the only stub left.)*
 
 The menu also gets a live backdrop: `MenuScene` bakes the selected circuit
 with the same `Track` class RaceScene uses (no spawn grid, no cars, no Matter
@@ -584,6 +586,48 @@ credits — done" above for the reasoning and the headless verification.
 once per player on this page's first load and never again. Track and class
 ids stayed colon-free and `upgradeKey()`'s legacy paths are untouched.
 
+### Key bindings — DONE
+
+The last of step 5's stubs, and the one that was actively wrong rather than
+merely absent: `RaceScene` hardcoded `this.keys.UP/DOWN/LEFT/RIGHT`, so a
+player who had ever rebound anything — the setting survives in localStorage —
+drove the Phaser page on keys the game had agreed not to use.
+
+- `keyBindings.js` is loaded on `phaser.html` **unmodified**, screen and all.
+  The only game.js global it reads is `canvas`, for the hover cursor at the end
+  of its `draw()`, so `uiCanvas.js` aliases the overlay to that name — the same
+  stand-in trick `worldCamera.js` plays for rain.js/night.js, and it saves
+  re-porting 130 lines of drawing that already match the shipped screen.
+- `phaser/playerInput.js` is the half that couldn't be reused. Phaser's
+  `addKeys()` keys off its own KeyCodes enum; a binding is whatever `e.key` the
+  player pressed, and there's no total mapping between them. So the four
+  driving controls run off a `down` map of raw `e.key`s, exactly as
+  game.js:903-910 does, and `this.keys` in RaceScene is now the fixed keys only.
+- The screen is a modal on `MenuScene`, like credits — not a scene of its own,
+  which would re-`create()` the menu (and re-bake its track backdrop) on every
+  return trip. Its keys come from a `window` keydown listener, since a rebind
+  needs the raw event; `input.keyboard.resetKeys()` on open and close is what
+  stops a press made inside the screen firing its *menu* meaning in the first
+  frame after it shuts.
+
+Two bugs in `keyBindings.js` itself, both shared with the legacy page and both
+fixed there too:
+
+- `BLACKLISTED_KEYS` was missing `p`/`i`/`k`/`t`. P and N toggle rain and night
+  **inside a race** on both pages (game.js:888-893) — N was listed, P was not,
+  so a throttle bound to P changed the weather on every press.
+- `load()` trusted the saved copy. `handleRebind()` only guards the moment of
+  binding, so any key that *becomes* reserved keeps driving the car; load now
+  falls the affected action back to its default, in the same
+  validate-don't-trust spirit as the rest of the stored state.
+
+Verified headlessly on both pages: K opens (key and click), ENTER walks the
+rows, a click arms a row, `p` is refused as reserved with the row still
+listening, `w` binds and persists to localStorage, R resets, ESC and the back
+button close and leave the menu live — and in the race the car pulls to the
+speed ceiling on the rebound key while `isDown("accelerate")` reads false with
+the old default held.
+
 ## Harness gotchas
 
 - Headless Chrome services only three or four real `requestAnimationFrame`
@@ -607,9 +651,17 @@ ids stayed colon-free and `upgradeKey()`'s legacy paths are untouched.
   every reporter down with it, and leaves an empty page with no console to say
   so. Patch on `window.load`: phaser.html's own listener is registered first, so
   the game exists and `create()` has not finished.
-- The scene reads its input off `this.keys`, so a harness can drive the player
-  by replacing that object with `{UP:{isDown},…}` — no synthetic key events, and
-  an `AICar` mirrored onto the player entity makes a six-car race run itself.
+- The scene no longer reads driving input off `this.keys` — that object is now
+  the fixed keys only (R/ESC/P/N). Drive the player by setting
+  `PlayerInput.down["ArrowUp"] = true` (the legacy `keys[...]` trick, same
+  shape), or by rebinding first and setting whatever key that produced. An
+  `AICar` mirrored onto the player entity still makes a six-car race run itself.
+- Phaser's keyboard plugin dispatches off **`event.keyCode`**, so a synthetic
+  `KeyboardEvent` carrying only `{key}` is received and silently ignored — the
+  menu won't move. Send `keyCode`/`which` too. The rebind screen is the
+  exception: it listens on the DOM for `e.key`, so it *does* respond to a
+  `{key}`-only event, which makes a harness look half-broken until you notice
+  the two paths are different on purpose.
 - Stale `python3 -m http.server` processes from old sessions squat on
   8123/8124/8137. A silent bind failure just serves the *old* directory, so you
   get 404s on a file you can see on disk. Check `ss -ltnp` before trusting a

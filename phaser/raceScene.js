@@ -217,7 +217,12 @@ class RaceScene extends Phaser.Scene {
     // P/N are the legacy loop's manual weather/night toggles (game.js:888-896)
     // — never active in its menu, but always live in a race, DEBUG or not,
     // since this page has no DEBUG editor mode to reclaim them for.
-    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,R,ESC,P,N");
+    // The driving controls are not in here: they're remappable, so they go
+    // through PlayerInput/KeyBindings rather than Phaser's KeyCodes enum (see
+    // phaser/playerInput.js). What's left are the fixed, unbindable keys —
+    // BLACKLISTED_KEYS in keyBindings.js is what keeps them unbindable.
+    this.keys = this.input.keyboard.addKeys("R,ESC,P,N");
+    PlayerInput.init().clear(); // a key still held from the menu isn't a throttle input
 
     // Registered up front rather than when the flag falls: UI.onClick only
     // ever sees clicks while UI.setInteractive(true), which finishRace()
@@ -534,10 +539,10 @@ class RaceScene extends Phaser.Scene {
     // this only matters to whatever a headless check reads off the entity.
     const finished = this.player.entity.finished;
     const input = {
-      accel: !blocking && !finished && this.keys.UP.isDown,
-      brake: !blocking && !finished && this.keys.DOWN.isDown,
-      left: !blocking && !finished && this.keys.LEFT.isDown,
-      right: !blocking && !finished && this.keys.RIGHT.isDown,
+      accel: !blocking && !finished && PlayerInput.isDown("accelerate"),
+      brake: !blocking && !finished && PlayerInput.isDown("brake"),
+      left: !blocking && !finished && PlayerInput.isDown("left"),
+      right: !blocking && !finished && PlayerInput.isDown("right"),
       rollOut: finished,
     };
 

@@ -22,6 +22,18 @@ const BLACKLISTED_KEYS = [
   "Z",
   "f2",
   "F2",
+  // Live in a race, not just in a menu, and so the most dangerous omissions:
+  // P and N toggle the rain and the night (game.js:888-893, raceScene.js), so
+  // a throttle bound to P would change the weather every time it was pressed.
+  "p",
+  "P",
+  // Menu screens — K opens this one, I opens the credits, T the track editor.
+  "i",
+  "I",
+  "k",
+  "K",
+  "t",
+  "T",
 ];
 
 const KeyBindings = {
@@ -43,6 +55,16 @@ const KeyBindings = {
       Object.assign(this.bindings, JSON.parse(saved));
     } catch {
       localStorage.removeItem("keyBindings");
+    }
+    // The saved copy predates any key added to BLACKLISTED_KEYS since, and
+    // handleRebind() only guards the moment of binding — without this, a key
+    // that has *become* reserved keeps driving the car and fires the game
+    // function it was reserved for on every press. Same rule as the rest of
+    // the stored state: what's read back is validated, not trusted.
+    for (const action of Object.keys(this.defaults)) {
+      if (BLACKLISTED_KEYS.includes(this.bindings[action])) {
+        this.bindings[action] = this.defaults[action];
+      }
     }
   },
 
