@@ -12,11 +12,12 @@
 // cars' identity rather than the circuit's, and a track with no `spawn` block
 // still has to start a race — hence the waypoint-0 fallback.
 //
-// Deliberately NOT here: the debug panel's spawn sliders. In the legacy loop
-// DebugConfig.apply() overwrites the grid's x/y after applyTrackSpawns() has
-// filled it, so the sliders can nudge the field in place. The Phaser page has
-// no panel yet, which makes the track file the single source for now; wiring
-// the sliders back on belongs with the rest of the UI.
+// Deliberately NOT here: the debug panel's spawn sliders. They nudge the field
+// in place by overwriting the grid's x/y after it has been filled, and they
+// live on editor.html — which is where finding grid coordinates to paste into a
+// track file is the job. On this page the track file is the single source, and
+// keeping it that way is what stops a saved slider position from quietly
+// re-arranging a shipped grid.
 
 // Player first, then the five opponents, in grid order — pole is index 0.
 const GRID_LIVERIES = [

@@ -28,6 +28,23 @@
 const CORNER_MARGIN = 0.86; // fraction of the geometric limit a perfect driver takes
 const LOOKAHEAD_DIST = 1200; // world px — stop scanning once this far ahead
 
+// The driver spread. These live here, beside the rest of the driver's numbers,
+// rather than in the tuning panel's defaults: the game page does not load
+// debugConfig.js any more, and when the shipped value was only in that literal
+// the fallbacks below silently raced a different field — a skill floor of 0.9
+// against the 0.85 the game actually ships.
+const SKILL_MIN = 0.85;
+const SKILL_MAX = 1.0;
+const LINE_OFFSET_RANGE = 40; // world px of lateral line preference, full width
+
+// The shipped number, unless the editor page's slider panel is loaded and has
+// been dragged. Same rule as carStats.js: the constants above are the truth,
+// and the panel is an override that may not be there at all.
+function tunedAI(key, fallback) {
+  const v = typeof DebugConfig === "undefined" ? null : DebugConfig.values;
+  return v?.[key] ?? fallback;
+}
+
 // THE LINE. A dozen markers hold a circuit, so the line they describe is a
 // polygon: every corner's turning is concentrated at a single vertex with
 // nothing on either side of it. Chasing those markers one at a time is what
@@ -390,11 +407,12 @@ class AICar {
   // driving, none of it machinery: a slower rival gives the corner more room
   // and takes a wider line, and loses the time there rather than being handed
   // a lower top speed it could never have chosen.
-  rollDriver(v = DebugConfig.values) {
-    const lo = v.aiSkillMin ?? 0.9;
-    const hi = v.aiSkillMax ?? 1.0;
+  rollDriver() {
+    const lo = tunedAI("aiSkillMin", SKILL_MIN);
+    const hi = tunedAI("aiSkillMax", SKILL_MAX);
     this.skill = lo + Math.random() * (hi - lo);
-    this.lineOffset = (Math.random() - 0.5) * (v.aiLineOffsetRange ?? 40);
+    this.lineOffset =
+      (Math.random() - 0.5) * tunedAI("aiLineOffsetRange", LINE_OFFSET_RANGE);
     this.wander = Math.max(0, (1 - this.skill) * WANDER_PX);
     this.wanderPhase = Math.random() * Math.PI * 2;
   }
@@ -404,7 +422,7 @@ class AICar {
   // being behind is worth.
   cornerMargin(catchup) {
     const wet = 1 - Rain.intensity * (1 - WET_MARGIN);
-    const base = (DebugConfig.values.aiCornerMargin ?? CORNER_MARGIN) * wet;
+    const base = tunedAI("aiCornerMargin", CORNER_MARGIN) * wet;
     return base * this.skill * (1 + catchup * CATCHUP_GAIN);
   }
 
@@ -510,8 +528,8 @@ class AICar {
     x += (perpX / perpLen) * lateral;
     y += (perpY / perpLen) * lateral;
 
-    const radius = DebugConfig.values.aiAvoidRadius ?? AVOID_RADIUS;
-    const strength = DebugConfig.values.aiAvoidStrength ?? AVOID_STRENGTH;
+    const radius = tunedAI("aiAvoidRadius", AVOID_RADIUS);
+    const strength = tunedAI("aiAvoidStrength", AVOID_STRENGTH);
     for (const other of others) {
       if (other === this) continue;
       const dx = this.x - other.x;

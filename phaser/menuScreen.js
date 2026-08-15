@@ -147,11 +147,12 @@ const MenuScreen = {
 
     this.drawStartButton(cx, 366, state.row === this.START_ROW);
 
-    // Controls. B is the last one still naming something this page hasn't
-    // grown (the DEBUG tools — step 8); it stays on the menu for visual parity
-    // with the legacy screen and so the layout doesn't jump when it lands, and
-    // toggling it is a no-op flag rather than a dead end. K/Q/I/M all do what
-    // they say now.
+    // Controls. B (DEBUG) used to sit here as a stub waiting for the editors
+    // to land. They landed on editor.html instead — they need the legacy
+    // loop's free camera and pace car, and what they author is a track file,
+    // which this page reads either way — so there is nothing here for B to
+    // unlock and the row is gone. What is left of DEBUG on this page is the
+    // `?debug=1` overlay, which wants no key and no menu row.
     const controlsY = 430;
     const lineSpacing = 30;
     const groupGap = 18;
@@ -167,7 +168,6 @@ const MenuScreen = {
         action: typeof Sound !== "undefined" && Sound.muted ? "Sound: OFF" : "Sound: ON",
         id: "mute",
       },
-      { key: "B", action: state.debug ? "DEBUG: ON" : "DEBUG: OFF", id: "debug" },
     ];
 
     const hints = [
@@ -246,9 +246,6 @@ const MenuScreen = {
         break;
       case "start":
         actions.start();
-        break;
-      case "debug":
-        state.debug = !state.debug;
         break;
       case "leaderboard":
         actions.openRecords();

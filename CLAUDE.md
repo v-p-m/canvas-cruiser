@@ -4,28 +4,61 @@ Top-down arcade racer. Pure HTML5 Canvas + vanilla JS. **No build step, no
 package.json, no dependencies, no test suite.** Editing a `.js` file and
 reloading the page is the whole dev loop.
 
+## Two pages
+
+Since 0.14.0 there are two entry points, and which one a file belongs to is the
+first thing to establish before editing it:
+
+- **[index.html](index.html) — the game.** Phaser 4 + Matter, vendored. The
+  scenes and everything they own live in [phaser/](phaser/); see
+  [PORTING.md](PORTING.md) for how the port is laid out and what each step
+  decided. Its only debug surface is `?debug=1` ([phaser/debugOverlay.js](phaser/debugOverlay.js)).
+- **[editor.html](editor.html) — the authoring tools.** The pre-0.14 canvas
+  loop (`game.js` and friends), booted straight into the waypoint editor by the
+  `window.EDITOR_PAGE` flag it sets. It is not a second copy of the game to keep
+  in sync: it is the host the editors need — the free camera, `screenToWorld*`,
+  the mouse handlers, and the pace car, which is a real `AICar` driven through
+  `stepCarControls`/`stepCarMotion`. What it authors is a track file, and that
+  format is renderer-independent, so what is cut here is what the game races.
+  The one thing to know is that its pace car previews the line under legacy
+  physics, which laps a couple of percent quicker than Matter — read it for the
+  line, not the clock.
+
+A handful of files are loaded by **both** and must therefore run with or without
+the other page's globals: `track.js`, `ai.js`, `carStats.js`, `carSprites.js`,
+`engineClass.js`, `rain.js`, `night.js`, `sound.js`, `quality.js`,
+`startLights.js`, `keyBindings.js`. In particular **`DebugConfig` exists only on
+the editor page** — anything shared that wants a tuned value must fall back to
+its own constant (`tunedStat()` in `carStats.js`, `tunedAI()` in `ai.js` are the
+pattern), and `typeof DebugConfig !== "undefined"` guards, not truthiness
+checks: `??` does not catch the `false` a `&&` chain returns, which is how the
+whole grid once ended up with a `maxSpeed` of 0.
+
 ## Layout
 
-Scripts are plain `<script>` tags in [index.html](index.html) — everything is a
-global, and **load order matters** (`track.js` → editors → `carSprites.js` →
-`ai.js` → helpers → `game.js` last). There are no modules; don't add `import`/`export` without
+Scripts are plain `<script>` tags in both pages — everything is a
+global, and **load order matters** (on the editor page: `track.js` → editors →
+`carStats.js` → `carSprites.js` → `ai.js` → helpers → `game.js` last; note
+`ai.js` and `carStats.js` both precede `debugConfig.js`, which seeds its
+defaults from them). There are no modules; don't add `import`/`export` without
 converting the page to `type="module"`.
 
 | File | Role |
 |---|---|
-| [game.js](game.js) | Game state, input, physics, collisions, lap counting, race order, the single `gameLoop`. Everything not owned by a file below lives here. Laps and standings both run on `trackProgress()` — see the **track-authoring** skill. |
-| [screens.js](screens.js) | Every pixel of canvas UI: start menu, HUD, minimap, records, results, the credits popup — plus the hit-testing that makes them clickable. The credits roll is data, not code: it is fetched from `credits.json` (built-in fallback if that 404s or is malformed), wrapped to the panel width and scrolled if it outgrows the window. |
-| [rain.js](rain.js) | Weather: drop pool, puddles, screen tint. Exposes `gripScale()`/`frictionBonus()`; it must never assign to `car.driftGrip` etc. directly or it overwrites the tuning sliders. |
+| [game.js](game.js) | **Editor page only.** Game state, input, physics, collisions, lap counting, race order, the single `gameLoop`, and the editors' host — free camera, `screenToWorld*`, the pace car. Everything not owned by a file below lives here. Laps and standings both run on `trackProgress()` — see the **track-authoring** skill. |
+| [screens.js](screens.js) | **Editor page only** — the game's UI is `phaser/*Screen.js`. Every pixel of canvas UI: start menu, HUD, minimap, records, results, the credits popup — plus the hit-testing that makes them clickable. The credits roll is data, not code: it is fetched from `credits.json` (built-in fallback if that 404s or is malformed), wrapped to the panel width and scrolled if it outgrows the window. |
+| [rain.js](rain.js) | Weather: drop pool, puddles, screen tint. Exposes `gripScale()`/`frictionBonus()`; it must never assign to `car.driftGrip` etc. directly or it overwrites what `applyCarStats()` just set (and, on the editor page, the tuning sliders). |
 | [night.js](night.js) | Night races, rolled per race independently of the rain, so all four combinations come up. Purely visual — no grip, no speed, no AI change, deliberately. Floodlights are placed by walking the waypoint polygon and marching sideways off `sampleRoad` until the verge, so a new circuit lights itself; `buildLights()` runs from `onTrackLoaded()`. The dark and the light are **one** half-resolution layer blitted once (`drawLightLayer`), not an additive pass plus a veil — that build measured three times the cost of the whole day frame. |
-| [engineClass.js](engineClass.js) | The 60/100/250cc picker. Same rule as `rain.js`: it exposes `speedScale()`/`accelScale()` and never writes to `car.maxSpeed` — `applyCarStats()` in `game.js` is the one place that multiplies. Only speed and acceleration scale; steering and grip deliberately do not, which is where the difficulty comes from. 100cc is 1.0, so it is the car every pre-0.12 record was set in. |
+| [engineClass.js](engineClass.js) | The 60/100/250cc picker. Same rule as `rain.js`: it exposes `speedScale()`/`accelScale()` and never writes to `car.maxSpeed` — `applyCarStats()` in `carStats.js` is the one place that multiplies. Only speed and acceleration scale; steering and grip deliberately do not, which is where the difficulty comes from. 100cc is 1.0, so it is the car every pre-0.12 record was set in. |
 | [sound.js](sound.js) | WebAudio, synthesised — engine, tire squeal, impacts. No audio files. `Sound.unlock()` must be called from a user gesture or nothing plays. |
 | [quality.js](quality.js) | Render-scale governor. Probes WebGL for a software rasteriser before the first frame, then watches the frame interval and moves the dpr cap down a ladder. Owns `Quality.cap`; `resizeCanvas()` in `game.js` is what reads it. |
 | [track.js](track.js) | `Track` class. Loads a track file (tile grid), rasterises + blurs it into a "road field"; both the baked artwork and the physics sample that one field, so visuals and collision can't disagree. One instance, `worldTrack`, reloaded in place when the circuit changes. |
 | [carSprites.js](carSprites.js) | The one open-wheel car, as a pixel grid baked to a canvas per livery — no PNGs. Body colour is substituted at bake time and its shade/highlight derived, so a new rival is just a hex. The cache is keyed by colour **and** by `Night.liveryDim()`, which darkens the whole palette after dark — that scalar is quantised precisely because a continuous one would re-bake every car every frame of the fade. Bakes in device pixels; `resizeCanvas()` must call `CarSprites.invalidate()` when the render scale moves. |
 | [ai.js](ai.js) | The opponent **driver**, and only the driver: `drive()` reads the track and returns the same `{accel, brake, left, right}` the keyboard fills in for the player. It drives a line of its own making — the waypoint ring resampled, rounded and pushed clear of the kerbs against `worldTrack.sampleRoad` — because a dozen markers chased one at a time is a polygon, and that is what made the cornering look sharp. It owns no physics — the opponents run the player's car through `stepCarControls`/`stepCarMotion` in `game.js`, so there is no `ai.grip`/`ai.turnSpeed`/`ai.baseMaxSpeed` to tune and adding one puts them back in a different vehicle. Corner speed is geometric (`R × turnSpeed`), which is why braking is dormant at 100cc and real at 250cc and in the wet. Laps and race position are *not* here — `updateLapCounter` in `game.js` drives the player and every opponent through the same code. |
-| [trackEditor.js](trackEditor.js) | Tile map editor. DEBUG on (`B`), then `T`. `P` exports the loaded track back out under its own filename. |
-| [waypointEditor.js](waypointEditor.js) | Drag AI waypoints. DEBUG on, then `E`. A click on the line inserts into the ring rather than appending to it, and `Z` walks back an edit stack rather than popping the array. Opened from the menu it drives the free camera in `game.js` (pan/zoom) instead of following the car; its hit testing is in world units so the grab ring survives the zoom. Opened there it also runs a **pace car** — one opponent, driving the markers as they are edited, with the rest of the field parked and hidden. It lives in `game.js` (`paceCarActive()` and friends) and is outside the race: no laps, no collisions, no skid marks. |
-| [debugConfig.js](debugConfig.js) | Live tuning sliders (physics, AI, spawn grid) persisted to localStorage. `spawnVersion` must be bumped when a shipped starting grid changes, or a stale saved copy overrides it; the saved copy is keyed by track as well, since the grids are per circuit. `aiVersion` does the same job for the `ai*` keys — bump it whenever the opponent tuning changes meaning, or anyone who has ever opened the panel keeps the old balance. |
+| [carStats.js](carStats.js) | The car's numbers, shared by both pages: `CAR_STATS`, `CAR_FRICTION` and `applyCarStats()`. One table, for the player and every opponent — the regression the **Conventions** section below is about. `DebugConfig` is consulted only as an override and may not be loaded at all, so nothing here may assume it exists. |
+| [trackEditor.js](trackEditor.js) | Tile map editor, on `editor.html`. `T` opens it (`B` toggles DEBUG off entirely). `P` exports the loaded track back out under its own filename. |
+| [waypointEditor.js](waypointEditor.js) | Drag AI waypoints, on `editor.html`, which opens straight into it. A click on the line inserts into the ring rather than appending to it, and `Z` walks back an edit stack rather than popping the array. Opened from the menu it drives the free camera in `game.js` (pan/zoom) instead of following the car; its hit testing is in world units so the grab ring survives the zoom. Opened there it also runs a **pace car** — one opponent, driving the markers as they are edited, with the rest of the field parked and hidden. It lives in `game.js` (`paceCarActive()` and friends) and is outside the race: no laps, no collisions, no skid marks. |
+| [debugConfig.js](debugConfig.js) | Live tuning sliders (physics, AI, spawn grid) persisted to localStorage, on `editor.html` only — the game page never loads it, so it defines no shipped number: `seedDefaults()` reads every default back out of `carStats.js`, `ai.js` and `game.js`. `spawnVersion` must be bumped when a shipped starting grid changes, or a stale saved copy overrides it; the saved copy is keyed by track as well, since the grids are per circuit. `aiVersion` does the same job for the `ai*` keys — bump it whenever the opponent tuning changes meaning, or anyone who has ever opened the panel keeps the old balance. |
 | [debugHUD.js](debugHUD.js), [startLights.js](startLights.js), [keyBindings.js](keyBindings.js) | Debug overlay, countdown lights, remappable controls. |
 
 State that survives reloads lives in localStorage: `highScores`,
@@ -43,7 +76,9 @@ The track files are loaded with `fetch()`, so **`file://` does not work** — se
 
 ```bash
 python3 -m http.server 8123 -d /home/demac/dev/github/v-p-m/canvas-cruiser
-# then open http://localhost:8123/
+# then open http://localhost:8123/            — the game
+#      or http://localhost:8123/?debug=1     — with the ring, gate and panel
+#      or http://localhost:8123/editor.html  — the track and waypoint editors
 ```
 
 ## Testing changes headlessly
@@ -65,17 +100,19 @@ that laps and race order depend on — see the **track-authoring** skill.
   `track.js`), not what the line does. Match that density — most code carries none.
 - Tunable constants go at the top of their file in `SCREAMING_CASE`, with the
   unit in a trailing comment (`// cells`, `// world px`).
-- Bump `window.BUILD` at the top of `index.html` for user-visible releases. It
-  is both the version — `GAME_VERSION` in `game.js` reads it, and it feeds the
-  window title and the menu — and the cache buster: the loader stamps `?v=` on
-  every script, on `style.css`, and on the `fetch()`s in `track.js` and
+- Bump `window.BUILD` for user-visible releases — **in both `index.html` and
+  `editor.html`**, which each declare their own. It is both the version (it
+  feeds the window title and the menu; `GAME_VERSION` in `game.js` reads it on
+  the editor page) and the cache buster: each loader stamps `?v=` on every
+  script it pulls, on `style.css`, and on the `fetch()`s in `track.js` and
   `screens.js`, so bumping it is what stops returning players running a mix of
   old and new files. Anything new that is fetched or linked needs the same
   stamp. GitHub Pages serves `max-age=600` on everything and its headers are not
-  configurable, so `index.html` self-heals within 10 minutes and the query
-  string does the rest.
+  configurable, so the HTML self-heals within 10 minutes and the query string
+  does the rest.
 - Keys added to game logic that must not be remappable belong in
-  `BLACKLISTED_KEYS` in `keyBindings.js`.
+  `BLACKLISTED_KEYS` in `keyBindings.js` — which is the **union across both
+  pages**, since one saved set of bindings is read by both.
 - Everything is drawn in **CSS pixels**: `resizeCanvas()` scales the context by
   `devicePixelRatio` and `camera.width`/`camera.height` are the viewport. Never
   read `canvas.width`/`canvas.height` for layout — that is the backing store,

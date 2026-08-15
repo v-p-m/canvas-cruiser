@@ -83,17 +83,23 @@ localStorage.setItem("track", "valley");
 localStorage.setItem("engineClass", "250cc");   // 60cc | 100cc | 250cc
 ```
 
-Add keys to taste: `B` debug HUD, then (DEBUG only) `C` tuning sliders, `T`
-track editor, `E` waypoint editor; `Q` records, `M` mute, `R` reset, `Escape`
-back to menu. A lap takes ~13s of virtual time at 100cc, so budget accordingly
-— and the classes move that by their speed scale.
+Add keys to taste: `Q` records, `I` credits, `K` key bindings, `M` mute, `P`/`N`
+rain and night, `R` reset, `Escape` back to menu. A lap takes ~13s of virtual
+time at 100cc, so budget accordingly — and the classes move that by their speed
+scale.
 
-All of the DEBUG keys work **on the start menu as well as in the race**, so
-anything about the overlay or the editors can be shot without starting one. An
-editor opened there hides the menu until it is closed (`ESC`, its own key, or
-`B`); until then the menu's own keys, ENTER included, are dead.
+**The two pages are shot differently.** `index.html` is the game (Phaser), and
+its debug view is a URL flag — `?debug=1` — which needs no synthetic input at
+all: it draws the ring, the gate and the start line, plus a live panel with the
+frame cost and the field's lap times. The editors are not on it.
 
-An editor opened from the menu also gets the **free camera** — arrows or a
+`editor.html` is the legacy loop and the tools. It opens **straight into the
+waypoint editor**, so anything about the editors or the debug HUD can be shot
+with no keys at all; `T` switches to the track editor, `C` the tuning sliders,
+`B` turns DEBUG back off. While an editor is open it hides the menu, and the
+menu's own keys, ENTER included, are dead until it is closed.
+
+The editor page also gets the **free camera** — arrows or a
 right-drag pan, the wheel and `+`/`-` zoom, `0` back to 1x. `viewZoom` is a
 context scale wrapped around the world pass in `gameLoop`, so world-space
 drawing that goes through `- camera.x` follows it without knowing it exists;
@@ -112,5 +118,29 @@ that meaningful is in **Conventions** in [CLAUDE.md](../../../CLAUDE.md).
 with `--disable-gpu` reports SwiftShader, so `quality.js` starts the page at dpr
 1 and will keep moving the render scale mid-run — an A/B where one side silently
 changed resolution is worse than no measurement. Turning it off pins whatever
-`MAX_DPR` and the `C` panel say. `Quality.status()` reports what it decided and
-why; the `B` overlay shows the same line, in red when the raster is software.
+`MAX_DPR` says (and, on the editor page, the `C` panel). `Quality.status()`
+reports what it decided and why; the game's `?debug=1` panel and the editor's
+`B` overlay both print that same line — in red, on the editor page, when the
+raster is software.
+
+**On `index.html`, hand-pump the loop rather than trapping `rAF`.** One throw
+out of `vendor/phaser.min.js` kills Phaser's own loop silently, so stop it and
+step it yourself; virtual time keeps driving `setTimeout` after it has given up
+on `rAF`:
+
+```js
+const g = window.phaserGame;
+g.loop.stop();
+let t = 0;
+const pump = () => {
+  t += 16;
+  try { g.loop.step(t); } catch (e) { document.title = "THROW " + e.message; }
+  if (t < 15000) setTimeout(pump, 4);
+};
+```
+
+Report the throw through the DOM (`document.title` above, then `--dump-dom`) —
+page `console.log` does not reach stderr here. Note also that
+`--force-device-scale-factor=2` on the Phaser page is roughly four times the
+software-raster work: budget minutes, not seconds, or the screenshot never
+lands.

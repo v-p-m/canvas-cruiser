@@ -1,5 +1,10 @@
 // keyBindings.js
 
+// Reserved keys, as the *union* across both pages — this file is loaded by
+// index.html and by editor.html, and one saved binding is read by both. B, C,
+// E, T and Z do nothing in the game any more (the editors and the tuning panel
+// went to editor.html), but they still drive the tools there, so freeing them
+// here would let a throttle bound in the game open the track editor.
 const BLACKLISTED_KEYS = [
   "Escape",
   "Enter",

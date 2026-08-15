@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Canvas Cruiser — editor</title>
+        <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+        <link rel="icon" href="favicon-32.png" sizes="32x32" />
+        <script>
+            // The authoring page: the tile map editor (T), the AI waypoint
+            // editor (E) and the tuning panel (C).
+            //
+            // It runs the pre-0.14 canvas loop, and that is the point rather
+            // than an accident. The editors are woven into it — the free
+            // camera, screenToWorld*/viewZoom, the mouse handlers, the draw
+            // pass — and the waypoint editor's pace car is a real AICar driven
+            // through stepCarControls/stepCarMotion. Porting all of that to
+            // Phaser would buy a second copy of a tool whose output is a track
+            // file, and a track file is renderer-independent: what is authored
+            // here is exactly what index.html races.
+            //
+            // The one thing to know while using it: the pace car previews the
+            // line under legacy physics, and the game runs on Matter, which
+            // laps a couple of percent quicker. The ring it reveals is the
+            // right ring — same ai.js, same geometry — but the lap time it
+            // implies is not the game's. Read it for the line, not the clock.
+            window.BUILD = "0.14.0-dev";
+            window.EDITOR_PAGE = true;
+
+            const css = document.createElement("link");
+            css.rel = "stylesheet";
+            css.href = `style.css?v=${window.BUILD}`;
+            document.head.appendChild(css);
+        </script>
+    </head>
+    <body>
+        <canvas id="gameCanvas"></canvas>
+
+        <script>
+            // Load order matters — see CLAUDE.md. Injected scripts default to
+            // async, so async=false is what keeps them executing in this order.
+            for (const src of [
+                "track.js",
+                "trackEditor.js",
+                "carStats.js",
+                "carSprites.js",
+                "ai.js",
+                "startLights.js",
+                "waypointEditor.js",
+                "debugHUD.js",
+                "engineClass.js",
+                // After ai.js and carStats.js: the panel seeds its defaults
+                // from their constants rather than keeping a second copy.
+                "debugConfig.js",
+                "keyBindings.js",
+                "sound.js",
+                "rain.js",
+                "night.js",
+                "quality.js",
+                "screens.js",
+                "game.js",
+            ]) {
+                const s = document.createElement("script");
+                s.src = `${src}?v=${window.BUILD}`;
+                s.async = false;
+                document.head.appendChild(s);
+            }
+
+            window.addEventListener("load", () => {
+                document.title = `Canvas Cruiser editor ${GAME_VERSION}`;
+            });
+        </script>
+    </body>
+</html>

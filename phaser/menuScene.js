@@ -40,7 +40,6 @@ class MenuScene extends Phaser.Scene {
       selectedTrack: this.loadSavedTrack(),
       selectedMode: 1, // "5 Lap Race"
       trackLoading: false,
-      debug: false,
       credits: false, // a modal over this screen, not a screen of its own
       keybinds: false, // ditto — the legacy loop's isKeyBindings, an overlay
     };

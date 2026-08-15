@@ -341,32 +341,14 @@ const car = {
 // colour chip beside "YOU" in the standings, which have to agree.
 const PLAYER_COLOR = "#e01b1b";
 
-// Coasting decay. Not a slider because the rain's FRICTION_BONUS is defined
-// as an offset from it, and a second copy of the number is how those two
-// drifted apart before.
-const CAR_FRICTION = 0.96;
-
-// There is one car on the grid, six times over. The opponents used to be a
+// There is one car on the grid, six times over, and its numbers are in
+// carStats.js — shared verbatim with the game page, so a stat tuned against the
+// pace car here means the same thing there. The opponents used to be a
 // different vehicle — twice the grip, a steering controller that could swing
 // the nose four times as fast as the player's lock, a speed ceiling off-road
 // instead of the player's drag — which is why no player tuning ever
 // transferred to them and why the field either walked away or drove into the
-// scenery whenever a number moved. Every stat now comes from here.
-//
-// `mods` is where the part upgrades will hang: a bigger rear wing is a grip
-// and corner-speed multiplier on one car, and nothing downstream of this
-// function needs to know which car has one.
-const NO_MODS = Object.freeze({ speed: 1, accel: 1, turn: 1, grip: 1 });
-
-function applyCarStats(entity, v = DebugConfig.values) {
-  const mods = entity.mods || NO_MODS;
-  entity.acceleration =
-    v.playerAcceleration * EngineClass.accelScale() * mods.accel;
-  entity.maxSpeed = v.playerMaxSpeed * EngineClass.speedScale() * mods.speed;
-  entity.turnSpeed = v.playerTurnSpeed * mods.turn;
-  entity.driftGrip = v.playerDriftGrip * mods.grip;
-  entity.friction = CAR_FRICTION;
-}
+// scenery whenever a number moved.
 
 const keys = {};
 
@@ -1232,7 +1214,6 @@ function resetRace() {
   // a restart, so every rerun of a race played out the same way. What gets
   // re-rolled is the *driver*: the car is the player's, every time, and
   // applyCarStats says so rather than a second copy of the numbers here.
-  const cfg = DebugConfig.values;
   for (let i = 0; i < opponents.length; i++) {
     const s = SPAWN_POSITIONS[i + 1];
     const ai = opponents[i];
@@ -1247,8 +1228,8 @@ function resetRace() {
     ai.currentWaypoint = 0;
     ai.steerDir = 0;
     ai.startDelay = Math.random() * 400;
-    applyCarStats(ai, cfg);
-    ai.rollDriver(cfg);
+    applyCarStats(ai);
+    ai.rollDriver();
     ai.laps = 0;
     ai.onFinishLine = false;
     ai.passedGate = false;
@@ -2192,6 +2173,16 @@ async function initGameUnsafe() {
   requestAnimationFrame(gameLoop);
 
   DebugConfig.init();
+
+  // editor.html opens straight into the tools. This loop is no longer the
+  // game — index.html is — so there is nothing to unlock DEBUG *from*, and
+  // making the one page whose whole purpose is the editors ask for them twice
+  // was ceremony. The track editor is a keypress away on T; the waypoint one
+  // is the tool that wants the free camera and the pace car, so it opens.
+  if (window.EDITOR_PAGE) {
+    DEBUG = true;
+    WaypointEditor.toggle();
+  }
 }
 
 initGame();

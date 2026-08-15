@@ -9,13 +9,17 @@ Committed on branch `0.14.0` (`0544629`):
 - `vendor/phaser.min.js` — Phaser 4.2.1, UMD, plain `<script>` tag, `?v=BUILD`
   stamped like everything else. **No build step, no package.json** — that rule
   survives the port by explicit decision.
-- `phaser.html` — the port target. Runs **beside** the legacy loop;
-  `index.html` is untouched and still plays.
+- `index.html` — the game. Was `phaser.html` for most of this port, running
+  beside the untouched legacy loop; step 9 swapped them, and the legacy loop is
+  `editor.html` now. Most of this document was written while the split was the
+  other way round — read `phaser.html` below as today's `index.html`.
 - `phaser/matterCar.js` — the car as a Matter body.
 - `phaser/raceScene.js` — one scene: track texture, the field on the grid.
 - `phaser/raceGrid.js` — the spawn grid, the start line and the lap gate.
-- `phaser/carStats.js` — `applyCarStats()`, ported. One set of numbers for the
-  whole grid.
+- `carStats.js` — `applyCarStats()` and the shipped numbers, at the repo root
+  and shared with the editor page. One set of numbers for the whole grid. (It
+  lived at `phaser/carStats.js` until step 9.)
+- `phaser/debugOverlay.js` — the `?debug=1` panel.
 - `phaser/raceLaps.js` — the lap counter and the standings, one call for all
   six cars.
 - `phaser/skidMarks.js` — the marks the tires leave, which the port had been
@@ -32,8 +36,9 @@ shoved.
 and the lap gate, ported out of `applyTrackSpawns` / `trackProgress` /
 `updateLapGate` with the geometry unchanged. `findRoad()` is gone; the scene
 builds all six cars from the track file's `spawn` block, pole first. No shipped
-grid moved, so `spawnVersion` stayed at 5. `?debug=1` on `phaser.html` draws the
-ring, the gate band and the tile-9 cells — the Phaser half of what `B` does.
+grid moved, so `spawnVersion` stayed at 5. `?debug=1` (then on `phaser.html`,
+now on `index.html` — see step 9) draws the ring, the gate band and the tile-9
+cells — the Phaser half of what `B` used to do.
 Verified headlessly: all six on their authored coordinates at 90° facing the
 line, all on tarmac, lap fraction descending 0.979 → 0.930 down the grid; and
 driving the player forward wraps progress 0.998 → 0.000 immediately before it
@@ -787,12 +792,59 @@ DebugConfig.aiVersion once the tuning changes meaning.
 namespaced). See `phaser/records.js`'s `RECORDS_PHYSICS_VERSION`. No prompt
 needed.
 
+## Step 9 — the cutover, and what became of DEBUG — DONE
+
+`phaser.html` is `index.html` now; the legacy loop moved to **`editor.html`**,
+which boots straight into the waypoint editor off the `window.EDITOR_PAGE` flag
+it sets before loading (`game.js`, end of `initGameUnsafe`).
+
+The question this settled was whether to port the debug stack or drop it. Three
+things were bundled under "DEBUG" and they wanted three different answers:
+
+- **The slider panel** stayed on the legacy loop rather than being ported. Its
+  physics sliders tune numbers Matter no longer reads, so half of them would
+  have been lying; what still earns its keep is the spawn block, and finding
+  grid numbers to paste into a track file is authoring work. `debugConfig.js` is
+  therefore loaded by `editor.html` only — and, importantly, it now *defines*
+  none of the shipped numbers: `seedDefaults()` reads every default back out of
+  `carStats.js`, `ai.js` and `game.js`. This also dissolved the "one thing left
+  owing" above: the spawn sliders can only overwrite `applyTrackSpawns()` on a
+  page whose whole job is moving spawns.
+- **The two editors** were not ported either, for the same reason and a better
+  one: they need the legacy free camera and a pace car that is a real `AICar`,
+  and what they emit is a track file, which is renderer-independent. A Phaser
+  port would have bought a second copy of a tool whose output already works.
+  The cost, accepted: `editor.html` cannot be deleted, and its pace car previews
+  the line ~2.5–3% quicker than Matter laps it (step 7).
+- **A live readout** is the part that was actually reached for during this port,
+  over and over, and it did not exist. `?debug=1` now draws the ring/gate/start
+  geometry *and* a live panel — frame cost, render scale, conditions, and the
+  field's lap times with each driver's rolled skill
+  (`phaser/debugOverlay.js`). A URL flag, not a key: it cannot be left on by
+  accident or persisted into a bad state, and the headless harness can set it
+  without synthesising input. The `B` menu stub is gone.
+
+`applyCarStats()` existed twice through the port — `game.js`'s and
+`phaser/carStats.js`'s copy of it. Both are now one root `carStats.js` loaded by
+both pages, holding `CAR_STATS`/`CAR_FRICTION`. The AI's shipped driver numbers
+went the same way, into `ai.js`'s own constant block (`SKILL_MIN`, `SKILL_MAX`,
+`LINE_OFFSET_RANGE`) — until then the shipped 0.85 skill floor lived *only* in
+the panel's defaults literal, so the game page's `?? 0.9` fallback was quietly
+racing a different field.
+
+**One trap, paid for once:** a shared file testing for the panel with
+`(v && v[k]) ?? fallback` returns `false`, not the fallback — `??` catches only
+null and undefined. That put `maxSpeed` at 0 for the entire grid, which surfaced
+as a non-finite `setTargetAtTime` out of `sound.js`. Guard with
+`typeof DebugConfig === "undefined" ? null : DebugConfig.values` and `?.`.
+
 ## Housekeeping
 
-- `BUILD` is `0.14.0-dev`. Set it to `0.14.0` at release — it is the version,
-  the window title and the cache buster. Anything newly fetched or linked needs
-  the same `?v=` stamp.
-- Update CLAUDE.md's file table as files move; it still describes the legacy
-  architecture.
+- `BUILD` is `0.14.0-dev`, declared in **both** `index.html` and `editor.html`.
+  Set both to `0.14.0` at release — it is the version, the window title and the
+  cache buster. Anything newly fetched or linked needs the same `?v=` stamp.
+- CLAUDE.md's file table is updated for the two-page split and for
+  `carStats.js`, but the `phaser/` files are still documented here rather than
+  there. Folding them into the table is worth doing before 0.14.0 ships.
 - `vendor/phaser.min.js` adds ~1.4 MB to first load on GitHub Pages
   (`max-age=600`, headers not configurable). Accepted cost of vendoring.

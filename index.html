@@ -10,45 +10,106 @@
             // Browsers cache by full URL, so this query string is what makes a
             // returning player fetch the new files — and fetch them as a *set*.
             // Without it the cache expires per file and someone ends up running
-            // new game.js against old ai.js. It lives here because index.html is
-            // the only file GitHub Pages will let go stale for just 10 minutes;
-            // a constant inside game.js cannot invalidate game.js.
+            // new raceScene.js against old ai.js. It lives here because
+            // index.html is the only file GitHub Pages will let go stale for
+            // just 10 minutes; a constant inside a script cannot invalidate
+            // that script.
             window.BUILD = "0.14.0-dev";
-
-            const css = document.createElement("link");
-            css.rel = "stylesheet";
-            css.href = `style.css?v=${window.BUILD}`;
-            document.head.appendChild(css);
         </script>
+        <style>
+            /* This page does not load style.css — that sheet pins the
+               one canvas to the viewport with position:fixed/100vw, which
+               would fight RenderScale.apply()'s explicit CSS size. These are
+               the three rules of it that still apply: a canvas left at its
+               default display:inline sits on a text baseline, and the few
+               pixels of descender space under it grow #game past the viewport
+               and put a scrollbar on the page. */
+            html,
+            body {
+                margin: 0;
+                height: 100%;
+                overflow: hidden;
+                background: #111;
+            }
+            canvas {
+                display: block;
+            }
+        </style>
     </head>
     <body>
-        <canvas id="gameCanvas"></canvas>
+        <div id="game"></div>
 
         <script>
-            // Load order matters — see CLAUDE.md. Injected scripts default to
-            // async, so async=false is what keeps them executing in this order.
-            // Phaser is vendored rather than pulled from a CDN so the "serve
-            // the folder and reload" dev loop keeps working offline, and so a
-            // CDN outage cannot take the game down. It is first because every
-            // scene file below reads the `Phaser` global at parse time.
             for (const src of [
                 "vendor/phaser.min.js",
                 "track.js",
-                "trackEditor.js",
-                "carSprites.js",
-                "ai.js",
-                "startLights.js",
-                "waypointEditor.js",
-                "debugHUD.js",
-                "engineClass.js",
-                "debugConfig.js",
-                "keyBindings.js",
-                "sound.js",
                 "rain.js",
                 "night.js",
+                "sound.js",
+                // The grid-start countdown — Sound.beep() above is the only
+                // thing it calls, and raceScene.js is the only thing that
+                // calls it, so it just needs to land somewhere before that.
+                "startLights.js",
                 "quality.js",
-                "screens.js",
-                "game.js",
+                // The opponent driver and the numbers it drives on. This page
+                // does not load debugConfig.js: that panel tunes the legacy
+                // loop, and it lives on editor.html now, so ai.js and
+                // carStats.js carry the shipped numbers themselves and treat
+                // the panel as an override that may not be there. engineClass.js
+                // and rain.js hand out scalars, and ai.js needs no changes at
+                // all — drive() already returns the input shape MatterCar.step
+                // takes.
+                "engineClass.js",
+                "ai.js",
+                "carStats.js",
+                // The real car art. Bakes to a canvas per livery — see
+                // phaser/renderScale.js for who tells it when to re-bake.
+                "carSprites.js",
+                // Remappable controls, straight out of the legacy game and
+                // unmodified: keyBindings.js owns the store and the rebind
+                // screen's own drawing, phaser/playerInput.js is what turns a
+                // binding into the four booleans RaceScene feeds MatterCar.
+                "keyBindings.js",
+                "phaser/playerInput.js",
+                "phaser/matterCar.js",
+                // Rubber on the road. Reads carSprites.js's sprite grid for
+                // where the tires are, and rain.js for how wet it is.
+                "phaser/skidMarks.js",
+                "phaser/raceGrid.js",
+                "phaser/raceLaps.js",
+                "phaser/raceConditions.js",
+                // camera/viewZoom/ctx: the globals rain.js and night.js read
+                // to draw, standing in for game.js's own so both files run on
+                // this page completely unmodified. Needed before renderScale.js,
+                // which is what keeps camera.width/height current.
+                "phaser/worldCamera.js",
+                "phaser/renderScale.js",
+                // window keydown/mousedown -> Sound.unlock(), and the M mute
+                // toggle, the same two hooks game.js wires on its own canvas
+                // and window listeners.
+                "phaser/soundHooks.js",
+                // Step 5: the UI overlay. menuData.js is the picker's own
+                // copy of TRACKS/MODES (see its header for why it's not
+                // shared with game.js), uiCanvas.js is the overlay <canvas>
+                // every screen in this step draws onto. records.js is the
+                // lap/total-times store (its own physics-version reset, not
+                // shared game.js globals); the *Screen.js files are the
+                // ported draw+hit-test for each screen, loaded before the
+                // scenes/RaceScene that call them every frame; credits.js is
+                // the data loader (credits.json, with its built-in fallback).
+                "phaser/menuData.js",
+                "phaser/uiCanvas.js",
+                "phaser/records.js",
+                "phaser/credits.js",
+                "phaser/debugOverlay.js",
+                "phaser/menuScreen.js",
+                "phaser/hudScreen.js",
+                "phaser/recordsScreen.js",
+                "phaser/resultsScreen.js",
+                "phaser/creditsScreen.js",
+                "phaser/raceScene.js",
+                "phaser/menuScene.js",
+                "phaser/recordsScene.js",
             ]) {
                 const s = document.createElement("script");
                 s.src = `${src}?v=${window.BUILD}`;
@@ -57,7 +118,26 @@
             }
 
             window.addEventListener("load", () => {
-                document.title = `Canvas Cruiser ${GAME_VERSION}`;
+                document.title = `Canvas Cruiser ${window.BUILD}`;
+
+                // Page-level: both scenes read the bindings, and neither owns
+                // them.
+                KeyBindings.load();
+
+                window.phaserGame = new Phaser.Game({
+                    type: Phaser.AUTO,
+                    parent: "game",
+                    width: window.innerWidth,
+                    height: window.innerHeight,
+                    physics: {
+                        default: "matter",
+                        matter: { gravity: { x: 0, y: 0 }, debug: false },
+                    },
+                    // MenuScene is first, so Phaser starts on it; it starts
+                    // RaceScene on START and RecordsScene on Q. RaceScene
+                    // hands back to either once the flag falls.
+                    scene: [MenuScene, RaceScene, RecordsScene],
+                });
             });
         </script>
     </body>

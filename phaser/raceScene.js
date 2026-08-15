@@ -225,7 +225,10 @@ class RaceScene extends Phaser.Scene {
 
     this.cameras.main.startFollow(this.player.sprite);
 
-    if (new URLSearchParams(location.search).has("debug")) this.drawGridDebug();
+    // `?debug=1`: the grid/gate/ring geometry once, here, and the live panel
+    // every frame from update(). See phaser/debugOverlay.js for why it is a URL
+    // flag and not a key.
+    if (DebugOverlay.init()) this.drawGridDebug();
 
     // P/N are the legacy loop's manual weather/night toggles (game.js:888-896)
     // — never active in its menu, but always live in a race, DEBUG or not,
@@ -760,6 +763,7 @@ class RaceScene extends Phaser.Scene {
       StartLights.draw(UI.ctx, UI.width, UI.height);
       Rain.drawHUD();
       Night.drawHUD();
+      DebugOverlay.draw(this, standings); // over everything, or the veil dims it
     }
 
     this.report.speed = p.speed.toFixed(2);

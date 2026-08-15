@@ -1,28 +1,28 @@
-// debugConfig.js
+// debugConfig.js — the editor page's tuning panel.
+//
+// This file is loaded by editor.html only. The game runs on Matter now, and
+// half these sliders would be lying about what they control there; what still
+// earns its keep is the spawn block, which is how a starting grid's numbers are
+// found before they go into a track file. The rest tunes the legacy loop the
+// editor's pace car runs on, which is worth having while a line is being cut.
+//
+// It defines none of the shipped numbers any more. Every default below is
+// seeded in seedDefaults() from the file that owns it — carStats.js and ai.js —
+// because a second copy of a number here was always the copy that won.
 
 const DebugConfig = {
   visible: false,
 
-  // The speed numbers below are the 100cc baseline. What the cars actually get
-  // is these times the selected engine class's multiplier — apply() is where
-  // the two meet, so dragging a slider tunes every class at once.
+  // The speed numbers here are the 100cc baseline. What the cars actually get
+  // is these times the selected engine class's multiplier — applyCarStats() is
+  // where the two meet, so dragging a slider tunes every class at once.
+  //
+  // There are no AI speed, turn or grip sliders: the opponents drive the
+  // player's car, so the player block is theirs too and a second set could only
+  // ever be a way to make them a different vehicle again. The `ai*` keys tune
+  // the driver.
   defaults: {
-    // Player
-    playerAcceleration: 0.2,
-    playerMaxSpeed: 10,
-    playerTurnSpeed: 0.06,
-    playerDriftGrip: 0.1,
-
-    // AI. There are no speed, turn or grip sliders here any more: the
-    // opponents drive the player's car, so the four above are theirs too and
-    // a second set of them could only ever be a way to make them a different
-    // vehicle again. What is left tunes the driver.
-    aiSkillMin: 0.85,
-    aiSkillMax: 1.0,
-    aiCornerMargin: 0.86,
-    aiLineOffsetRange: 40,
-    aiAvoidRadius: 120,
-    aiAvoidStrength: 55,
+    // Player and AI — filled in from CAR_STATS and ai.js by seedDefaults()
 
     // Collision
     collisionHalfW: 1.0, // multiplier of car.width
@@ -59,15 +59,29 @@ const DebugConfig = {
   // whatever the balance was on the day they opened it.
   aiVersion: 4,
 
-  // Defaults that live in game.js. This file is parsed first, so they cannot
-  // be written into the `defaults` literal — SPAWN_POSITIONS and MAX_DPR do
-  // not exist yet at that point.
+  // Every shipped number the panel can move, read back from the file that owns
+  // it. None of them can go in the `defaults` literal above: SPAWN_POSITIONS
+  // and MAX_DPR live in game.js, which is parsed last, and the rest belong to
+  // carStats.js and ai.js on principle — the panel overrides values, it does
+  // not define them.
   //
   // SPAWN_POSITIONS — itself filled from the loaded track's `spawn` block — is
   // the one source of truth for the starting grid; the sliders only nudge it at
   // runtime. Keeping a second copy of the numbers here let the two drift apart,
   // and this copy was the one that won.
   seedDefaults() {
+    this.defaults.playerAcceleration = CAR_STATS.acceleration;
+    this.defaults.playerMaxSpeed = CAR_STATS.maxSpeed;
+    this.defaults.playerTurnSpeed = CAR_STATS.turnSpeed;
+    this.defaults.playerDriftGrip = CAR_STATS.driftGrip;
+
+    this.defaults.aiSkillMin = SKILL_MIN;
+    this.defaults.aiSkillMax = SKILL_MAX;
+    this.defaults.aiCornerMargin = CORNER_MARGIN;
+    this.defaults.aiLineOffsetRange = LINE_OFFSET_RANGE;
+    this.defaults.aiAvoidRadius = AVOID_RADIUS;
+    this.defaults.aiAvoidStrength = AVOID_STRENGTH;
+
     SPAWN_POSITIONS.forEach((pos, i) => {
       const name = i === 0 ? "Player" : `AI${i}`;
       this.defaults[`spawn${name}X`] = pos.x;
@@ -264,10 +278,10 @@ const DebugConfig = {
     // what multiplies the engine class into them, for the opponents as well,
     // so the field stays as close in a 60cc race as in a 250cc one. Turn
     // speed and grip are not scaled by class — see engineClass.js.
-    applyCarStats(car, v);
+    applyCarStats(car);
     opponents.forEach((ai) => {
-      applyCarStats(ai, v);
-      ai.rollDriver(v);
+      applyCarStats(ai);
+      ai.rollDriver();
     });
 
     // StartLights

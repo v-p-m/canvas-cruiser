@@ -73,9 +73,20 @@ waypoint ring says where the lap is. Both live in the track file.
   tight hairpin — a car can latch onto the wrong one, which misplaces it in the
   standings as well as at the gate.
 
-`B` then the debug overlay draws all of this: the ring, the gate band, and each
-car's projection onto it with its lap percentage. It is the fastest way to see
-that a new track's gate landed somewhere sane.
+All of this is drawn for you in two places. On the game page (`index.html`,
+Phaser), `?debug=1` draws the ring, the gate band and the start line, and the
+live panel beside it carries the frame cost and each car's lap. On the editor
+page (`editor.html`, the legacy loop that hosts the tools) the overlay adds each
+car's projection onto the ring with its lap percentage. Either is the fastest
+way to see that a new track's gate landed somewhere sane.
+
+**`editor.html` is where the editing happens.** It opens straight into the
+waypoint editor — no DEBUG to unlock, no menu row — and the track editor is `T`
+from there. What it authors is a track file, and a track file is
+renderer-independent, so what you cut here is exactly what the game races. The
+one caveat is the pace car below: it previews the line under the legacy physics
+the editor page runs on, which laps a couple of percent quicker than the game's
+Matter build. Read it for the *line*, not for the clock.
 
 `E` is the waypoint editor. A click drops a marker at the end of the ring, or
 **into** it when the click lands on the line — the segment under the cursor

@@ -14,9 +14,12 @@
 let renderDpr = 1;
 
 // Ports game.js's own MAX_DPR (game.js:288) — the frame is fill-rate bound,
-// so cost is linear in dpr². There is no manual-override slider on this page
-// yet (step 5's `B` stub), so Quality.cap is the only thing that ever moves
-// this down from here.
+// so cost is linear in dpr². There is no manual-override slider on this page —
+// the tuning panel that carried one went to editor.html, where it tunes the
+// legacy loop — so Quality.cap is the only thing that ever moves this down
+// from here, and `Quality.auto` is therefore always true in practice. The
+// branch stays because the ?debug=1 panel prints the cap, and printing a
+// number the code cannot honour is how a readout starts lying.
 const MAX_DPR = 1.5;
 
 function currentMaxDpr() {

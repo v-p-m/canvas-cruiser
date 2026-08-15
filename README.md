@@ -81,10 +81,13 @@ missing or malformed the game falls back to a built-in roll.
 - Lap timing with a top-5 leaderboard and best total times, kept per circuit
   and per engine class (persisted to localStorage)
 - Retro arcade countdown lights on race start
-- Built-in track and waypoint editors, plus live physics/AI tuning sliders
-  (debug mode: `B`, then `T`, `E` or `C` — from the start menu too, where the
-  view becomes a free camera: right-drag or arrows to pan, wheel or `+`/`-` to
-  zoom out to the whole circuit, `0` back to 1x)
+- Built-in track and waypoint editors, plus live physics/AI tuning sliders, on
+  their own page: open `editor.html` and it starts in the waypoint editor, with
+  `T` for the track editor and `C` for the sliders. The view there is a free
+  camera: right-drag or arrows to pan, wheel or `+`/`-` to zoom out to the whole
+  circuit, `0` back to 1x
+- `?debug=1` on the game itself draws the AI ring, the lap gate and the start
+  line, with a live panel for frame cost and the field's lap times
 
 ## Tech Stack
 - HTML5 Canvas API
