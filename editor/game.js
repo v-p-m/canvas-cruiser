@@ -1679,7 +1679,8 @@ function stepCarControls(entity, input, delta) {
       Math.abs(entity.speed) <= drop
         ? 0
         : entity.speed - Math.sign(entity.speed) * drop;
-  } else if (input.accel) entity.speed += entity.acceleration * delta;
+  } else if (input.accel)
+    entity.speed += entity.acceleration * Rain.accelScale() * delta;
   else if (input.brake) entity.speed -= entity.acceleration * delta;
   else entity.speed *= Math.pow(entity.friction + Rain.frictionBonus(), delta);
 

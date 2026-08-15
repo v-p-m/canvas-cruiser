@@ -34,6 +34,12 @@ const Rain = {
   HYDRO_PENALTY: 0.55, // extra grip multiplier at full speed in a puddle
   HYDRO_SPEED_FLOOR: 0.35, // fraction of maxSpeed below which a puddle does nothing
 
+  // Wet tarmac costs drive out of a corner, not just lateral grip: a car that
+  // still picked up speed dry-fast made the wet feel like a visual filter with
+  // a slippery exit. Scales the throttle only — braking keeps its dry authority
+  // so the AI's geometric corner speed (ai.js) still means what it says.
+  ACCEL_PENALTY: 0.78, // scales acceleration when fully wet
+
   // Wet asphalt is darker, not just cooler — the old overlay was a light
   // blue-grey haze that read as a colour grade rather than a soaked track.
   // A darker, more opaque fill does the same full-viewport-blit trick
@@ -187,6 +193,10 @@ const Rain = {
 
   frictionBonus() {
     return this.intensity * this.FRICTION_BONUS;
+  },
+
+  accelScale() {
+    return 1 - this.intensity * (1 - this.ACCEL_PENALTY);
   },
 
   // A second, independent multiplier a car reads alongside gripScale() —
