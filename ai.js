@@ -25,7 +25,25 @@
 // corner, not how tight a circle it can describe. What it does change is how
 // far the slide carries the car off the marker it aimed at, and that is what
 // the margin below pays for.
-const CORNER_MARGIN = 0.86; // fraction of the geometric limit a perfect driver takes
+//
+// 0.15.0 took this from 0.86 to 0.64 to give the player a little more room.
+// It is the right dial for that because it is the only one that costs time in
+// the corners without costing precision: measured on Super Circuit, seeded, a
+// full five-car field, mean best lap over the field, the wheels stay on the
+// road either side of the change (off-road 0.4% → 0.5% of a lap). Lowering the
+// skill band instead buys pace back at half the rate and pays for it in
+// wander, which is a field that wobbles rather than one that brakes.
+//
+//   Super 100cc dry   10.46 → 10.79  (+3.1%)
+//   Super 100cc wet   11.84 → 12.48  (+5.4%)   — WET_MARGIN multiplies this
+//   Super 250cc dry    8.67 →  9.25  (+6.7%)
+//   Snake Valley 100cc dry 13.43 → 13.60  (+1.3%)
+//
+// The spread is the constant telling the truth about what it does: it only
+// binds where a corner binds. Valley's corners are open enough that almost
+// nothing does, and the wet and 250cc are where they bite hardest — which is
+// where the player was losing anyway, so the relief lands where it was wanted.
+const CORNER_MARGIN = 0.64; // fraction of the geometric limit a perfect driver takes
 const LOOKAHEAD_DIST = 1200; // world px — stop scanning once this far ahead
 
 // The driver spread. These live here, beside the rest of the driver's numbers,
