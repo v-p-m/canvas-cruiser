@@ -15,13 +15,13 @@ One file per circuit in [tracks/](../../../tracks/), carrying its tile `map`, it
   authored at 32×25 and sits in a grass margin. Nothing in the code hardcodes
   the size; growing a track means recentring its `map` and shifting every
   waypoint and spawn by the same offset.
-- **Register it in `TRACKS` at the top of `game.js`** — id, file, label. The id
+- **Register it in `TRACKS` at the top of `editor/game.js`** — id, file, label. The id
   keys the records tables and the debug panel's saved grid, so changing one
   starts that circuit's records over; the file and the label are free.
-- **The starting grid is track data.** `SPAWN_POSITIONS` in `game.js` holds only
+- **The starting grid is track data.** `SPAWN_POSITIONS` in `editor/game.js` holds only
   the liveries; `applyTrackSpawns()` fills the coordinates from the `spawn`
   block, and a file without one gets the field stacked on waypoint 0. Bump
-  `spawnVersion` in `debugConfig.js` when a shipped grid moves.
+  `spawnVersion` in `editor/debugConfig.js` when a shipped grid moves.
 - **Switching circuits reloads `worldTrack` in place.** `onTrackLoaded()` is the
   list of everything cut to fit the old one — the waypoint ring, the grid, the
   skid layer's size, the records on screen. Anything else derived from map
@@ -48,7 +48,7 @@ waypoint ring says where the lap is. Both live in the track file.
   lap counter and the ring wrap at the same place; put waypoint 0 elsewhere and
   the standings flicker every time a car takes the flag.
 - **A crossing only counts if the car passed the lap gate first** — the stretch
-  of lap between `LAP_GATE_FROM` and `LAP_GATE_TO` in `game.js`, currently 40%
+  of lap between `LAP_GATE_FROM` and `LAP_GATE_TO` in `editor/game.js`, currently 40%
   to 65% of the way round. Without it, reversing back and forth over the line
   scores a lap a second. The gate is a stretch rather than a point so it can't
   be jumped, and it is kept far from the line so the reversing it blocks can't

@@ -38,26 +38,31 @@
         <script>
             // Load order matters — see CLAUDE.md. Injected scripts default to
             // async, so async=false is what keeps them executing in this order.
+            //
+            // Bare paths are the files both pages load; everything under
+            // editor/ exists only here. That split is the directory layout's
+            // job — if a file at the root grows a `DebugConfig.x` that isn't
+            // behind a `typeof` guard, it has just broken index.html.
             for (const src of [
                 "track.js",
-                "trackEditor.js",
+                "editor/trackEditor.js",
                 "carStats.js",
                 "carSprites.js",
                 "ai.js",
                 "startLights.js",
-                "waypointEditor.js",
-                "debugHUD.js",
+                "editor/waypointEditor.js",
+                "editor/debugHUD.js",
                 "engineClass.js",
                 // After ai.js and carStats.js: the panel seeds its defaults
                 // from their constants rather than keeping a second copy.
-                "debugConfig.js",
+                "editor/debugConfig.js",
                 "keyBindings.js",
                 "sound.js",
                 "rain.js",
                 "night.js",
                 "quality.js",
-                "screens.js",
-                "game.js",
+                "editor/screens.js",
+                "editor/game.js",
             ]) {
                 const s = document.createElement("script");
                 s.src = `${src}?v=${window.BUILD}`;

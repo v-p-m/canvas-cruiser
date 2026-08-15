@@ -29,7 +29,7 @@ chromium-browser --headless --no-sandbox --disable-gpu \
 ```
 
 To see the race itself (not just the menu), you have to drive the game with
-synthetic input. `game.js` listens on **`window`**, so events must be dispatched
+synthetic input. `editor/game.js` listens on **`window`**, so events must be dispatched
 on `window` (or with `bubbles: true`) — `document.dispatchEvent` is silently
 ignored. Don't add a harness file to the repo; build one in the scratchpad from
 symlinks.
@@ -144,3 +144,30 @@ page `console.log` does not reach stderr here. Note also that
 `--force-device-scale-factor=2` on the Phaser page is roughly four times the
 software-raster work: budget minutes, not seconds, or the screenshot never
 lands.
+
+Three more things that only bite on `index.html`:
+
+- **Restoring the real `rAF` wants seconds, not milliseconds.** 500ms before an
+  8s capture reproducibly rendered one car out of six with every entity and
+  texture checking out on inspection. Give it 3000ms+; a screenshot missing
+  objects the object model swears are there is a compositing-timing bug in the
+  harness before it is a rendering bug in the page.
+- **Phaser's keyboard plugin dispatches off `event.keyCode`**, so a synthetic
+  `KeyboardEvent` carrying only `{key}` is received and silently ignored — the
+  menu never moves. Send `keyCode`/`which` too. The rebind screen is the
+  exception: it listens on the DOM for `e.key`, so it *does* answer a
+  `{key}`-only event, which makes a harness look half-broken until you notice
+  the two paths differ on purpose. For held driving input, set
+  `PlayerInput.down["ArrowUp"] = true` — the same trick as the legacy page's
+  `keys[...]`.
+- Both pages append their `<script>`s from an inline loop, so **none of them
+  have run when an injected inline script parses** — a harness touching
+  `RaceScene` at the top level throws a ReferenceError and takes every reporter
+  down with it, leaving an empty page and no console to say so. Patch on
+  `window.load`: each page's own listener is registered first, so the game
+  exists and `create()` has not finished.
+
+Finally: stale `python3 -m http.server` processes from old sessions squat on
+8123/8124/8137, and a silent bind failure just keeps serving the *old*
+directory — so you get 404s on a file you can see on disk. Check `ss -ltnp`
+before trusting a port.
