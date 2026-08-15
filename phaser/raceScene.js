@@ -688,6 +688,16 @@ class RaceScene extends Phaser.Scene {
     // the camera's midpoint, so with RenderScale's setZoom(renderDpr) the two
     // differ by (cam.width/2)(1 - 1/zoom), a third of a screen on a retina
     // display, and every floodlight and headlight beam lands that far off.
+    //
+    // preRender() first, because a follow camera only resolves its scroll to
+    // this frame's sprite positions when Phaser renders — after update(), which
+    // is where the overlay is drawn. Read cold, worldView is still last frame's,
+    // so everything on the overlay trails the car by one frame of camera travel
+    // (~5 world px at speed): the tail lights slid off the back under throttle
+    // and off the front in reverse. startFollow() here takes no lerp, so the
+    // scroll is a snap to the target and Phaser's own call at render lands on
+    // the same numbers — this one is idempotent, not a second step.
+    this.cameras.main.preRender();
     camera.x = this.cameras.main.worldView.x;
     camera.y = this.cameras.main.worldView.y;
 
