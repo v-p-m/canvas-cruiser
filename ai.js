@@ -142,29 +142,36 @@ const CRAB_COMP = 0.3; // fraction of the measured slip angle steered against
 // to undo the opponents' double grip and to hand back the pace that cost them;
 // with one car on the grid there is nothing to undo.
 //
-// How much room is the whole balance of a wet race, because **the player is
-// barely slowed by rain and the opponents are slowed by this number**. Nothing
-// the rain touches limits the player: max speed is untouched, the corner is
-// geometric so `turnSpeed` still describes the same radius, and the friction
-// bonus makes a coasting car shed *less*. Driving the dry policy through a
-// fully wet lap costs 0.7s — that is the whole physical price of rain, and it
-// is what a player who does not lift pays.
+// Before 0.14.0 this constant carried the *whole* balance of a wet race,
+// because the player was barely slowed by rain and the opponents were slowed
+// by this number alone — nothing the rain touched limited the player (max
+// speed untouched, cornering geometric, and the friction bonus made a
+// coasting car shed *less*), so the corner margin below was the only knob
+// that made rain cost anyone anything. Driving the dry policy through a fully
+// wet lap cost 0.7s — the whole physical price of rain, and what a player who
+// didn't lift paid.
 //
-// Against that, 0.45 was a 2.3–2.5s handicap the opponents took and the player
-// did not, and it bought nothing: a field at 0.75 in the rain runs *tidier*
-// than the same field does in the dry (Super Circuit, five cars, shipped skill
-// spread — 6.5% of a 100cc lap with a wheel off wet against 10.5% dry, and at
-// 250cc 5.6% against 13.4%). The earlier reading that put 250cc wet at ~15%
-// properly off the road belonged to the polygon line and did not survive the
-// rewrite: it measures 0.6% now, and braking is not what holds it there.
+// rain.js's own constants changed that: GRIP_PENALTY dropped (0.55 → 0.42),
+// the friction bonus that used to give a wet car *more* coasting speed is
+// gone, and a puddle underfoot now costs extra grip of its own
+// (`Rain.puddleGripAt`), gated on actual speed so it reads as aquaplaning
+// rather than a second ambient penalty. That is real physics, and it falls on
+// the player exactly as it falls on every AICar — the dry-policy-through-rain
+// measure above is now 1.4s/lap (Phaser build, Super Circuit, deterministic
+// reference car per the harness below), double what it was.
 //
-// Per lap, five cars, dry → wet at 0.45 → wet at this value: Super 100cc 10.4
-// → 12.8 → 11.4s, Super 250cc 8.8 → 11.3 → 9.9s, Snake Valley 100cc 13.3 →
-// 15.5 → 14.2s. The ~1s left in it is deliberate — the rain should still be
-// visible in how they drive, corner braking going from dormant to 1.5% of a
-// 100cc lap and 4% of a 250cc one — but it is a second, not a free win. At 0.9
-// they are as quick in the wet as in the dry.
-const WET_MARGIN = 0.75; // fraction of the dry corner margin when fully wet
+// WET_MARGIN's job has shrunk accordingly: it no longer has to make up for an
+// unaffected player, just add a little extra caution on top of a corner grip
+// everyone already pays for — so this went *up* (gentler cut), not down.
+// Per lap, one deterministic reference car (skill 1, no wander, no line
+// offset, player argument nulled to kill catch-up — see ai-wet-margin in
+// memory for the harness): Super Circuit 100cc dry 9.85s, wet at 1.0 (physics
+// only) 11.23s, wet at this value 11.37s. The margin's own contribution is
+// ~0.15s now, down from most of a 2-second swing pre-0.14.0; wheel-off stays
+// flat at ~2% either side of it, so the extra caution buys style, not safety,
+// on this circuit. Only Super Circuit was re-measured this session — Snake
+// Valley hasn't been checked against the new physics yet.
+const WET_MARGIN = 0.85; // fraction of the dry corner margin when fully wet
 
 // Catch-up, measured as a gap in waypoints along the track rather than in
 // straight-line pixels — two cars either side of a hairpin are close in

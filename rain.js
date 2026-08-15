@@ -16,10 +16,35 @@ const Rain = {
   MAX_DROPS: 600,
   puddles: [], // static world-space puddles drawn on track
   MAX_PUDDLES: 40,
+  splashes: [], // short-lived rings where a drop just hit the ground
+  SPLASH_LIFE: 10, // delta units (~frames at 60fps) a splash ring lives
 
   // How much rain damps grip / friction
-  GRIP_PENALTY: 0.55, // scales driftGrip when fully wet
-  FRICTION_BONUS: 0.015, // added to friction (closer to 1 = less slowdown)
+  GRIP_PENALTY: 0.42, // scales driftGrip when fully wet
+  FRICTION_BONUS: 0, // real asphalt doesn't coast faster wet — see BUILD 0.14.0 notes
+
+  // Puddles used to be scenery: GRIP_PENALTY is a constant scale, so a fully
+  // wet lap felt like one uniform-viscosity corner rather than rain. A puddle
+  // underneath the car is the moment that should read as *weather* — a sharp,
+  // speed-gated grip drop rather than the ambient one — so aquaplaning is
+  // its own multiplier, keyed to actual puddle geometry instead of a re-skin
+  // of the intensity scalar.
+  HYDRO_PENALTY: 0.55, // extra grip multiplier at full speed in a puddle
+  HYDRO_SPEED_FLOOR: 0.35, // fraction of maxSpeed below which a puddle does nothing
+
+  // Wet asphalt is darker, not just cooler — the old overlay was a light
+  // blue-grey haze that read as a colour grade rather than a soaked track.
+  // A darker, more opaque fill does the same full-viewport-blit trick
+  // (see the perf notes in memory) but actually reads as "wet" rather than
+  // "tinted". Plain alpha blending rather than a multiply composite: on the
+  // Phaser page this paints onto UI.ctx, a *separate* transparent canvas
+  // stacked over the Phaser one (see phaser/worldCamera.js) — the browser
+  // composites the two normally regardless of what ctx.globalCompositeOperation
+  // says, so `multiply` here would only affect drawing already on UI.ctx
+  // (next to none) and be a no-op against the scene underneath. Normal
+  // alpha-over works identically on both pages, which `multiply` would not.
+  OVERLAY_ALPHA: 0.3, // at full intensity
+  OVERLAY_COLOR: "#1c2733",
 
   toggle() {
     if (this.targetIntensity === 0) {
@@ -67,7 +92,7 @@ const Rain = {
         y: py,
         rx: 10 + Math.random() * 22,
         ry: 5 + Math.random() * 12,
-        alpha: 0.18 + Math.random() * 0.18,
+        alpha: 0.3 + Math.random() * 0.25,
         ripple: Math.random() * Math.PI * 2,
       });
     }
@@ -81,6 +106,10 @@ const Rain = {
       len: 8 + Math.random() * 10,
       speed: 14 + Math.random() * 10,
       alpha: 0.25 + Math.random() * 0.35,
+      // Where this drop lands and splashes — not the bottom of the viewport,
+      // or every splash would queue up in one line there instead of reading
+      // as rain hitting the road across the whole screen.
+      landY: camera.height * (0.3 + Math.random() * 0.7),
     };
   },
 
@@ -107,11 +136,21 @@ const Rain = {
     this.drops.forEach((d) => {
       d.y += d.speed * delta;
       d.x += 2 * delta; // slight angle
-      if (d.y > camera.height + 20) {
+      if (d.y >= d.landY) {
+        this.splashes.push({ x: d.x, y: d.landY, age: 0 });
         d.y = -20;
         d.x = Math.random() * camera.width;
+        d.landY = camera.height * (0.3 + Math.random() * 0.7);
       }
     });
+
+    // Age out splashes. Bounded by drop count and fall speed, not a cap of
+    // its own — at MAX_DROPS a handful are ever alive at once.
+    for (let i = this.splashes.length - 1; i >= 0; i--) {
+      const s = this.splashes[i];
+      s.age += delta;
+      if (s.age > this.SPLASH_LIFE) this.splashes.splice(i, 1);
+    }
 
     // Animate puddle ripples
     this.puddles.forEach((p) => {
@@ -129,6 +168,28 @@ const Rain = {
 
   frictionBonus() {
     return this.intensity * this.FRICTION_BONUS;
+  },
+
+  // A second, independent multiplier a car reads alongside gripScale() —
+  // never folded into it, because it has to stay zero everywhere the car
+  // isn't over a puddle, and gripScale() has no notion of position. Takes
+  // the whole entity rather than x/y: it needs speed too, and every caller
+  // already has one. `driftGrip` composes by multiplication (see
+  // applyCarStats/entity.mods), so this scales the same way rather than
+  // overwriting it.
+  puddleGripAt(entity) {
+    if (this.intensity <= 0 || !entity.maxSpeed) return 1;
+    const speedFrac = Math.abs(entity.speed) / entity.maxSpeed;
+    if (speedFrac <= this.HYDRO_SPEED_FLOOR) return 1;
+    const speedT =
+      (speedFrac - this.HYDRO_SPEED_FLOOR) / (1 - this.HYDRO_SPEED_FLOOR);
+    for (const p of this.puddles) {
+      const dx = (entity.x - p.x) / p.rx;
+      const dy = (entity.y - p.y) / p.ry;
+      if (dx * dx + dy * dy > 1) continue;
+      return 1 - this.HYDRO_PENALTY * speedT * this.intensity;
+    }
+    return 1;
   },
 
   drawPuddles() {
@@ -151,8 +212,9 @@ const Rain = {
       ctx.globalAlpha = p.alpha * this.intensity;
       ctx.translate(sx, sy);
 
-      // Puddle ellipse
-      ctx.fillStyle = "#6aaccc";
+      // Puddle ellipse — darker than the old fill (#6aaccc): standing water
+      // over dark wet asphalt reads as deep, not as a light blue wash.
+      ctx.fillStyle = "#3d6478";
       ctx.beginPath();
       ctx.ellipse(0, 0, p.rx, p.ry, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -184,12 +246,30 @@ const Rain = {
     ctx.restore();
   },
 
+  // Screen-space, same as the drops that spawn them — a flattened ellipse so
+  // it reads as a ring on the ground plane rather than a circle floating in
+  // front of the camera, same trick drawPuddles() uses for its ripple.
+  drawSplashes() {
+    if (this.intensity <= 0 || this.splashes.length === 0) return;
+    ctx.save();
+    ctx.strokeStyle = "rgba(200,225,245,0.9)";
+    ctx.lineWidth = 1;
+    this.splashes.forEach((s) => {
+      const t = s.age / this.SPLASH_LIFE;
+      ctx.globalAlpha = (1 - t) * 0.5 * this.intensity;
+      const r = 2 + t * 5;
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y, r, r * 0.4, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+    ctx.restore();
+  },
+
   drawOverlay() {
     if (this.intensity <= 0) return;
-    // Slight blue-grey tint over the whole scene
     ctx.save();
-    ctx.globalAlpha = 0.1 * this.intensity;
-    ctx.fillStyle = "#6a9ab0";
+    ctx.globalAlpha = this.OVERLAY_ALPHA * this.intensity;
+    ctx.fillStyle = this.OVERLAY_COLOR;
     ctx.fillRect(0, 0, camera.width, camera.height);
     ctx.restore();
   },

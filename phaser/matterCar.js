@@ -103,7 +103,8 @@ const MatterCar = {
     // push the car off line instead of being overwritten next frame.
     const targetVx = Math.sin(entity.angle) * entity.speed;
     const targetVy = -Math.cos(entity.angle) * entity.speed;
-    const grip = entity.driftGrip * Rain.gripScale();
+    const grip =
+      entity.driftGrip * Rain.gripScale() * Rain.puddleGripAt(entity);
 
     const vx = body.velocity.x + (targetVx - body.velocity.x) * grip * delta;
     const vy = body.velocity.y + (targetVy - body.velocity.y) * grip * delta;

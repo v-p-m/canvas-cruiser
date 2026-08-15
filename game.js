@@ -1723,7 +1723,8 @@ function stepCarControls(entity, input, delta) {
 function stepCarMotion(entity, delta) {
   const targetVx = Math.sin(entity.angle) * entity.speed;
   const targetVy = -Math.cos(entity.angle) * entity.speed;
-  const grip = entity.driftGrip * Rain.gripScale();
+  const grip =
+    entity.driftGrip * Rain.gripScale() * Rain.puddleGripAt(entity);
   entity.velocityX += (targetVx - entity.velocityX) * grip * delta;
   entity.velocityY += (targetVy - entity.velocityY) * grip * delta;
 
@@ -2092,6 +2093,7 @@ function gameLoop(timestamp) {
   Rain.drawOverlay(); // scene tint — a full-viewport fill, so outside the zoom
   if (!TrackEditor.active) Night.drawLightLayer(lit); // the night goes over the
   Rain.drawDrops(); // tint and under the rain, so the streaks read as caught in it
+  Rain.drawSplashes(); // where the drops just drawn are landing
 
   // Back into world pixels: the lamps, the gate band and the waypoint ring are
   // drawn on the road, not on the screen.

@@ -89,6 +89,27 @@ class RaceScene extends Phaser.Scene {
     // Rain.drawPuddles() has to do for the legacy single-canvas loop.
     this.puddleGfx = this.add.graphics().setDepth(1);
 
+    // Wet spray, kicked up behind a car at speed — a rooster tail the legacy
+    // canvas loop has no equivalent for (Rain.drawDrops()/drawPuddles() are
+    // screen- and world-space respectively, but neither is per-car). Below
+    // the cars' own depth (2) so it reads as thrown up off the road, not
+    // sprayed across the bodywork. One shared emitter, manually triggered
+    // per car in updateSpray() rather than auto-emitting, since "behind the
+    // car, scaled by its speed" isn't a shape any of the built-in emit zones
+    // describe.
+    this.sprayEmitter = this.add
+      .particles(0, 0, this.sprayTexture(), {
+        lifespan: 380,
+        speed: { min: 30, max: 80 },
+        scale: { start: 1, end: 0 },
+        alpha: { start: 0.55, end: 0 },
+        tint: 0xbcd9ea,
+        gravityY: 70,
+        quantity: 0,
+        frequency: -1, // manual emitParticleAt() calls only
+      })
+      .setDepth(1.5);
+
     const w = this.world.bakedCanvas.width;
     const h = this.world.bakedCanvas.height;
     this.matter.world.setBounds(0, 0, w, h);
@@ -303,6 +324,28 @@ class RaceScene extends Phaser.Scene {
     return key;
   }
 
+  // A soft dot, baked once and reused by every car's spray — same "no PNGs,
+  // bake a canvas" rule CarSprites follows, just small enough it doesn't need
+  // CarSprites' whole livery-and-render-scale machinery. World-space particle
+  // scale does the sizing, so this never needs to be re-baked for dpr.
+  sprayTexture() {
+    const key = "spray";
+    if (this.textures.exists(key)) return key;
+    const c = document.createElement("canvas");
+    c.width = 6;
+    c.height = 6;
+    const g = c.getContext("2d");
+    const grad = g.createRadialGradient(3, 3, 0, 3, 3, 3);
+    grad.addColorStop(0, "rgba(255,255,255,0.9)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(3, 3, 3, 0, Math.PI * 2);
+    g.fill();
+    this.textures.addCanvas(key, c);
+    return key;
+  }
+
   // RenderScale calls this right after CarSprites.invalidate(): the baked
   // canvases behind these keys are gone, but the Phaser textures still point
   // at them by the same key string, so they have to go too — otherwise every
@@ -328,6 +371,52 @@ class RaceScene extends Phaser.Scene {
       const rScale = 0.5 + 0.5 * Math.abs(Math.sin(p.ripple));
       g.lineStyle(1, 0x96c8e6, 0.5 * Rain.intensity);
       g.strokeEllipse(p.x, p.y, p.rx * 2 * rScale, p.ry * 2 * rScale);
+    }
+  }
+
+  // One car, one frame — a small cone of droplets thrown out behind each
+  // rear tire, heavier the faster it's going and heavier still the instant
+  // it's over a puddle (Rain.puddleGripAt() is the same call MatterCar.step()
+  // just made for the grip itself, so the burst lines up with the physical
+  // kick rather than being its own guess at when that happens).
+  //
+  // Two points, not one on the centreline: a single point at the centre read
+  // as spraying out from under the middle of the car rather than off the
+  // tires (confirmed against a real build, not just the sim — the alive
+  // particle count was fine, it was *where* that was wrong). Placed with the
+  // same rotation matterCar.js's wheelOffRoad() uses for its own corner
+  // samples, at the same lateral inset (WHEEL_INSET_X) so it reads as the
+  // same tires — but pushed past the rear bumper (half the car's own
+  // length), not to the wheel's physics position, which sits inside the
+  // sprite: this only has to look right, and a spray still under the
+  // bodywork at depth 1.5 (below the car's own depth 2) is invisible.
+  updateSpray(entity) {
+    if (Rain.intensity <= 0) return;
+    const speedFrac = Math.abs(entity.speed) / entity.maxSpeed;
+    if (speedFrac < 0.3) return;
+
+    // Phaser's particle angle is degrees from +x, clockwise; the game's own
+    // `angle` is a compass bearing, 0 = north (matterCar.js's header) — so
+    // "behind the car" is the heading rotated 180°, converted once here.
+    const backDeg = (entity.angle * 180) / Math.PI + 90;
+    this.sprayEmitter.setEmitterAngle({ min: backDeg - 20, max: backDeg + 20 });
+
+    const hydro = Rain.puddleGripAt(entity) < 1;
+    const total = Math.round(
+      (hydro ? 3 : 1) * (0.5 + speedFrac) * Rain.intensity,
+    );
+    if (total <= 0) return;
+    const perWheel = Math.max(1, Math.round(total / 2));
+
+    const cos = Math.cos(entity.angle);
+    const sin = Math.sin(entity.angle);
+    const rear = entity.height * 0.6; // past the bumper (half-length = the edge) — see header
+    const lateral = entity.width * WHEEL_INSET_X; // same tire columns wheelOffRoad samples
+    for (const side of [-1, 1]) {
+      const lx = side * lateral;
+      const x = entity.x + lx * cos - rear * sin;
+      const y = entity.y + lx * sin + rear * cos;
+      this.sprayEmitter.emitParticleAt(x, y, perWheel);
     }
   }
 
@@ -455,6 +544,7 @@ class RaceScene extends Phaser.Scene {
       }
 
       RaceLaps.update(this.world, c.entity, time);
+      this.updateSpray(c.entity);
     }
 
     // The order is frozen the moment the player takes the flag, not when the
@@ -556,6 +646,7 @@ class RaceScene extends Phaser.Scene {
       Rain.drawOverlay(); // scene tint — a full-viewport fill
       Night.drawLightLayer(lit); // one half-res layer, blitted once — see night.js's header
       Rain.drawDrops(); // over the tint and the veil, so streaks read as caught in the light
+      Rain.drawSplashes(); // where the drops just drawn are landing
       Night.drawLamps(lit); // pylon heads and tail lights, over the veil or it puts them out
 
       HudScreen.draw(this, standings, time);
