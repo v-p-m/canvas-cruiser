@@ -135,10 +135,18 @@ class RaceScene extends Phaser.Scene {
     };
     window.addEventListener("resize", this.resizeHandler);
     this.collisionHandler = (event) => this.onCollisionStart(event);
-    this.matter.world.on("collisionstart", this.collisionHandler);
+    // Captured now, not re-read as `this.matter.world` inside the shutdown
+    // callback below: Phaser's own Matter plugin registers its teardown
+    // earlier (at scene boot, before create() runs) than this handler does,
+    // so by the time this one fires on the way out, `this.matter.world` has
+    // already gone null and `.off` on it throws — killing the scene-switch
+    // this exit was trying to make (any of ESC, "race again" or "main menu"
+    // out of the results screen).
+    const matterWorld = this.matter.world;
+    matterWorld.on("collisionstart", this.collisionHandler);
     this.events.once("shutdown", () => {
       window.removeEventListener("resize", this.resizeHandler);
-      this.matter.world.off("collisionstart", this.collisionHandler);
+      matterWorld.off("collisionstart", this.collisionHandler);
       UI.clickHandlers = UI.clickHandlers.filter((h) => h !== this.resultsClickHandler);
     });
 
@@ -627,12 +635,20 @@ class RaceScene extends Phaser.Scene {
 
     if (this.finishOrder) {
       ResultsScreen.draw(this);
-      // R/ESC only mean anything once the results screen is showing — there's
-      // no in-race reset or pause on this page yet, so these keys are silent
-      // until then rather than double as a shortcut mid-race.
+      // R only means anything once the results screen is showing — there's no
+      // in-race reset on this page yet, so it's silent until then rather than
+      // double as a shortcut mid-race. ESC exits from either state (below).
       if (Phaser.Input.Keyboard.JustDown(this.keys.R)) this.resultsActions().again();
       if (Phaser.Input.Keyboard.JustDown(this.keys.ESC)) this.resultsActions().menu();
     } else {
+      // Mid-race ESC — no pause/resume machinery yet (see resultsScreen.js's
+      // header), so this is a straight exit rather than the legacy loop's
+      // freeze-and-resume; same "menu" action the results screen's ESC uses.
+      if (Phaser.Input.Keyboard.JustDown(this.keys.ESC)) {
+        this.resultsActions().menu();
+        return;
+      }
+
       // UI.ctx is one persistent canvas, never cleared for us — HudScreen's
       // own draws only ever repaint their own widgets, so without this the
       // rain tint/night veil/drops below (all full-viewport, semi-transparent)
