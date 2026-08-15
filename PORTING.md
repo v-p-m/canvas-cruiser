@@ -840,11 +840,15 @@ as a non-finite `setTargetAtTime` out of `sound.js`. Guard with
 
 ## Housekeeping
 
-- `BUILD` is `0.14.0-dev`, declared in **both** `index.html` and `editor.html`.
-  Set both to `0.14.0` at release — it is the version, the window title and the
-  cache buster. Anything newly fetched or linked needs the same `?v=` stamp.
-- CLAUDE.md's file table is updated for the two-page split and for
-  `carStats.js`, but the `phaser/` files are still documented here rather than
-  there. Folding them into the table is worth doing before 0.14.0 ships.
+- `BUILD` is `0.14.0` — **done at release**, declared in and bumped in both
+  `index.html` and `editor.html`. One number for both pages on purpose: it is
+  the cache buster as well as the version, and the two pages share a dozen
+  files, so separate numbers would let a shared-file fix bumped on one page
+  leave the other serving a stale copy. Anything newly fetched or linked needs
+  the same `?v=` stamp. (The favicons in both pages are still unstamped —
+  pre-existing, harmless, they self-heal on the same `max-age=600` as the HTML.)
+- CLAUDE.md's file table now covers the `phaser/` files — **done at release**,
+  in its own sub-table under **Layout**. This file stays the step-by-step
+  reasoning; the table is the one-line-per-file map.
 - `vendor/phaser.min.js` adds ~1.4 MB to first load on GitHub Pages
   (`max-age=600`, headers not configurable). Accepted cost of vendoring.
