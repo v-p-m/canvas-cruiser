@@ -19,6 +19,10 @@
                 "rain.js",
                 "night.js",
                 "sound.js",
+                // The grid-start countdown — Sound.beep() above is the only
+                // thing it calls, and raceScene.js is the only thing that
+                // calls it, so it just needs to land somewhere before that.
+                "startLights.js",
                 "quality.js",
                 // The opponent driver and the numbers it drives on, straight
                 // out of the legacy game: debugConfig.js is loaded for its

@@ -51,6 +51,9 @@ class RaceScene extends Phaser.Scene {
     this.playerLapsSeen = 0;
     this.finishOrder = null;
     this.isNewBestTotal = false;
+    // Armed lazily on the first update() — see there for why begin() can't
+    // just be called here.
+    this.startLightsArmed = false;
 
     // Falls back to Super Circuit for a direct scene.start("race")/restart
     // with no menu in front of it — a headless check, mainly.
@@ -505,6 +508,25 @@ class RaceScene extends Phaser.Scene {
     // model is expressed per frame, so the port has to feed it the same unit.
     const delta = Math.min(deltaMs / (1000 / 60), 3);
 
+    // Armed on the first tick rather than in create(): begin() stamps
+    // `_lastTick` with performance.now(), but everything else in this scene
+    // (RaceLaps included) runs on Phaser's own loop `time`, a different clock
+    // — see PORTING.md's laps note. Rebasing the tick onto `time` right after
+    // begin() is what keeps the lead-in timing out correctly both live and
+    // under a hand-stepped headless clock.
+    if (!this.startLightsArmed) {
+      this.startLightsArmed = true;
+      StartLights.begin();
+      StartLights._lastTick = time;
+    }
+    // No menu/pause overlay exists in this scene to fold into `held` — ESC
+    // exits the scene outright rather than freezing in place (see below).
+    StartLights.update(time, false);
+    // Same isRacing gate the legacy loop holds the whole race sim behind
+    // while the lights are still counting down (game.js:1928, 1936) — without
+    // it every car is free to leave the grid before the lights go off.
+    const blocking = StartLights.isBlocking();
+
     // Past the flag the player is a passenger — same rollOut coast-down the
     // legacy loop's finishHoldTimer window uses, just without the timer:
     // there's no roll-out draw to hold it open for yet (see resultsScreen.js's
@@ -512,10 +534,10 @@ class RaceScene extends Phaser.Scene {
     // this only matters to whatever a headless check reads off the entity.
     const finished = this.player.entity.finished;
     const input = {
-      accel: !finished && this.keys.UP.isDown,
-      brake: !finished && this.keys.DOWN.isDown,
-      left: !finished && this.keys.LEFT.isDown,
-      right: !finished && this.keys.RIGHT.isDown,
+      accel: !blocking && !finished && this.keys.UP.isDown,
+      brake: !blocking && !finished && this.keys.DOWN.isDown,
+      left: !blocking && !finished && this.keys.LEFT.isDown,
+      right: !blocking && !finished && this.keys.RIGHT.isDown,
       rollOut: finished,
     };
 
@@ -524,14 +546,16 @@ class RaceScene extends Phaser.Scene {
     // track. Everything downstream of them is the same function, the same
     // stats and the same Matter world.
     const me = this.player;
-    MatterCar.step(me.body, me.entity, input, delta, this.world);
-    updateSteerVisual(me.entity, delta);
+    if (!blocking) {
+      MatterCar.step(me.body, me.entity, input, delta, this.world);
+      updateSteerVisual(me.entity, delta);
 
-    const wps = this.world.data.waypoints;
-    for (const c of this.aiCars) {
-      const driving = c.entity.drive(wps, me.entity, this.opponents, delta);
-      MatterCar.step(c.body, c.entity, driving, delta, this.world);
-      updateSteerVisual(c.entity, delta);
+      const wps = this.world.data.waypoints;
+      for (const c of this.aiCars) {
+        const driving = c.entity.drive(wps, me.entity, this.opponents, delta);
+        MatterCar.step(c.body, c.entity, driving, delta, this.world);
+        updateSteerVisual(c.entity, delta);
+      }
     }
 
     // Read fresh every frame, the same way CarSprites.draw() does in the
@@ -558,8 +582,10 @@ class RaceScene extends Phaser.Scene {
         w.setRotation(steer);
       }
 
-      RaceLaps.update(this.world, c.entity, time);
-      this.updateSpray(c.entity);
+      if (!blocking) {
+        RaceLaps.update(this.world, c.entity, time);
+        this.updateSpray(c.entity);
+      }
     }
 
     // The order is frozen the moment the player takes the flag, not when the
@@ -636,7 +662,7 @@ class RaceScene extends Phaser.Scene {
     const slip = Math.abs(
       p.velocityX * Math.cos(p.angle) + p.velocityY * Math.sin(p.angle),
     );
-    Sound.update(p.speed, p.maxSpeed, input.accel, slip, !this.finishOrder);
+    Sound.update(p.speed, p.maxSpeed, input.accel, slip, !blocking && !this.finishOrder);
 
     this.drawPuddles(); // Phaser's own scene graph — stays live through the results screen too
 
@@ -673,6 +699,9 @@ class RaceScene extends Phaser.Scene {
       Night.drawLamps(lit); // pylon heads and tail lights, over the veil or it puts them out
 
       HudScreen.draw(this, standings, time);
+      // Same order the legacy loop draws in (game.js:2138-2150): over the
+      // HUD's own black bar, under nothing race-specific.
+      StartLights.draw(UI.ctx, UI.width, UI.height);
       Rain.drawHUD();
       Night.drawHUD();
     }
