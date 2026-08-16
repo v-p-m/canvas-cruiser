@@ -29,6 +29,24 @@ const MATTER_CAR = {
 const WHEEL_INSET_X = 0.36; // of half-width
 const WHEEL_INSET_Y = 0.34; // of half-height
 
+// The collision aftermath. All of it is dormant until phaser/impacts.js sets
+// `entity.spin`/`entity.unsettle`, so a lap driven clean costs nothing.
+// Kept high enough that the yaw integrates into a real rotation rather than a
+// twitch: total swing is roughly rate / (1 - SPIN_DECAY), so 0.95 turns
+// Impacts.YAW_MAX into most of a spin and a light knock into a few degrees.
+const SPIN_DECAY = 0.95; // of the yaw rate kept per frame
+const UNSETTLE_GRIP_LOSS = 0.6; // of grip, at a full-strength hit
+const UNSETTLE_FRAMES = 30; // to bleed a full-strength hit back to zero
+// Steering authority lost while unsettled. Without this the yaw is symmetric
+// on paper and wildly asymmetric in play: the AI's pure-pursuit controller
+// counter-steers on the very next frame, exactly and without hesitation, so it
+// cancels a spin as soon as the rate falls under its own turn rate — while the
+// player, who has to see it and react, wears the whole thing. The car that has
+// just been hit is sideways and its tires are not pointing where it is going;
+// taking the steering away for that moment is both what really happens and the
+// one version of this that costs a human and a bot the same.
+const UNSETTLE_STEER_LOSS = 0.75; // of turnSpeed, at a full-strength hit
+
 function wheelOffRoad(entity, world) {
   const cos = Math.cos(entity.angle);
   const sin = Math.sin(entity.angle);
@@ -89,13 +107,27 @@ const MatterCar = {
 
     // --- steering (stepCarControls) ---
     const flip = entity.speed >= 0 ? 1 : -1;
-    if (input.left) entity.angle -= entity.turnSpeed * flip * delta;
-    if (input.right) entity.angle += entity.turnSpeed * flip * delta;
+    const lock =
+      entity.turnSpeed * (1 - UNSETTLE_STEER_LOSS * (entity.unsettle || 0));
+    if (input.left) entity.angle -= lock * flip * delta;
+    if (input.right) entity.angle += lock * flip * delta;
 
     if (entity.speed !== 0 && (input.left || input.right)) {
       const scrubFactor =
         0.94 + 0.04 * (1 - Math.abs(entity.speed) / entity.maxSpeed);
       entity.speed *= Math.pow(scrubFactor, delta);
+    }
+
+    // --- collision yaw (phaser/impacts.js) ---
+    // Not part of the port: `spin` is only ever non-zero in the moment after a
+    // contact, so a lap driven clean runs the same lines as before this
+    // existed. It is added on top of the steering rather than handed to Matter
+    // because the line above writes `angle` outright — a body Matter was also
+    // rotating would have its rotation thrown away every frame.
+    if (entity.spin) {
+      entity.angle += entity.spin * delta;
+      entity.spin *= Math.pow(SPIN_DECAY, delta);
+      if (Math.abs(entity.spin) < 0.0005) entity.spin = 0;
     }
 
     // --- grip (stepCarMotion) ---
@@ -104,8 +136,16 @@ const MatterCar = {
     // push the car off line instead of being overwritten next frame.
     const targetVx = Math.sin(entity.angle) * entity.speed;
     const targetVy = -Math.cos(entity.angle) * entity.speed;
-    const grip =
-      entity.driftGrip * Rain.gripScale() * Rain.puddleGripAt(entity);
+    let grip = entity.driftGrip * Rain.gripScale() * Rain.puddleGripAt(entity);
+
+    // A car that has just been hit is unsettled: full grip would pull the
+    // sideways velocity Matter gave it back onto the heading within a few
+    // frames, which is exactly why a hit used to be a stutter and not a slide.
+    // Decays on the same per-frame `delta` unit as everything else here.
+    if (entity.unsettle > 0) {
+      grip *= 1 - UNSETTLE_GRIP_LOSS * entity.unsettle;
+      entity.unsettle = Math.max(0, entity.unsettle - delta / UNSETTLE_FRAMES);
+    }
 
     const vx = body.velocity.x + (targetVx - body.velocity.x) * grip * delta;
     const vy = body.velocity.y + (targetVy - body.velocity.y) * grip * delta;

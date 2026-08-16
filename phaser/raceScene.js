@@ -179,10 +179,11 @@ class RaceScene extends Phaser.Scene {
     this.grid = RaceGrid.build(this.world);
     this.cars = this.grid.map((slot, i) => this.spawnCar(slot, i));
     this.player = this.cars[0];
-    // So onCollisionStart() can tell a car-to-car hit (worth a thud) from a
-    // car meeting the map-bounds wall setBounds() above put up (not what
-    // Sound.impact() was ever tuned against).
-    this.carBodies = new Set(this.cars.map((c) => c.body));
+    // So onCollisionStart() can tell a car-to-car hit from a car meeting the
+    // map-bounds wall setBounds() above put up, and get from the body Matter
+    // reports back to the entity Impacts has to charge for the hit.
+    this.carByBody = new Map(this.cars.map((c) => [c.body, c]));
+    Impacts.init(this);
 
     // The race, as the standings see it: six identical entries, the player's
     // marked only by a name and a flag. Built once — `RaceLaps.standings()`
@@ -277,6 +278,11 @@ class RaceScene extends Phaser.Scene {
       speed: 0,
       velocityX: 0,
       velocityY: 0,
+      // The collision aftermath, on every car for the same reason every other
+      // field here is: MatterCar.step and Impacts must not be able to find a
+      // different shape on the player than on an opponent.
+      spin: 0, // rad/frame of yaw left over from a hit
+      unsettle: 0, // 0..1 of the post-hit grip loss still to bleed off
       width: CAR_W,
       height: CAR_H,
       // Per-car machinery differences hang here and nowhere else. Empty for
@@ -459,19 +465,11 @@ class RaceScene extends Phaser.Scene {
     }
   }
 
-  // Sound.impact() was tuned against resolveCollision()'s own push-based
-  // overlap measure (game.js:1862) — Matter resolves contacts itself now (see
-  // matterCar.js's header), and pair.collision.depth, the penetration Matter
-  // measured at the moment it registered the contact, is the closest analog:
-  // both are a "how hard did these overlap" distance in world px. Filtered to
-  // car-vs-car — setBounds() above put a wall at the map edge, and grazing
-  // that was never what this sound was for.
+  // What a hit costs — speed, yaw, grip — and what it looks and sounds like,
+  // all in phaser/impacts.js. This scene only owns the body→car map it needs
+  // to charge the right two entities.
   onCollisionStart(event) {
-    for (const pair of event.pairs) {
-      if (!this.carBodies.has(pair.bodyA) || !this.carBodies.has(pair.bodyB))
-        continue;
-      Sound.impact(pair.collision.depth);
-    }
+    Impacts.handle(this, event, this.carByBody);
   }
 
   // The track-authoring skill's debug overlay, in Phaser terms: the waypoint

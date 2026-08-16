@@ -49,6 +49,14 @@ const DebugOverlay = {
         `road ${scene.world.sampleRoad(p.x, p.y).toFixed(2)}`,
     );
 
+    // Impacts are the one system here whose *absence* looks exactly like a
+    // quiet race, so the panel carries the running count and the hardest hit
+    // rather than only what is happening this frame.
+    lines.push(
+      `hits ${Impacts.count} (max ${Impacts.hardest.toFixed(1)})  ` +
+        `spin ${p.spin.toFixed(3)}  uns ${p.unsettle.toFixed(2)}`,
+    );
+
     // The field by position, with the number that actually settles an AI
     // change: each car's last lap. `skill` rides along because a slow rival is
     // supposed to be a slower *driver* — if a lap looks wrong, this is the

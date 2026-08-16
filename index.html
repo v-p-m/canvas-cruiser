@@ -72,6 +72,10 @@
                 "keyBindings.js",
                 "phaser/playerInput.js",
                 "phaser/matterCar.js",
+                // What a car-to-car hit costs. Reads MATTER_CAR above for the
+                // restitution it has to predict, and feeds back the `spin` and
+                // `unsettle` matterCar.js decays.
+                "phaser/impacts.js",
                 // Rubber on the road. Reads carSprites.js's sprite grid for
                 // where the tires are, and rain.js for how wet it is.
                 "phaser/skidMarks.js",
