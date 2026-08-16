@@ -45,7 +45,22 @@ const UNSETTLE_FRAMES = 30; // to bleed a full-strength hit back to zero
 // just been hit is sideways and its tires are not pointing where it is going;
 // taking the steering away for that moment is both what really happens and the
 // one version of this that costs a human and a bot the same.
-const UNSETTLE_STEER_LOSS = 0.75; // of turnSpeed, at a full-strength hit
+//
+// Measured, on one staged rear-quarter hit (closing 5, 17px offset, 100cc dry,
+// a skill-1 car alone on the circuit, ground covered over the next two seconds
+// against a no-hit control at the same point of the lap): the identical hit
+// costs the shipped driver **3.5%** and a driver 450ms late **43%**. The bot is
+// not shrugging off the impact model, it is out-reacting it — ai.js's steering
+// is a Schmitt trigger that flips to full lock the frame heading error passes
+// ~2.1°, which is a reaction time no human has.
+//
+// Taking the last quarter of the steering away is the principled end of that —
+// a car pointing 30° off its own velocity does not get to steer — but on its
+// own it is worth nothing, and the reason is worth not re-learning: at closing
+// 5 the window only fills to 0.6 (Impacts.UNSETTLE_PER_SPEED), so 0.75 -> 1
+// moved the loss from 45% to 60% and the trigger corrected fine on the rest.
+// It is UNSETTLE_PER_SPEED that decides whether this number is reached at all.
+const UNSETTLE_STEER_LOSS = 1; // of turnSpeed, at a full-strength hit
 
 function wheelOffRoad(entity, world) {
   const cos = Math.cos(entity.angle);

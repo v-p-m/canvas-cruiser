@@ -60,7 +60,21 @@ const Impacts = {
   // the wrong way, having lost the time. That is a penalty; a permanent spin
   // would be a respawn.
   YAW_MAX: 0.1, // rad/frame
-  UNSETTLE_PER_SPEED: 0.12, // of the grip-loss window, per px/frame of closing speed
+  // Set so that a hit worth calling a hit *fills* the window: at 0.12 a closing
+  // speed of 5 only reached 0.6, which left the AI 40% of its steering — and
+  // 40% of a correctly-signed full lock is most of what that correction is
+  // worth, so UNSETTLE_STEER_LOSS had nothing to take. Measured on the staged
+  // rear-quarter hit in matterCar.js's note: 0.12 -> 0.22 takes the same hit
+  // from costing the shipped AI 3.5% of two seconds' ground to 10.6%, while a
+  // driver 450ms late still pays ~40% either way. That is the gap between what
+  // a hit costs a bot and what it costs a human closing from 12x to under 4x,
+  // which is the whole point — see CLAUDE.md on why it cannot be closed by
+  // charging the two of them differently.
+  //
+  // Ordinary racing contact is 0.3-2.2 px/frame (see HARD_HIT below), so it
+  // still only fills the window to 0.07-0.48: this makes a *shunt* expensive,
+  // not a race.
+  UNSETTLE_PER_SPEED: 0.22, // of the grip-loss window, per px/frame of closing speed
   // Measured, not guessed: over a race plus three engineered rams, ordinary
   // racing contact runs 0.3–2.2 px/frame of closing speed and a full-speed
   // rear-end reads ~9.9. So the rub gate sits just under the racing band and
