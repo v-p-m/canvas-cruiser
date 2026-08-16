@@ -18,6 +18,15 @@
 const CAR_W = 34; // world px
 const CAR_H = 56; // world px
 
+// What the opponents give away in a straight line. `mods` is a multiplier, not
+// a subtraction, so this is a fraction of top speed rather than a number of
+// world px — a fixed subtraction would take the same amount off a 60cc car
+// that has three quarters of the 100cc ceiling to give away. It touches
+// nothing but the straights: corner speed is R × turnSpeed, so the opponents
+// still carry the same speed through the corners they always did, and what
+// separates the field is still the driver (rollDriver() in ai.js).
+const AI_TOP_SPEED = 0.98; // fraction of the player's top speed
+
 // The flag does not cut straight to the results: the car brakes itself to a
 // stop and the last lap's time gets its moment on the HUD first. Same 3s the
 // legacy loop holds (FINISH_HOLD_MS, game.js).
@@ -285,10 +294,15 @@ class RaceScene extends Phaser.Scene {
       unsettle: 0, // 0..1 of the post-hit grip loss still to bleed off
       width: CAR_W,
       height: CAR_H,
-      // Per-car machinery differences hang here and nowhere else. Empty for
-      // every car on the grid: the field is separated by driving, not by
-      // parts — see rollDriver() below.
-      mods: null,
+      // Per-car machinery differences hang here and nowhere else. The field is
+      // still separated by driving first — see rollDriver() below — but the
+      // opponents now also run a lower top speed than the player's car. All
+      // four keys are set because applyCarStats() reads every one of them
+      // unguarded; a partial object is four NaN stats, not three defaults.
+      mods:
+        index === 0
+          ? null
+          : { speed: AI_TOP_SPEED, accel: 1, turn: 1, grip: 1 },
     });
 
     // Race state — laps, the gate latch, the finish. One list, filled by the
