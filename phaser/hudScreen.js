@@ -150,8 +150,83 @@ const HudScreen = {
       }
     }
 
+    this.drawDamage(p, now);
     this.drawMinimap(scene);
     HudBanner.draw();
+  },
+
+  // The condition of both wings, for as long as either is less than perfect.
+  //
+  // The artwork already says most of it — the plane narrows, then goes
+  // (WING_ROWS in carSprites.js) — but at speed the player is reading the road
+  // a car-length ahead, not their own nose, and the handling change lands in
+  // the next corner rather than at the moment of the hit. This is the one place
+  // that names it, and it stays up: a warning that faded would be a warning
+  // about a thing that has not gone away.
+  //
+  // The bar is the part that earns its pixels. Wings carry condition, so a hit
+  // that does not break one still moves the car closer to losing it, and that
+  // has to be something the driver can *see* rather than a number the physics
+  // keeps to itself — a wing failing on a light tap because of hidden wear is
+  // the same unfairness as a random roll. It also gives the last stint of a
+  // race a thing to manage: a bar at a quarter is a reason to leave more room.
+  //
+  // Under the top bar rather than in it. The bar's four readouts are all
+  // numbers that are always there, and slotting an intermittent one among them
+  // would move them; this hangs below and takes its own space, in the corner
+  // the eye already goes to for the speed.
+  drawDamage(p, now) {
+    if (!Damage.hurt(p)) return;
+    const ctx = UI.ctx;
+    const rows = [];
+    if (p.wings.front < 1) rows.push(["FRONT WING", p.wings.front]);
+    if (p.wings.rear < 1) rows.push(["REAR WING", p.wings.rear]);
+
+    // A slow blink for the first couple of seconds after a wing cracks or
+    // breaks, then steady. Both happen inside a collision the player is already
+    // busy surviving, and something that appears without moving is something
+    // that gets noticed a corner too late.
+    const lit = p.wingFlash <= 0 || Math.floor(now / 140) % 2 === 0;
+
+    ctx.save();
+    ctx.font = "bold 14px 'Courier New'";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+
+    const BAR_W = 46;
+    const right = UI.width - 20;
+    rows.forEach(([label, hp], i) => {
+      const gone = hp <= 0;
+      const y = 78 + i * 22;
+      const textW = ctx.measureText(label).width;
+      const w = textW + BAR_W + 26;
+
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(right - w + 6, y - 10, w, 20);
+
+      // Amber while it is still attached, red once it is not — the colour is
+      // the state, so the two never have to be told apart by reading.
+      const strong = gone ? "#FF4433" : "#FFAA22";
+      ctx.fillStyle = lit ? strong : gone ? "#7a1d15" : "#7a5410";
+      ctx.fillText(label, right - BAR_W - 10, y);
+
+      const bx = right - BAR_W;
+      ctx.fillStyle = "rgba(255,255,255,0.16)";
+      ctx.fillRect(bx, y - 5, BAR_W, 10);
+      if (gone) {
+        // Nothing left to fill, so the ✕ carries it — a mark that means "gone"
+        // is legible without being read, which the words beside it are not
+        // while the player is in the middle of a corner.
+        ctx.textAlign = "center";
+        ctx.fillStyle = lit ? strong : "#7a1d15";
+        ctx.fillText("✕", bx + BAR_W / 2, y);
+        ctx.textAlign = "right";
+      } else {
+        ctx.fillStyle = strong;
+        ctx.fillRect(bx, y - 5, BAR_W * hp, 10);
+      }
+    });
+    ctx.restore();
   },
 
   drawMinimap(scene) {

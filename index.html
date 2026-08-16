@@ -14,7 +14,7 @@
             // index.html is the only file GitHub Pages will let go stale for
             // just 10 minutes; a constant inside a script cannot invalidate
             // that script.
-            window.BUILD = "0.15.0";
+            window.BUILD = "0.16.0";
         </script>
         <style>
             /* This page does not load style.css — that sheet pins the
@@ -76,6 +76,11 @@
                 // restitution it has to predict, and feeds back the `spin` and
                 // `unsettle` matterCar.js decays.
                 "phaser/impacts.js",
+                // What a hit costs *permanently*: the wings, and the mods a
+                // missing one rewrites. After carStats.js (it calls
+                // applyCarStats) and beside impacts.js, which is what triggers
+                // it — and after carSprites.js, whose grid it blanks rows of.
+                "phaser/damage.js",
                 // Rubber on the road. Reads carSprites.js's sprite grid for
                 // where the tires are, and rain.js for how wet it is.
                 "phaser/skidMarks.js",

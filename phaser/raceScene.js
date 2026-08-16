@@ -193,6 +193,7 @@ class RaceScene extends Phaser.Scene {
     // reports back to the entity Impacts has to charge for the hit.
     this.carByBody = new Map(this.cars.map((c) => [c.body, c]));
     Impacts.init(this);
+    Damage.init(this); // the debris emitter, and the break counter reset for a restart
 
     // The race, as the standings see it: six identical entries, the player's
     // marked only by a name and a flag. Built once — `RaceLaps.standings()`
@@ -299,11 +300,19 @@ class RaceScene extends Phaser.Scene {
       // opponents now also run a lower top speed than the player's car. All
       // four keys are set because applyCarStats() reads every one of them
       // unguarded; a partial object is four NaN stats, not three defaults.
-      mods:
-        index === 0
-          ? null
-          : { speed: AI_TOP_SPEED, accel: 1, turn: 1, grip: 1 },
+      //
+      // The player gets a real object rather than the `null` that used to mean
+      // "stock", because damage is fitted here too (phaser/damage.js) and a
+      // null would make the player's car the one car in the race whose wings
+      // could not break — the regression CLAUDE.md is about, arriving from the
+      // other direction.
+      mods: { speed: index === 0 ? 1 : AI_TOP_SPEED, accel: 1, turn: 1, grip: 1 },
     });
+
+    // Wings on, and a snapshot of the car as built for them to come off. Before
+    // applyCarStats() only because there is nothing broken yet to change what
+    // it computes — but after `mods`, which is what it takes the snapshot of.
+    Damage.reset(entity);
 
     // Race state — laps, the gate latch, the finish. One list, filled by the
     // counter that reads it, so the player and an AICar cannot end up carrying
@@ -337,7 +346,7 @@ class RaceScene extends Phaser.Scene {
       .setDepth(2);
 
     const bodyImg = this.add
-      .image(0, 0, this.carTexture(slot.color, dim))
+      .image(0, 0, this.carTexture(slot.color, dim, Damage.wingKey(entity)))
       .setDisplaySize(entity.width, entity.height);
 
     const wheelKey = this.wheelTexture(dim);
@@ -360,13 +369,13 @@ class RaceScene extends Phaser.Scene {
 
   // CarSprites bakes a plain canvas; Phaser needs that canvas registered as a
   // texture before an Image can show it. Keyed the same way CarSprites caches
-  // internally (colour + dim), so a re-bake only touches the keys that
-  // actually changed and every other livery's texture is untouched. Tracked
-  // in carTextureKeys so RenderScale.apply() knows what to throw out.
-  carTexture(color, dim) {
-    const key = `car:${color}@${dim}`;
+  // internally (colour + dim + wing state), so a re-bake only touches the keys
+  // that actually changed and every other livery's texture is untouched.
+  // Tracked in carTextureKeys so RenderScale.apply() knows what to throw out.
+  carTexture(color, dim, broken = "") {
+    const key = `car:${color}@${dim}@${broken}`;
     if (!this.textures.exists(key)) {
-      this.textures.addCanvas(key, CarSprites.get(color, dim));
+      this.textures.addCanvas(key, CarSprites.get(color, dim, broken));
       this.carTextureKeys.add(key);
     }
     return key;
@@ -614,7 +623,14 @@ class RaceScene extends Phaser.Scene {
     for (const c of this.cars) {
       c.sprite.setPosition(c.body.position.x, c.body.position.y);
       c.sprite.setRotation(c.entity.angle);
-      c.bodyImg.setTexture(this.carTexture(c.color, dim));
+      // Wing state joins the livery and the night dim in the texture key, so a
+      // car that has just lost a wing shows it on the same frame the stats
+      // changed — one lookup, and the bake only happens the first time any car
+      // reaches that state.
+      c.bodyImg.setTexture(
+        this.carTexture(c.color, dim, Damage.wingKey(c.entity)),
+      );
+      Damage.update(c.entity, deltaMs);
 
       // Front wheels only — the rest of the car doesn't steer, exactly as
       // CarSprites.draw() only rotates the two wheel boxes it lifted out of
@@ -790,6 +806,11 @@ class RaceScene extends Phaser.Scene {
     this.report.puddles = Rain.puddles.length;
     this.report.lights = Night.lights.length;
     this.report.quality = Quality.status();
+    this.report.wingBreaks = Damage.breaks;
+    this.report.wings = this.cars.map((c) => Damage.wingKey(c.entity));
+    this.report.wingHp = this.cars.map(
+      (c) => `${c.entity.wings.front.toFixed(2)}/${c.entity.wings.rear.toFixed(2)}`,
+    );
     this.report.standings = standings.map(
       (e) =>
         `${e.position}. ${e.name} L${e.laps} ${e.score === Infinity ? "FIN" : e.score.toFixed(3)}`,

@@ -56,6 +56,17 @@ const DebugOverlay = {
       `hits ${Impacts.count} (max ${Impacts.hardest.toFixed(1)})  ` +
         `spin ${p.spin.toFixed(3)}  uns ${p.unsettle.toFixed(2)}`,
     );
+    // Wing condition is the slowest-moving state on the car and the only one
+    // that never comes back, so the raw numbers go here: the two conditions,
+    // and the mods damage.js rewrote when one of them hit zero. The pair is
+    // what says the stats went with the artwork rather than only the sprite
+    // changing — and, going the other way, that wear short of a break is
+    // deliberately *not* moving the stats.
+    lines.push(
+      `wings F${p.wings.front.toFixed(2)} R${p.wings.rear.toFixed(2)} ` +
+        `${Damage.wingKey(p)} (${Damage.breaks} off)  ` +
+        `t×${p.mods.turn.toFixed(2)} g×${p.mods.grip.toFixed(2)}`,
+    );
 
     // The field by position, with the number that actually settles an AI
     // change: each car's last lap. `skill` rides along because a slow rival is

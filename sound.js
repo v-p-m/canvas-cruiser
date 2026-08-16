@@ -38,6 +38,7 @@ const Sound = {
   noiseBuffer: null,
   impactCount: 0, // voices built, read by the B overlay
   _lastImpact: -1,
+  _lastCrack: -1, // crack() keeps its own, or impact()'s gate would eat every break
 
   load() {
     this.muted = localStorage.getItem("soundMuted") === "1";
@@ -217,6 +218,41 @@ const Sound = {
     src.connect(filter).connect(gain).connect(this.master);
     src.start(t);
     src.stop(t + 0.3);
+  },
+
+  // Carbon fibre letting go — one wing, once (phaser/damage.js).
+  //
+  // Deliberately not impact()'s voice with a bigger `force`. That is a lowpass
+  // sweeping *down* to 180 Hz, which is a heavy thud, and a break has to be
+  // audible over one of those happening in the same frame: this is the same
+  // noise buffer through a highpass instead, short and bright, so the two
+  // stack as a crunch followed by a snap rather than one louder thud. It also
+  // keeps its own last-fired time, or impact()'s 50 ms gate would swallow it
+  // every single time — a break is always accompanied by the hit that caused it.
+  crack() {
+    if (!this.ctx || !this.noiseBuffer || this.muted) return;
+    const ac = this.ctx;
+    const t = ac.currentTime;
+    if (t - this._lastCrack < IMPACT_MIN_GAP) return;
+    this._lastCrack = t;
+    this.impactCount++;
+
+    const src = ac.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    src.playbackRate.value = 1.4 + Math.random() * 0.4;
+
+    const filter = ac.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.setValueAtTime(2200, t);
+    filter.Q.value = 1.2;
+
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.34, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+
+    src.connect(filter).connect(gain).connect(this.master);
+    src.start(t);
+    src.stop(t + 0.18);
   },
 
   // Start-light tone. `go` picks the higher, longer pitch for lights-out.

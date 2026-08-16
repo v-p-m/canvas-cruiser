@@ -31,6 +31,36 @@ const FRONT_WHEELS = [
 
 const MAX_STEER_ANGLE = 0.42; // rad — visual lock, not a physics quantity
 
+// The two wings, as row bands in the grid below. Nose-up, so the front wing is
+// the first four rows and the rear wing the last four, and enough contact takes
+// one of them off for the rest of the race (phaser/damage.js).
+//
+// Only the `W`/`w` plane goes. The `B` blocks flanking it are the endplate
+// mounts, bolted to the tub, and they stay: a bare nose with its mounts still
+// standing reads as a car that has *lost* something, where blanking the whole
+// band just reads as a slightly shorter car — at 34 px wide and rotating, "the
+// silhouette changed shape" is the only damage tell the artwork can give.
+//
+// Three states per wing, not two, because a wing carries condition and hidden
+// condition would be unfair (see damage.js's rule 4). A wing that is coming
+// apart loses the outer sections of its plane first and keeps the centre, which
+// is both what happens to a real one and the change that survives being 34 px
+// wide: the wing gets visibly *narrower* before it disappears, and narrowing is
+// legible from a car's length back where a shade of grey is not.
+const WING_ROWS = { front: [0, 3], rear: [52, 55] };
+const WING_CRACK_KEEP = 6.5; // cells either side of the centreline that survive
+
+// `state` is Damage.wingKey(): one character per end, front first.
+function inCutWing(x, y, state) {
+  const ch = CAR_PIXELS[y][x];
+  if (ch !== "W" && ch !== "w") return false;
+  const s = y <= WING_ROWS.front[1] ? state[0] : state[1];
+  if (s === "x") return true;
+  if (s === "c")
+    return Math.abs(x - (CAR_SPRITE_W - 1) / 2) > WING_CRACK_KEEP;
+  return false;
+}
+
 // Nose up, because that is the orientation ctx.rotate(entity.angle) expects.
 //
 //   B body (per-car colour)   D its shade, flanks and seams   L its highlight
@@ -144,11 +174,15 @@ const CarSprites = {
   cache: new Map(),
   wheelCache: new Map(),
 
-  get(color, dim) {
-    const key = `${color}@${dim}`;
+  // `broken` is Damage.wingKey()'s two-character wing state — a third cache
+  // axis, and "--" for every undamaged car, so a race that never has a shunt
+  // bakes exactly what it always did. Defaulted rather than required: the
+  // editor page has no damage model and calls this with two arguments.
+  get(color, dim, broken = "--") {
+    const key = `${color}@${dim}@${broken}`;
     let sprite = this.cache.get(key);
     if (!sprite) {
-      sprite = this.bake(color, dim);
+      sprite = this.bake(color, dim, broken);
       this.cache.set(key, sprite);
     }
     return sprite;
@@ -166,16 +200,26 @@ const CarSprites = {
     return sprite;
   },
 
-  bake(color, dim) {
-    return this.bakeRegion(color, 0, 0, CAR_SPRITE_W, CAR_SPRITE_H, true, dim);
+  bake(color, dim, broken = "--") {
+    return this.bakeRegion(
+      color,
+      0,
+      0,
+      CAR_SPRITE_W,
+      CAR_SPRITE_H,
+      true,
+      dim,
+      broken,
+    );
   },
 
   // Bakes the slice of the grid inside (ox, oy, w, h). `skipWheels` blanks
   // the front-tyre boxes so the body and the wheels are never drawn twice.
   // `dim` darkens the whole palette for a night race — the tyres and the
   // helmet as well as the paint, because a livery dimmed on its own leaves a
-  // near-white helmet as the brightest thing on the circuit.
-  bakeRegion(color, ox, oy, w, h, skipWheels = false, dim = 0) {
+  // near-white helmet as the brightest thing on the circuit. `broken` cuts the
+  // wing plane back, or away, at either end; see WING_ROWS.
+  bakeRegion(color, ox, oy, w, h, skipWheels = false, dim = 0, broken = "--") {
     const scale = renderDpr;
     const c = document.createElement("canvas");
     c.width = Math.round(w * scale);
@@ -198,14 +242,27 @@ const CarSprites = {
 
     // Runs of the same colour go out as one fillRect: at 34 px wide most
     // rows are three or four spans, not thirty-four cells.
+    //
+    // Both cutaways resolve to "." *before* the run is measured, not after it.
+    // Testing them at the run's first cell instead is a real bug rather than an
+    // optimisation: a cracked wing cuts the plane part-way along a single
+    // 24-cell run of `W`, so judging the whole run by cell 5 blanks all of it
+    // and bakes a coming-apart wing identically to a missing one.
     for (let y = oy; y < oy + h; y++) {
       const row = CAR_PIXELS[y];
+      const cell = (cx) => {
+        const ch = row[cx];
+        if (ch === ".") return ".";
+        if (skipWheels && inFrontWheel(cx, y)) return ".";
+        if (inCutWing(cx, y, broken)) return ".";
+        return ch;
+      };
       let x = ox;
       while (x < ox + w) {
-        const ch = row[x];
+        const ch = cell(x);
         let end = x;
-        while (end < ox + w && row[end] === ch) end++;
-        if (ch !== "." && !(skipWheels && inFrontWheel(x, y))) {
+        while (end < ox + w && cell(end) === ch) end++;
+        if (ch !== ".") {
           g.fillStyle = palette[ch];
           g.fillRect(
             Math.round((x - ox) * scale),

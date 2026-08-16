@@ -32,6 +32,12 @@
 //   4. grip — a hit leaves the car unsettled for a moment, so the slide Matter
 //      just gave it survives long enough to be a slide.
 //
+// All four of those are temporary by design — racing contact should not follow
+// a driver down the road. The one thing that does is a broken wing, and it is
+// in phaser/damage.js rather than here: this file's story is "closing speed,
+// charged four ways", and the wing is a different kind of thing (a part, on
+// `mods`, permanent) that happens to be triggered off the same two numbers.
+//
 // Timing note: matter-js triggers `collisionStart` *before* its own resolver
 // runs, so `body.velocity` here is still the pre-impact velocity. That is what
 // makes the closing speed below the real approach speed, and it is why this
@@ -241,6 +247,12 @@ const Impacts = {
       1,
       (e.unsettle || 0) + closing * this.UNSETTLE_PER_SPEED,
     );
+
+    // ... and, above a much harder threshold, the wing at whichever end took
+    // it. Last, because it rewrites the car's stats through applyCarStats() and
+    // everything above wants the numbers the car arrived with. Dormant for all
+    // ordinary contact — see phaser/damage.js for the bands.
+    Damage.onImpact(car, dvx, dvy, closing);
   },
 
   spark(at, closing) {
