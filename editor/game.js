@@ -1659,6 +1659,25 @@ function wheelOffRoad(entity) {
 
 const OFFROAD_DRAG = 0.08; // fraction of speed shed per frame, fully off the road
 
+// Cornering scrub, graded by slip. Kept in step with phaser/matterCar.js,
+// which carries the reasoning and the measurements — the short version is that
+// charging the full rate for any frame with a steering key down cost a 100ms
+// correction a fifth of the car's speed, and slip is what tells a turn-in
+// apart from a slide. A held lock settles at sin(slip) = turnSpeed / driftGrip
+// = 0.6, so a real corner still pays the old rate.
+const SCRUB_FULL_SLIP = 0.5; // sin of heading-vs-velocity angle that scrubs in full
+const SCRUB_AT_MAX = 0.06; // of speed shed per frame, fully sideways at maxSpeed
+const SCRUB_AT_REST = 0.02; // ... and the same, at a standstill
+
+function slipSin(entity) {
+  const mag = Math.hypot(entity.velocityX, entity.velocityY);
+  if (mag < 0.01) return 0;
+  const lateral =
+    entity.velocityX * Math.cos(entity.angle) +
+    entity.velocityY * Math.sin(entity.angle);
+  return Math.min(1, Math.abs(lateral) / mag);
+}
+
 // --- The car, for whoever is driving it ---
 //
 // Split in two because the collision pass has to sit between the halves: a
@@ -1696,9 +1715,12 @@ function stepCarControls(entity, input, delta) {
   // Cornering scrub. The opponents never paid this, which is a good part of
   // why they could carry speed through a corner the player had to brake for.
   if (entity.speed !== 0 && (input.left || input.right)) {
-    const scrubFactor =
-      0.94 + 0.04 * (1 - Math.abs(entity.speed) / entity.maxSpeed);
-    entity.speed *= Math.pow(scrubFactor, delta);
+    const load = Math.min(1, slipSin(entity) / SCRUB_FULL_SLIP);
+    const rate =
+      SCRUB_AT_REST +
+      (SCRUB_AT_MAX - SCRUB_AT_REST) *
+        (Math.abs(entity.speed) / entity.maxSpeed);
+    entity.speed *= Math.pow(1 - rate * load, delta);
   }
 }
 

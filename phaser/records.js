@@ -18,7 +18,11 @@
 // yet to preserve pre-port times for, so a clean reset is simpler than a
 // second copy of the records code to read them. Bump the version string if
 // the physics changes meaningfully again later.
-const RECORDS_PHYSICS_VERSION = "matter-1";
+// "matter-2": 0.15.0's slip-graded cornering scrub. Unlike the impact model,
+// which is dormant on a clean lap, this one moves every lap — a solo reference
+// car came down 3.6% on Super Circuit — so times either side of it are again
+// not the same manoeuvre.
+const RECORDS_PHYSICS_VERSION = "matter-2";
 
 const Records = {
   all: {}, // "track:class" -> [lap times]

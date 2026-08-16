@@ -62,6 +62,44 @@ const UNSETTLE_FRAMES = 30; // to bleed a full-strength hit back to zero
 // It is UNSETTLE_PER_SPEED that decides whether this number is reached at all.
 const UNSETTLE_STEER_LOSS = 1; // of turnSpeed, at a full-strength hit
 
+// Cornering scrub, graded by how sideways the car actually is rather than by
+// whether a steering key is down. The flat version charged the full rate for
+// any frame with left or right held — 6% of the car's speed at the top of the
+// range, 0.94^6 over a 100ms stab — which is a handbrake on the small
+// corrections a lap is mostly made of, and it is why the car felt like it fell
+// over every time the player straightened it out.
+//
+// Slip is the honest measure of what a tire is scrubbing: the heading rotates
+// at `turnSpeed` while the grip lerp drags the velocity back at `driftGrip`,
+// so a held lock settles at sin(slip) = turnSpeed / driftGrip = 0.6 and a real
+// corner still saturates this well before the apex, at exactly the old rate. A
+// tap never gets there — one frame of lock is 0.06 rad with the velocity still
+// pointing where it was — so turn-in is nearly free and the slide is not.
+//
+// Measured at 100cc, throttle held, from a pinned top speed (so this is the
+// scrub alone) — speed left after N frames of lock, flat rate vs graded:
+//
+//   1f (17ms)   -6.0% -> -0.7%     20f (333ms)  -40.4% -> -31.6%
+//   3f (50ms)  -12.9% -> -1.9%     40f (667ms)  -48.8% -> -46.6%
+//   6f (100ms) -21.0% -> -4.6%    120f+          identical, both 4.80
+//
+// It is not free: a solo skill-1 car on Super Circuit, 100cc dry, laps 3.6%
+// quicker (10.669s -> 10.283s) because it carries more speed through turn-in
+// and brakes more to pay for it (1.5% of frames -> 3.8%). Holding the old
+// field pace would want CORNER_MARGIN in ai.js at ~0.567 rather than 0.64.
+const SCRUB_FULL_SLIP = 0.5; // sin of heading-vs-velocity angle that scrubs in full
+const SCRUB_AT_MAX = 0.06; // of speed shed per frame, fully sideways at maxSpeed
+const SCRUB_AT_REST = 0.02; // ... and the same, at a standstill
+
+// Reads the velocity rather than `entity.speed`, because the whole point is
+// the difference between a car that is turning and a car that is sliding.
+function slipSin(entity, vx, vy) {
+  const mag = Math.hypot(vx, vy);
+  if (mag < 0.01) return 0;
+  const lateral = vx * Math.cos(entity.angle) + vy * Math.sin(entity.angle);
+  return Math.min(1, Math.abs(lateral) / mag);
+}
+
 function wheelOffRoad(entity, world) {
   const cos = Math.cos(entity.angle);
   const sin = Math.sin(entity.angle);
@@ -128,9 +166,15 @@ const MatterCar = {
     if (input.right) entity.angle += lock * flip * delta;
 
     if (entity.speed !== 0 && (input.left || input.right)) {
-      const scrubFactor =
-        0.94 + 0.04 * (1 - Math.abs(entity.speed) / entity.maxSpeed);
-      entity.speed *= Math.pow(scrubFactor, delta);
+      const load = Math.min(
+        1,
+        slipSin(entity, body.velocity.x, body.velocity.y) / SCRUB_FULL_SLIP,
+      );
+      const rate =
+        SCRUB_AT_REST +
+        (SCRUB_AT_MAX - SCRUB_AT_REST) *
+          (Math.abs(entity.speed) / entity.maxSpeed);
+      entity.speed *= Math.pow(1 - rate * load, delta);
     }
 
     // --- collision yaw (phaser/impacts.js) ---
