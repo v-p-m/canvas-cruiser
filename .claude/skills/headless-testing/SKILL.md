@@ -1,6 +1,10 @@
 ---
 name: headless-testing
 description: Verify a Canvas Cruiser change without asking the user to click around — screenshot the menu or a live race, catch JS errors, and drive the game with synthetic input under headless Chromium. Use whenever a visual or runtime change needs checking, or a harness has to measure frame cost.
+model: sonnet
+context: fork
+background: false
+allowed-tools: Bash, Read, Write, Glob, Grep
 ---
 
 # Testing changes headlessly
