@@ -52,7 +52,7 @@ const LOOKAHEAD_DIST = 1200; // world px — stop scanning once this far ahead
 // the fallbacks below silently raced a different field — a skill floor of 0.9
 // against the 0.85 the game actually ships.
 const SKILL_MIN = 0.85;
-const SKILL_MAX = 1.0;
+const SKILL_MAX = 0.95;
 const LINE_OFFSET_RANGE = 40; // world px of lateral line preference, full width
 
 // The shipped number, unless the editor page's slider panel is loaded and has
@@ -217,6 +217,50 @@ const WET_MARGIN = 0.85; // fraction of the dry corner margin when fully wet
 // they close in the corners, where a driver can actually find time.
 const CATCHUP_GAIN = 0.12; // max fraction added to the corner margin
 const CATCHUP_FULL = 1200; // world px behind at which the gain is maxed
+
+// ...and the mirror of it, which was missing until 0.15.0: the band only ever
+// helped an opponent that was *behind* the player, which is the one case the
+// player does not need help with. Drop to last and nothing in the driver knew
+// it was clear, so the field simply drove away and the race was over on lap
+// one.
+//
+// This is still not top speed. `maxSpeed` remains the single number
+// applyCarStats() hands every car; a clear leader just stops asking for all of
+// it, the way a driver with a pit board sits off the limit. Both halves fall
+// off with the gap and are zero at zero, so a leader being caught is back on
+// the shipped pace on the same frame — the racing the player actually sees,
+// wheel to wheel, is untouched. Only the drive away from a beaten player is.
+//
+// Two terms because a corner margin alone cannot be felt from behind: neither
+// shipped circuit binds the speed model everywhere, so on the long runs the
+// leader would ease nothing at all. The lift is what closes a straight; the
+// ease is what stops the lift being handed straight back at the next corner.
+//
+// The dead zone is the half of this that had to be measured. Catch-up ramps
+// from zero because a car right behind the player should already be trying;
+// a leader is the opposite — a four-second margin at half distance is a race,
+// not a beaten player, and a band that has already given away most of its
+// lift there is rubber-banding a fight the player is still in. Super Circuit
+// is ~5700 world px round, so these two are "nothing inside three seconds,
+// everything by a lap down".
+//
+// Measured on Super Circuit, 100cc, dry, seeded, the five-car field driving
+// against a ghost player lapping at a fixed pace (a parked player saturates
+// the band by accident, and the real car cannot be driven headlessly) — mean
+// best lap over the field, and how far up the road the field is after four
+// laps:
+//
+//   ghost 15.0s/lap (beaten)   10.53s → 10.95s  (+4.0%), 560 → 525 ring pts
+//   ghost 10.5s/lap (racing)   10.32s → 10.69s  (+3.6%), 253 → 218 ring pts
+//
+// The second line is the one to watch when re-tuning: a ghost only 2% off the
+// field's own pace still ends the run four seconds down, which is past the
+// dead zone — so "racing" here means the gap that *accumulates* over five
+// laps, not a car in the mirrors. Widening LEAD_FROM is what buys that back.
+const LEAD_LIFT = 0.08; // max fraction of top speed a clear leader gives away
+const LEAD_EASE = 0.1; // max fraction off the corner margin, same conditions
+const LEAD_FROM = 1500; // world px ahead before any of it starts
+const LEAD_FULL = 6000; // world px ahead at which both are maxed
 
 // Avoidance is a driver behaviour, so it moves the aim point rather than the
 // velocity. Shoving velocity around directly — which is what this used to do
@@ -408,7 +452,7 @@ class AICar {
     this.wanderPhase = 0;
     this.currentWaypoint = 0;
     this.steerDir = 0;
-    this.startDelay = Math.random() * 400; // ms
+    this.startDelay = Math.random() * 100; // ms
 
     // Race state — counted by updateLapCounter in game.js, which drives
     // both the player and every opponent through the same code
@@ -437,20 +481,20 @@ class AICar {
 
   // How much of the geometric corner limit this driver is willing to use,
   // this frame: their own skill, less what the rain has taken, plus whatever
-  // being behind is worth.
-  cornerMargin(catchup) {
+  // being behind is worth — or minus what being clear is.
+  cornerMargin(catchup, lead = 0) {
     const wet = 1 - Rain.intensity * (1 - WET_MARGIN);
     const base = tunedAI("aiCornerMargin", CORNER_MARGIN) * wet;
-    return base * this.skill * (1 + catchup * CATCHUP_GAIN);
+    return base * this.skill * (1 + catchup * CATCHUP_GAIN - lead * LEAD_EASE);
   }
 
   // The fastest this car can be going *now* and still be down to every corner
   // in range by the time it reaches it. Each point of line in the scan
   // contributes sqrt(v² + 2·a·d) — the arrival speed its radius allows, worked
   // back over the distance still to run — and the driver obeys the tightest.
-  targetSpeed(ring, margin) {
+  targetSpeed(ring, margin, lift = 0) {
     const n = ring.pts.length;
-    let limit = this.maxSpeed;
+    let limit = this.maxSpeed * (1 - lift * LEAD_LIFT);
     let d = Math.hypot(
       ring.pts[this.currentWaypoint].x - this.x,
       ring.pts[this.currentWaypoint].y - this.y,
@@ -614,13 +658,37 @@ class AICar {
       this.steerDir = Math.sign(angleDiff);
 
     // Catch-up, in track run along the line rather than pixels of separation.
+    // Signed: behind the player it buys aggression, ahead of them it pays some
+    // back. Only one of the two is ever non-zero.
     let catchup = 0;
+    let lead = 0;
     if (player) {
       const mine = nearestPoint(this.x, this.y, ring.pts);
       const theirs = nearestPoint(player.x, player.y, ring.pts);
       let gap = (((mine - theirs) % n) + n) % n;
       if (gap > n / 2) gap -= n; // signed — negative is behind the player
       if (gap < 0) catchup = Math.min((-gap * RING_SPACING) / CATCHUP_FULL, 1);
+      else
+        lead = Math.min(
+          Math.max((gap * RING_SPACING - LEAD_FROM) / (LEAD_FULL - LEAD_FROM), 0),
+          1,
+        );
+
+      // The index gap wraps at half a lap, so a car more than that clear reads
+      // as being just as far *behind*. That was survivable while the band only
+      // added aggression to a trailing car; with a lift on the other side the
+      // sign flip is a cliff, and it lands on exactly the player this exists
+      // for — the one being lapped, who would watch the leader answer by
+      // driving harder. Lap count breaks the tie: it is coarse, but it is
+      // unambiguous, and it only has to decide which side of zero we are on.
+      const lapGap = this.laps - player.laps;
+      if (lapGap > 0) {
+        lead = 1;
+        catchup = 0;
+      } else if (lapGap < 0) {
+        catchup = 1;
+        lead = 0;
+      }
     }
 
     // PEDALS. The corner limit, less a lift for being badly mis-pointed —
@@ -628,7 +696,7 @@ class AICar {
     // target and asked to reverse out of it.
     const headingErr = Math.min(Math.abs(angleDiff) / Math.PI, 1);
     const target =
-      this.targetSpeed(ring, this.cornerMargin(catchup)) *
+      this.targetSpeed(ring, this.cornerMargin(catchup, lead), lead) *
       Math.max(0, 1 - headingErr * HEADING_BRAKE);
 
     return {
