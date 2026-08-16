@@ -130,18 +130,52 @@ raster is software.
 **On `index.html`, hand-pump the loop rather than trapping `rAF`.** One throw
 out of `vendor/phaser.min.js` kills Phaser's own loop silently, so stop it and
 step it yourself; virtual time keeps driving `setTimeout` after it has given up
-on `rAF`:
+on `rAF`.
+
+Two things have to be right or the run is quietly nondeterministic. **The
+`Game` is constructed inside `index.html`'s own `load` listener, so its
+`TimeStep` does not exist yet when yours runs** — sleeping the loop there is a
+no-op, it comes up a few ticks later on the real `rAF`, and its timestamps mix
+into yours (the tell is `g.loop.rawDelta` of 0 and a `g.loop.time` in the
+hundreds of seconds). Sleep it on the first pump where `g.loop.running` is
+true. And **step on `performance.now()`, not a counter you increment**:
+`TimeStep.step(t)` takes `delta` from `t - lastTime`, so a `setTimeout(…, 4)`
+pumping `t += 16` runs the physics at a quarter speed while the lap clock runs
+at full, which reads as "the AI cannot get round".
 
 ```js
 const g = window.phaserGame;
-g.loop.stop();
-let t = 0;
+let asleep = false;
 const pump = () => {
-  t += 16;
-  try { g.loop.step(t); } catch (e) { document.title = "THROW " + e.message; }
-  if (t < 15000) setTimeout(pump, 4);
+  const t = performance.now();          // 16ms of virtual time per callback
+  if (!asleep && g.loop.running) {
+    asleep = true;
+    g.loop.sleep();                     // TimeStep has sleep()/wake()
+    g.loop.resetDelta();
+  }
+  if (asleep) {
+    try { g.loop.step(t); } catch (e) { document.title = "THROW " + e.message; }
+  }
+  if (t < 15000) setTimeout(pump, 16);
 };
+setTimeout(pump, 16);
 ```
+
+Done right, `g.loop.delta` reads a flat 16.00 and the frame count matches the
+pump count exactly.
+
+**For lap-time A/Bs, measure one car, not the field.** Two things swamp the
+signal otherwise: `rollDriver()` re-rolls off a `Math.random()` whose call count
+depends on when the track `fetch()` landed, so the field comes up with
+different skills between runs even seeded; and car-to-car contact turns a
+one-frame start offset into a chaotic ~0.6% spread on the field mean. Pin a
+skill-1 driver, `matter.world.remove()` the other bodies, wrap its `drive()` to
+pass `null` for the player (which zeroes catch-up and lead-lift), and the same
+five laps repeat to ±0.03s — good enough to read a 0.3% change. `CORNER_MARGIN`
+and friends sweep without touching `ai.js` in the mirror: `tunedAI()` falls
+back to its own constant for every key it does not find, so a one-key
+`window.DebugConfig = { values: { aiCornerMargin: 0.58 } }` in `<head>` is a
+complete override.
 
 Report the throw through the DOM (`document.title` above, then `--dump-dom`) —
 page `console.log` does not reach stderr here. Note also that
