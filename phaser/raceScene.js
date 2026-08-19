@@ -546,6 +546,22 @@ class RaceScene extends Phaser.Scene {
   update(time, deltaMs) {
     if (!this.ready) return;
 
+    // Sampled first, before anything below this line points a car's Image at
+    // a texture: this is the one call in this function that can, mid-frame,
+    // synchronously destroy and re-add every car texture (Quality._stepDown()
+    // -> _commit() -> resizeCanvas() -> RenderScale.apply() ->
+    // CarSprites.invalidate()/invalidateCarTextures()). Sampling this late
+    // used to sit *after* the per-car loop below, so on the frame quality
+    // stepped down, that loop had already set bodyImg/wheelImgs to Frame
+    // objects invalidateCarTextures() then destroyed — Phaser's Texture
+    // destroy() nulls out frame.source but leaves the GameObject's cached
+    // `.frame` pointing at it, and the render that follows before the *next*
+    // update() call read `frame.source.resolution` on that null and crashed
+    // ("r.source is null"). Sampling first means a step-down's re-add of
+    // fresh textures happens before the per-car loop runs this same frame,
+    // so nothing renders against a destroyed frame.
+    Quality.sample(deltaMs); // raw interval, not the clamped/frame-unit `delta` below
+
     // game.js counts delta in 60fps frames, and every constant in the handling
     // model is expressed per frame, so the port has to feed it the same unit.
     const delta = Math.min(deltaMs / (1000 / 60), 3);
@@ -740,7 +756,6 @@ class RaceScene extends Phaser.Scene {
     hasStarted = p.laps > 0;
     gameMode = this.modeId;
 
-    Quality.sample(deltaMs); // raw interval, not the clamped/frame-unit `delta` above
     Rain.update(delta);
     Night.update(delta);
     if (Phaser.Input.Keyboard.JustDown(this.keys.P)) Rain.toggle();
