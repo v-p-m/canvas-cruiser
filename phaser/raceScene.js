@@ -25,7 +25,7 @@ const CAR_H = 56; // world px
 // nothing but the straights: corner speed is R × turnSpeed, so the opponents
 // still carry the same speed through the corners they always did, and what
 // separates the field is still the driver (rollDriver() in ai.js).
-const AI_TOP_SPEED = 0.98; // fraction of the player's top speed
+const AI_TOP_SPEED = 0.97; // fraction of the player's top speed
 
 // The flag does not cut straight to the results: the car brakes itself to a
 // stop and the last lap's time gets its moment on the HUD first. Same 3s the

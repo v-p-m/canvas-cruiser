@@ -57,7 +57,7 @@ const DebugConfig = {
   // Same idea for the opponent tuning: anyone who has ever opened the panel
   // has an `ai*` block in localStorage, and it would otherwise pin them to
   // whatever the balance was on the day they opened it.
-  aiVersion: 5,
+  aiVersion: 6,
 
   // Every shipped number the panel can move, read back from the file that owns
   // it. None of them can go in the `defaults` literal above: SPAWN_POSITIONS

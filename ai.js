@@ -51,7 +51,7 @@ const LOOKAHEAD_DIST = 1200; // world px — stop scanning once this far ahead
 // debugConfig.js any more, and when the shipped value was only in that literal
 // the fallbacks below silently raced a different field — a skill floor of 0.9
 // against the 0.85 the game actually ships.
-const SKILL_MIN = 0.85;
+const SKILL_MIN = 0.80;
 const SKILL_MAX = 0.95;
 const LINE_OFFSET_RANGE = 40; // world px of lateral line preference, full width
 
