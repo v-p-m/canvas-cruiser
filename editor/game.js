@@ -74,6 +74,11 @@ const TRACKS = [
     file: "tracks/snake-valley.json",
     label: "Snake Valley",
   },
+  {
+    id: "coastal",
+    file: "tracks/coastal-sprint.json",
+    label: "Coastal Sprint",
+  },
 ];
 let selectedTrack = 0; // index into TRACKS — the one the menu is offering
 let loadedTrack = -1; // the one actually baked into worldTrack

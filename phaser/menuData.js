@@ -10,6 +10,7 @@
 const PHASER_TRACKS = [
   { id: "super", file: "tracks/super-circuit.json", label: "Super Circuit" },
   { id: "valley", file: "tracks/snake-valley.json", label: "Snake Valley" },
+  { id: "coastal", file: "tracks/coastal-sprint.json", label: "Coastal Sprint" },
 ];
 
 const PHASER_MODES = [
