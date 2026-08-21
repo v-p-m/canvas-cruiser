@@ -91,6 +91,22 @@ const ResultsScreen = {
       y += 38;
     }
 
+    // Only the top 3 pay (Garage.awardForFinish), so most finishes see no
+    // "+N" line — the total is still worth showing either way.
+    if (scene.garagePointsAwarded > 0) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#FFD700";
+      ctx.font = "bold 20px 'Courier New'";
+      ctx.fillText(`🔧 +${scene.garagePointsAwarded} garage points`, cx, y);
+      y += 30;
+    }
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#888";
+    ctx.font = "16px 'Courier New'";
+    ctx.fillText(`${Garage.points()} garage points total`, cx, y);
+    y += 34;
+
     ctx.textAlign = "center";
     ctx.font = "18px 'Courier New'";
 
