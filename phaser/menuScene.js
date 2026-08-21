@@ -102,15 +102,19 @@ class MenuScene extends Phaser.Scene {
     };
     UI.canvas.addEventListener("wheel", this.wheelHandler, { passive: false });
 
-    // this.scale is the game's global ScaleManager, not scene-local — a
-    // listener attached to it outlives this scene unless removed by hand, and
+    // A plain `window` listener, not `this.scale.on("resize", ...)`:
+    // RenderScale.apply() below calls game.scale.resize() itself, which
+    // re-emits Phaser's own "resize" event — subscribing to that event would
+    // have this handler call itself on every real window resize. RaceScene
+    // (phaser/raceScene.js:162) sidesteps the same trap the same way.
+    // A `window` listener outlives this scene unless removed by hand, and
     // MenuScene is re-created every time RecordsScene/ResultsScreen hand back
     // to "menu", so without the shutdown cleanup below each return trip would
     // stack another one.
     this.resizeHandler = () => RenderScale.apply(this);
-    this.scale.on("resize", this.resizeHandler);
+    window.addEventListener("resize", this.resizeHandler);
     this.events.once("shutdown", () => {
-      this.scale.off("resize", this.resizeHandler);
+      window.removeEventListener("resize", this.resizeHandler);
       window.removeEventListener("keydown", this.keydownHandler);
       UI.canvas.removeEventListener("wheel", this.wheelHandler);
       UI.clickHandlers = UI.clickHandlers.filter((h) => h !== this.clickHandler);
