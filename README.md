@@ -2,9 +2,10 @@
 A minimalist top-down racing game built with pure **HTML5 Canvas** and
 **JavaScript** — no build step, no `package.json`, no dependencies to install.
 
-Pick a circuit — **Super Circuit**, **Snake Valley** or **Coastal Sprint** —
-an engine class — **60cc**, **100cc** or **250cc** — and a mode — **Free
-Drive**, **5 Lap Race** or **10 Lap Race** — with the mouse or the keyboard.
+Pick a circuit — **Super Circuit**, **Snake Valley**, **Coastal Sprint** or
+**Redrock Sweeper** — an engine class — **60cc**, **100cc** or **250cc** — and
+a mode — **Free Drive**, **5 Lap Race** or **10 Lap Race** — with the mouse or
+the keyboard.
 
 ## Two pages
 
@@ -78,9 +79,10 @@ the arrow keys. Sections with no names yet are skipped, and if the file is
 missing or malformed the game falls back to a built-in roll.
 
 ## Features
-- Three circuits — the boxy **Super Circuit**, the flowing **Snake Valley**
-  and the sweeping **Coastal Sprint**, in [tracks/](tracks/), each with its
-  own starting grid and its own records table
+- Four circuits — the boxy **Super Circuit**, the flowing **Snake Valley**,
+  the sweeping **Coastal Sprint** and the long-straight **Redrock Sweeper**,
+  in [tracks/](tracks/), each with its own starting grid and its own records
+  table
 - Three engine classes — 60cc Cadet, 100cc Formula and 250cc Superkart. The
   whole field scales, so the racing stays close, but steering rate and grip do
   not: the Superkart carries speed through exactly the same corners that a
