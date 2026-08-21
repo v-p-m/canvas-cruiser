@@ -102,23 +102,28 @@
                 // shared with game.js), uiCanvas.js is the overlay <canvas>
                 // every screen in this step draws onto. records.js is the
                 // lap/total-times store (its own physics-version reset, not
-                // shared game.js globals); the *Screen.js files are the
-                // ported draw+hit-test for each screen, loaded before the
-                // scenes/RaceScene that call them every frame; credits.js is
-                // the data loader (credits.json, with its built-in fallback).
+                // shared game.js globals); garage.js is the part-upgrade
+                // store next to it, same shape, no physics version to carry;
+                // the *Screen.js files are the ported draw+hit-test for each
+                // screen, loaded before the scenes/RaceScene that call them
+                // every frame; credits.js is the data loader (credits.json,
+                // with its built-in fallback).
                 "phaser/menuData.js",
                 "phaser/uiCanvas.js",
                 "phaser/records.js",
+                "phaser/garage.js",
                 "phaser/credits.js",
                 "phaser/debugOverlay.js",
                 "phaser/menuScreen.js",
                 "phaser/hudScreen.js",
                 "phaser/recordsScreen.js",
+                "phaser/garageScreen.js",
                 "phaser/resultsScreen.js",
                 "phaser/creditsScreen.js",
                 "phaser/raceScene.js",
                 "phaser/menuScene.js",
                 "phaser/recordsScene.js",
+                "phaser/garageScene.js",
             ]) {
                 const s = document.createElement("script");
                 s.src = `${src}?v=${window.BUILD}`;
@@ -143,9 +148,10 @@
                         matter: { gravity: { x: 0, y: 0 }, debug: false },
                     },
                     // MenuScene is first, so Phaser starts on it; it starts
-                    // RaceScene on START and RecordsScene on Q. RaceScene
-                    // hands back to either once the flag falls.
-                    scene: [MenuScene, RaceScene, RecordsScene],
+                    // RaceScene on START, RecordsScene on Q and GarageScene
+                    // on G. RaceScene hands back to the menu once the flag
+                    // falls.
+                    scene: [MenuScene, RaceScene, RecordsScene, GarageScene],
                 });
             });
         </script>

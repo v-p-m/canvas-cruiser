@@ -34,6 +34,7 @@ python3 -m http.server 8123
 | R | Restart the race |
 | Q | Records (best laps and race totals) |
 | C | Clear records (on the records screen) |
+| G | Garage (spend race points on part upgrades) |
 | P | Toggle rain (Free Drive) |
 | N | Toggle night (Free Drive) |
 | M | Mute / unmute |
@@ -118,6 +119,10 @@ missing or malformed the game falls back to a built-in roll.
   governor that steps the render scale down on slow hardware
 - Lap timing with a top-5 leaderboard and best total times, kept per circuit
   and per engine class (persisted to localStorage)
+- A **Garage** (`G` from the menu): points earned by finishing a lap race —
+  top 3 only — buy up to three tiers each of Engine, Tires and Steering for
+  the player's car, persisted across sessions. Numbers-only for now; no
+  change to the AI or to what a wing losing itself already does
 - Retro arcade countdown lights on race start
 - Built-in track and waypoint editors, plus live physics/AI tuning sliders, on
   their own page: `editor.html`. See **Editor page** above

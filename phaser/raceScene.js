@@ -77,6 +77,8 @@ class RaceScene extends Phaser.Scene {
     this.trackId = (data && data.trackId) || PHASER_TRACKS[0].id;
     Records.load();
     Records.select(this.trackId, EngineClass.current().id);
+    // Before spawnCar, which reads Garage.mods() for the player's slot.
+    Garage.load();
 
     // Track.draw() is the only thing that wants a 2D context and the scene
     // never calls it, so the bake can run without one.
@@ -305,8 +307,13 @@ class RaceScene extends Phaser.Scene {
       // "stock", because damage is fitted here too (phaser/damage.js) and a
       // null would make the player's car the one car in the race whose wings
       // could not break — the regression CLAUDE.md is about, arriving from the
-      // other direction.
-      mods: { speed: index === 0 ? 1 : AI_TOP_SPEED, accel: 1, turn: 1, grip: 1 },
+      // other direction. Garage.mods() only ever feeds the player's slot —
+      // upgrades bought from race points are the driver's own car, not a
+      // handicap redistributed across the field.
+      mods:
+        index === 0
+          ? Garage.mods()
+          : { speed: AI_TOP_SPEED, accel: 1, turn: 1, grip: 1 },
     });
 
     // Wings on, and a snapshot of the car as built for them to come off. Before
@@ -673,13 +680,21 @@ class RaceScene extends Phaser.Scene {
       this.pendingFinishOrder = RaceLaps.classify(this.world, this.entries);
       this.finishHoldTimer = FINISH_HOLD_MS;
       const modeId = RaceLaps.target === 5 ? "race5" : RaceLaps.target === 10 ? "race10" : null;
-      if (modeId)
+      if (modeId) {
         this.isNewBestTotal = Records.saveTotalTime(
           this.trackId,
           EngineClass.current().id,
           modeId,
           p.finishTime,
         );
+        // Free Drive has no modeId and never reaches here, so only the two
+        // lap-race modes — the only ones with a real classification — award
+        // anything.
+        this.garagePointsAwarded = Garage.awardForFinish(
+          p.finishPosition,
+          this.entries.length,
+        );
+      }
     }
 
     // The transition into the results screen, once the hold runs out: the
@@ -833,7 +848,9 @@ class RaceScene extends Phaser.Scene {
     if (this.finishOrder) {
       this.report.finishOrder = this.finishOrder;
       this.report.isNewBestTotal = this.isNewBestTotal;
+      this.report.garagePointsAwarded = this.garagePointsAwarded;
     }
+    this.report.garagePoints = Garage.points();
   }
 
   // Everything a headless check needs to see that the grid is the track's and

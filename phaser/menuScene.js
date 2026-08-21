@@ -2,8 +2,9 @@
 // menuRow/selectedTrack/selectedMode/trackLoading, all module-level globals
 // in the legacy loop — game.js:31-90) and drives MenuScreen against the UI
 // overlay canvas. START stops this one and starts RaceScene with the chosen
-// track+class, exactly the handoff startSelectedMode() makes in game.js; Q
-// and I hand off to RecordsScene and the credits modal respectively.
+// track+class, exactly the handoff startSelectedMode() makes in game.js; Q,
+// G and I hand off to RecordsScene, GarageScene and the credits modal
+// respectively.
 //
 // The track behind the dim overlay is a real bake of the selected circuit —
 // same Track class, same tracks/*.json — but with no grid, no cars and no
@@ -80,7 +81,7 @@ class MenuScene extends Phaser.Scene {
     await loadCredits(); // never throws; keeps the built-in fallback on failure
     CreditsScreen.reset();
 
-    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,ENTER,Q,I,K,ESC");
+    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,ENTER,Q,G,I,K,ESC");
     PlayerInput.init(); // so the rebind screen's own keys can't stick down
 
     // The rebind screen has to see the raw `e.key` of whatever was pressed —
@@ -135,6 +136,7 @@ class MenuScene extends Phaser.Scene {
       cycleClass: (dir) => this.cycleClass(dir),
       start: () => this.startRace(),
       openRecords: () => this.openRecords(),
+      openGarage: () => this.openGarage(),
       openCredits: () => this.openCredits(),
       openKeyBindings: () => this.openKeyBindings(),
     };
@@ -284,6 +286,11 @@ class MenuScene extends Phaser.Scene {
     this.scene.start("records", { trackId: PHASER_TRACKS[this.state.selectedTrack].id });
   }
 
+  openGarage() {
+    if (this.state.credits) return;
+    this.scene.start("garage");
+  }
+
   openCredits() {
     this.state.credits = true;
     CreditsScreen.reset();
@@ -383,6 +390,7 @@ class MenuScene extends Phaser.Scene {
         MenuScreen.changeRow(this.state, 1, this.menuActions());
       if (Phaser.Input.Keyboard.JustDown(this.keys.ENTER)) this.startRace();
       if (Phaser.Input.Keyboard.JustDown(this.keys.Q)) this.openRecords();
+      if (Phaser.Input.Keyboard.JustDown(this.keys.G)) this.openGarage();
       if (Phaser.Input.Keyboard.JustDown(this.keys.I)) this.openCredits();
       if (Phaser.Input.Keyboard.JustDown(this.keys.K)) this.openKeyBindings();
     }

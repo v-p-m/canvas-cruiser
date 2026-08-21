@@ -171,6 +171,7 @@ const MenuScreen = {
     const actions = [
       { key: "K", action: "Key bindings", id: "keybindings" },
       { key: "Q", action: "Records", id: "leaderboard" },
+      { key: "G", action: "Garage", id: "garage" },
       { key: "I", action: "Credits", id: "credits" },
       {
         key: "M",
@@ -258,6 +259,9 @@ const MenuScreen = {
         break;
       case "leaderboard":
         actions.openRecords();
+        break;
+      case "garage":
+        actions.openGarage();
         break;
       case "credits":
         actions.openCredits();
