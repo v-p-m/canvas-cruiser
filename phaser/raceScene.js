@@ -188,6 +188,20 @@ class RaceScene extends Phaser.Scene {
     // facing the start line. Index 0 is the player, exactly as SPAWN_POSITIONS
     // is ordered in game.js.
     this.grid = RaceGrid.build(this.world);
+    // Player starts last: swap grid slots with the last AI so the player's
+    // car spawns at the back of the field. Only the position/angle move —
+    // livery stays with the slot index, so the player is still red and
+    // still "YOU".
+    {
+      const back = this.grid.length - 1;
+      const pole = { x: this.grid[0].x, y: this.grid[0].y, angle: this.grid[0].angle };
+      this.grid[0].x = this.grid[back].x;
+      this.grid[0].y = this.grid[back].y;
+      this.grid[0].angle = this.grid[back].angle;
+      this.grid[back].x = pole.x;
+      this.grid[back].y = pole.y;
+      this.grid[back].angle = pole.angle;
+    }
     this.cars = this.grid.map((slot, i) => this.spawnCar(slot, i));
     this.player = this.cars[0];
     // So onCollisionStart() can tell a car-to-car hit from a car meeting the
