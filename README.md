@@ -1,4 +1,4 @@
-# Canvas Cruiser v0.15.0
+# Canvas Cruiser v0.16.0
 A minimalist top-down racing game built with pure **HTML5 Canvas** and
 **JavaScript** — no build step, no `package.json`, no dependencies to install.
 
@@ -97,6 +97,11 @@ missing or malformed the game falls back to a built-in roll.
   the car it lands on, scrubs speed off both cars, spins the one hit
   off-centre, and leaves it unsettled with reduced grip for a moment —
   recoverable, not a hard cap
+- A hard enough hit breaks a wing, and lesser ones wear it down — permanent for
+  the race, unlike the temporary cost above. A broken front wing costs turn, a
+  broken rear costs grip; every car breaks on the same hit and pays the same
+  for it, and condition is always shown, on the car, the HUD and the debug
+  panel
 - Drivable dirt run-off outside the kerbs, with a noise-warped edge that never
   lines up with the tile grid
 - Dynamic weather — rain cuts grip for player and AI alike, adds hydroplaning
