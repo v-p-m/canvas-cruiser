@@ -84,6 +84,11 @@ const TRACKS = [
     file: "tracks/redrock-sweeper.json",
     label: "Redrock Sweeper",
   },
+  {
+    id: "ironwood",
+    file: "tracks/ironwood-marathon.json",
+    label: "Ironwood Marathon",
+  },
 ];
 let selectedTrack = 0; // index into TRACKS — the one the menu is offering
 let loadedTrack = -1; // the one actually baked into worldTrack

@@ -150,9 +150,28 @@ const HudScreen = {
       }
     }
 
+    this.drawSeriesRound(scene);
     this.drawDamage(p, now);
     this.drawMinimap(scene);
     HudBanner.draw();
+  },
+
+  // Which round of the championship this is, under the top bar on the left.
+  // A series race looks exactly like a one-off from inside the car, and the
+  // whole difference is that this one is worth points — so it says so for the
+  // length of the race, in the corner the lap counter has already trained the
+  // eye on. `scene.seriesRound`, not Series.round: the round is banked the
+  // moment the player takes the flag, three seconds before the results cover
+  // the HUD, and a label that ticked over during the roll-out would read as
+  // the game losing count.
+  drawSeriesRound(scene) {
+    if (!scene.isSeriesRound) return;
+    const ctx = UI.ctx;
+    ctx.font = "bold 13px 'Courier New'";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#FFD700";
+    ctx.fillText(Series.roundLabel(scene.seriesRound), 20, 80);
+    ctx.fillStyle = "#00FF00";
   },
 
   // The condition of both wings, for as long as either is less than perfect.

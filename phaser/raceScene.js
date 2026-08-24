@@ -67,6 +67,7 @@ class RaceScene extends Phaser.Scene {
     this.pendingFinishOrder = null; // classified at the flag, shown after the hold
     this.finishHoldTimer = 0; // ms left of the roll-out
     this.isNewBestTotal = false;
+    this.garagePointsAwarded = 0; // reset with the rest: "race again" reuses this instance
     // Armed lazily on the first update() — see there for why begin() can't
     // just be called here.
     this.startLightsArmed = false;
@@ -75,6 +76,21 @@ class RaceScene extends Phaser.Scene {
     // with no menu in front of it — a headless check, mainly.
     this.trackFile = (data && data.trackFile) || "tracks/super-circuit.json";
     this.trackId = (data && data.trackId) || PHASER_TRACKS[0].id;
+    // Whether this race scores championship points is the *caller's* to say,
+    // not something to infer from Series.active: a player can park a
+    // half-finished series and run a one-off race on the same circuit from the
+    // menu, and that race must not go in the book. Only SeriesScene sets it.
+    //
+    // Same guard SeriesScene gives it: only read the store when there is
+    // nothing in hand, or a private-mode browser (where save() is a no-op)
+    // would have every round wipe the championship it belongs to.
+    if (!Series.active) Series.load();
+    this.isSeriesRound = !!(data && data.series) && Series.active;
+    // The round this race *is*, held so the HUD keeps saying it through the
+    // roll-out: recordRound() advances Series.round the instant the player
+    // takes the flag, three seconds before the results cover the HUD.
+    this.seriesRound = Series.round;
+    this.seriesRow = null;
     Records.load();
     Records.select(this.trackId, EngineClass.current().id);
     // Before spawnCar, which reads Garage.mods() for the player's slot.
@@ -264,7 +280,7 @@ class RaceScene extends Phaser.Scene {
     // through PlayerInput/KeyBindings rather than Phaser's KeyCodes enum (see
     // phaser/playerInput.js). What's left are the fixed, unbindable keys —
     // BLACKLISTED_KEYS in keyBindings.js is what keeps them unbindable.
-    this.keys = this.input.keyboard.addKeys("R,ESC,P,N");
+    this.keys = this.input.keyboard.addKeys("R,ENTER,ESC,P,N");
     PlayerInput.init().clear(); // a key still held from the menu isn't a throttle input
 
     // Registered up front rather than when the flag falls: UI.onClick only
@@ -279,6 +295,17 @@ class RaceScene extends Phaser.Scene {
   }
 
   resultsActions() {
+    // A championship round has already banked its points by the time this
+    // screen is up, so "race again" cannot mean "run it again" — that would
+    // either score the round twice or quietly replace a result the standings
+    // have already been drawn from. The way on is the standings screen, which
+    // is also the only way into the next round. ESC still leaves for the menu
+    // and leaves the series where it stands, ready to continue.
+    if (this.isSeriesRound)
+      return {
+        again: () => this.scene.start("series"),
+        menu: () => this.scene.start("menu"),
+      };
     return {
       again: () => this.scene.restart({ trackFile: this.trackFile, trackId: this.trackId }),
       menu: () => this.scene.start("menu"),
@@ -709,6 +736,16 @@ class RaceScene extends Phaser.Scene {
           this.entries.length,
         );
       }
+
+      // The championship round goes in the book off the same table the results
+      // screen is about to draw and at the same instant it was frozen —
+      // nothing in it can move afterwards, and recordRound() ignores a repeat,
+      // so a round cannot be scored twice however many frames this screen is
+      // up for. Outside the `modeId` guard above deliberately: that one is
+      // about which *records* a length of race is filed under, and a series
+      // scores its rounds whatever SERIES_LAPS is set to.
+      if (this.isSeriesRound)
+        this.seriesRow = Series.recordRound(this.pendingFinishOrder, this.seriesRound);
     }
 
     // The transition into the results screen, once the hold runs out: the
@@ -802,7 +839,15 @@ class RaceScene extends Phaser.Scene {
       // R only means anything once the results screen is showing — there's no
       // in-race reset on this page yet, so it's silent until then rather than
       // double as a shortcut mid-race. ESC exits from either state (below).
-      if (Phaser.Input.Keyboard.JustDown(this.keys.R)) this.resultsActions().again();
+      // ENTER joins R only in a championship, where "again" means the
+      // standings and the next round and the button says ENTER. On an ordinary
+      // race it stays R alone: ENTER there would restart a race the player was
+      // very likely just dismissing a screen with.
+      if (
+        Phaser.Input.Keyboard.JustDown(this.keys.R) ||
+        (this.isSeriesRound && Phaser.Input.Keyboard.JustDown(this.keys.ENTER))
+      )
+        this.resultsActions().again();
       if (Phaser.Input.Keyboard.JustDown(this.keys.ESC)) this.resultsActions().menu();
     } else {
       // Mid-race ESC — no pause/resume machinery yet (see resultsScreen.js's
@@ -865,6 +910,13 @@ class RaceScene extends Phaser.Scene {
       this.report.garagePointsAwarded = this.garagePointsAwarded;
     }
     this.report.garagePoints = Garage.points();
+    if (this.isSeriesRound) {
+      this.report.series = {
+        round: this.seriesRound,
+        recorded: !!this.seriesRow,
+        points: Series.standings().map((r) => `${r.position}. ${r.name} ${r.points}`),
+      };
+    }
   }
 
   // Everything a headless check needs to see that the grid is the track's and

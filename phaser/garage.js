@@ -35,6 +35,16 @@ const GARAGE_TIER_MULT = [1, 1.04, 1.08, 1.12];
 // with field size — see awardForFinish().
 const GARAGE_AWARD = { 1: 3, 2: 2, 3: 1 };
 
+// What the championship itself pays, on top of the per-round table above
+// (phaser/series.js). Twice a race win for the title, and it is deliberately
+// the larger number: the bonus has to be worth more than the round it was won
+// in or the series is just a run of races with a scoreboard. Same shape, same
+// top-3-only rule. Not re-scaled when the calendar went to four rounds — a
+// clean sweep now pays 12 from the rounds against this 6, but "twice a race
+// win" is the rule the number encodes, and it does not depend on how many
+// rounds there are.
+const GARAGE_SERIES_AWARD = { 1: 6, 2: 4, 3: 2 };
+
 const Garage = {
   _points: 0,
   _tiers: { engine: 0, tires: 0, steering: 0 },
@@ -110,9 +120,19 @@ const Garage = {
   // that couldn't have happened rather than scaling the award — a top-3 pays
   // the same table whatever the grid size.
   awardForFinish(position, fieldSize) {
+    return this.awardFrom(GARAGE_AWARD, position, fieldSize);
+  },
+
+  // The championship's own payout, banked once when the last round goes in
+  // the book. Same rules as a race finish, a bigger table.
+  awardForSeries(position, fieldSize) {
+    return this.awardFrom(GARAGE_SERIES_AWARD, position, fieldSize);
+  },
+
+  awardFrom(table, position, fieldSize) {
     if (!Number.isInteger(position) || position < 1) return 0;
     if (Number.isInteger(fieldSize) && position > fieldSize) return 0;
-    const gained = GARAGE_AWARD[position] || 0;
+    const gained = table[position] || 0;
     if (gained > 0) {
       this._points += gained;
       this.save();

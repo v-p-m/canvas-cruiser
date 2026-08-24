@@ -14,7 +14,7 @@
             // index.html is the only file GitHub Pages will let go stale for
             // just 10 minutes; a constant inside a script cannot invalidate
             // that script.
-            window.BUILD = "0.16.0";
+            window.BUILD = "0.17.0";
         </script>
         <style>
             /* This page does not load style.css — that sheet pins the
@@ -108,6 +108,13 @@
                 // screen, loaded before the scenes/RaceScene that call them
                 // every frame; credits.js is the data loader (credits.json,
                 // with its built-in fallback).
+                //
+                // series.js goes before menuData.js, which builds the
+                // series row of its MODE table out of SERIES_ROUNDS/
+                // SERIES_LAPS rather than a second copy of those numbers. Series itself only reaches for
+                // PHASER_TRACKS/Garage inside its methods, so this is the one
+                // ordering constraint it has beyond engineClass.js above.
+                "phaser/series.js",
                 "phaser/menuData.js",
                 "phaser/uiCanvas.js",
                 "phaser/records.js",
@@ -118,12 +125,14 @@
                 "phaser/hudScreen.js",
                 "phaser/recordsScreen.js",
                 "phaser/garageScreen.js",
+                "phaser/seriesScreen.js",
                 "phaser/resultsScreen.js",
                 "phaser/creditsScreen.js",
                 "phaser/raceScene.js",
                 "phaser/menuScene.js",
                 "phaser/recordsScene.js",
                 "phaser/garageScene.js",
+                "phaser/seriesScene.js",
             ]) {
                 const s = document.createElement("script");
                 s.src = `${src}?v=${window.BUILD}`;
@@ -150,8 +159,10 @@
                     // MenuScene is first, so Phaser starts on it; it starts
                     // RaceScene on START, RecordsScene on Q and GarageScene
                     // on G. RaceScene hands back to the menu once the flag
-                    // falls.
-                    scene: [MenuScene, RaceScene, RecordsScene, GarageScene],
+                    // falls. SeriesScene is the championship's own screen: the
+                    // menu opens it on the series mode, every round is started
+                    // from it, and every round's results screen returns to it.
+                    scene: [MenuScene, RaceScene, RecordsScene, GarageScene, SeriesScene],
                 });
             });
         </script>

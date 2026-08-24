@@ -8,7 +8,11 @@ const GarageScreen = {
   LABEL: { engine: "🔧 ENGINE", tires: "🛞 TIRES", steering: "🎯 STEERING" },
   FIELD: { engine: "speed + accel", tires: "grip", steering: "turn" },
 
-  draw() {
+  // `opts.backLabel` is the one thing the caller varies: the garage is
+  // reachable from the menu and from the championship between rounds, and a
+  // button that says "back to menu" while it goes somewhere else is worse
+  // than no label at all.
+  draw(opts = {}) {
     const ctx = UI.ctx;
     ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
     ctx.fillRect(0, 0, UI.width, UI.height);
@@ -75,7 +79,7 @@ const GarageScreen = {
 
     const cx = UI.width / 2;
     ctx.font = "18px 'Courier New'";
-    const backText = "ESC / G — Back to menu";
+    const backText = opts.backLabel || "ESC / G — Back to menu";
     const w = ctx.measureText(backText).width + 32;
     const h = 28;
     const bx = cx - w / 2;

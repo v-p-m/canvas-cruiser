@@ -24,12 +24,32 @@ const MenuScreen = {
   changeRow(state, dir, actions) {
     if (state.row === 0) actions.cycleTrack(dir);
     else if (state.row === 1) actions.cycleClass(dir);
-    else if (state.row === 2) this.cycleMode(state, dir);
+    else if (state.row === 2) this.cycleMode(state, dir, actions);
   },
 
-  cycleMode(state, dir) {
+  cycleMode(state, dir, actions) {
     state.selectedMode =
       (state.selectedMode + dir + PHASER_MODES.length) % PHASER_MODES.length;
+    // Landing on the series mode with a championship already running points
+    // the TRACK row (and the backdrop bake behind it) at the round that is
+    // actually next — the row is locked from there, so it must not be left
+    // showing a circuit the series isn't going to.
+    actions.syncSeries();
+  },
+
+  // A championship in progress owns the TRACK and CLASS rows: the calendar
+  // was fixed when it began and the class is part of the title. Both rows stay
+  // visible and go dim rather than disappearing, so the player can see what
+  // the series is running under.
+  seriesMode(state) {
+    return !!PHASER_MODES[state.selectedMode].series;
+  },
+
+  seriesLocked(state) {
+    // A championship whose last round is already in the book locks nothing:
+    // there is no next round to hold the calendar or the class for, only a
+    // final table left to go and look at.
+    return this.seriesMode(state) && Series.active && !Series.complete();
   },
 
   drawSelectorRow(cx, y, opts) {
@@ -84,9 +104,13 @@ const MenuScreen = {
     ctx.fillText(opts.text, cx, y - 2);
   },
 
-  drawStartButton(cx, y, focused) {
+  drawStartButton(cx, y, focused, label = "▶  START") {
     const ctx = UI.ctx;
-    const boxW = 300;
+    // Measured, not fixed at 300: a championship's label carries the round it
+    // is about to run ("CONTINUE · ROUND 4 OF 4"), which is half again as wide
+    // as "START" and hung out over both ends of the box.
+    ctx.font = "bold 24px 'Courier New'";
+    const boxW = Math.max(300, ctx.measureText(label).width + 56);
     const boxH = 44;
     const boxX = cx - boxW / 2;
     const boxY = y - 30;
@@ -100,10 +124,55 @@ const MenuScreen = {
     ctx.roundRect(boxX, boxY, boxW, boxH, 8);
     ctx.fill();
 
-    ctx.font = "bold 24px 'Courier New'";
     ctx.textAlign = "center";
     ctx.fillStyle = lit ? "#000" : "#FFD700";
-    ctx.fillText("▶  START", cx, y);
+    ctx.fillText(label, cx, y);
+  },
+
+  // The circuits the championship visits, under the MODE row: the whole
+  // calendar before START is pressed, because a series is a commitment to a
+  // specific set of races and the player should see which ones. Once it is
+  // running, the round about to be raced is lit.
+  drawSeriesLine(state, cx, y) {
+    const ctx = UI.ctx;
+    const running = Series.active;
+    const ids = running
+      ? Series.calendar
+      : Array.from(
+          { length: SERIES_ROUNDS },
+          (_, i) => PHASER_TRACKS[(state.selectedTrack + i) % PHASER_TRACKS.length].id,
+        );
+    const labels = ids.map((id) => (PHASER_TRACKS.find((t) => t.id === id) || { label: id }).label);
+
+    // Fitted, not fixed: four track names and their separators are wider than
+    // a short window at 13px, and a calendar running off both edges of the
+    // menu says less than a smaller one that fits.
+    const sep = "  ›  ";
+    let size = 13;
+    let sepW, widths, total;
+    for (;;) {
+      ctx.font = `${size}px 'Courier New'`;
+      sepW = ctx.measureText(sep).width;
+      widths = labels.map((l) => ctx.measureText(l).width);
+      total = widths.reduce((a, b) => a + b, 0) + sepW * (labels.length - 1);
+      if (total <= UI.width - 40 || size <= 9) break;
+      size--;
+    }
+
+    let x = cx - total / 2;
+    ctx.textAlign = "left";
+    labels.forEach((label, i) => {
+      const next = running && i === Series.round;
+      const raced = running && i < Series.results.length;
+      ctx.fillStyle = next ? "#FFD700" : raced ? "#888" : "#CCC";
+      ctx.fillText(label, x, y);
+      x += widths[i];
+      if (i < labels.length - 1) {
+        ctx.fillStyle = "#888";
+        ctx.fillText(sep, x, y);
+        x += sepW;
+      }
+    });
   },
 
   draw(state) {
@@ -131,13 +200,15 @@ const MenuScreen = {
     const cx = UI.width / 2;
     this.hitAreas = [];
 
+    const locked = this.seriesLocked(state);
+
     this.drawSelectorRow(cx, 196, {
-      label: "TRACK",
+      label: locked ? "ROUND" : "TRACK",
       text: PHASER_TRACKS[state.selectedTrack].label,
       prevAction: "trackPrev",
       nextAction: "trackNext",
       focused: state.row === 0,
-      dim: state.trackLoading,
+      dim: state.trackLoading || locked,
     });
     this.drawSelectorRow(cx, 244, {
       label: "CLASS",
@@ -145,6 +216,7 @@ const MenuScreen = {
       prevAction: "classPrev",
       nextAction: "classNext",
       focused: state.row === 1,
+      dim: locked,
     });
     this.drawSelectorRow(cx, 292, {
       label: "MODE",
@@ -154,7 +226,20 @@ const MenuScreen = {
       focused: state.row === 2,
     });
 
-    this.drawStartButton(cx, 366, state.row === this.START_ROW);
+    if (this.seriesMode(state)) this.drawSeriesLine(state, cx, 326);
+
+    this.drawStartButton(
+      cx,
+      366,
+      state.row === this.START_ROW,
+      this.seriesMode(state)
+        ? Series.complete()
+          ? "▶  FINAL STANDINGS"
+          : Series.active
+            ? `▶  CONTINUE · ${Series.roundLabel()}`
+            : "▶  START SERIES"
+        : "▶  START",
+    );
 
     // Controls. B (DEBUG) used to sit here as a stub waiting for the editors
     // to land. They landed on editor.html instead — they need the legacy
@@ -172,6 +257,19 @@ const MenuScreen = {
       { key: "K", action: "Key bindings", id: "keybindings" },
       { key: "Q", action: "Records", id: "leaderboard" },
       { key: "G", action: "Garage", id: "garage" },
+      // The only way out of a championship short of finishing it, and it only
+      // appears while there is one to leave — a series survives ESC out of a
+      // race on purpose, so without this the menu would offer to continue the
+      // same one forever.
+      ...(Series.active
+        ? [
+            {
+              key: "X",
+              action: Series.complete() ? "Discard final standings" : "Abandon series",
+              id: "abandonSeries",
+            },
+          ]
+        : []),
       { key: "I", action: "Credits", id: "credits" },
       {
         key: "M",
@@ -237,10 +335,10 @@ const MenuScreen = {
 
     switch (hit.action) {
       case "modePrev":
-        this.cycleMode(state, -1);
+        this.cycleMode(state, -1, actions);
         break;
       case "modeNext":
-        this.cycleMode(state, 1);
+        this.cycleMode(state, 1, actions);
         break;
       case "trackPrev":
         actions.cycleTrack(-1);
@@ -262,6 +360,9 @@ const MenuScreen = {
         break;
       case "garage":
         actions.openGarage();
+        break;
+      case "abandonSeries":
+        actions.abandonSeries();
         break;
       case "credits":
         actions.openCredits();

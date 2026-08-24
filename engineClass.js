@@ -67,6 +67,29 @@ const EngineClass = {
   cycle(dir) {
     this.selected =
       (this.selected + dir + ENGINE_CLASSES.length) % ENGINE_CLASSES.length;
+    this.persist();
+  },
+
+  // The same choice made by id rather than by direction, for a caller that
+  // knows which class it wants: a championship locks one in for every one of
+  // its rounds (phaser/series.js) and has to put it back on the way into each
+  // one. Unknown ids leave the current class alone rather than defaulting, so
+  // a stale saved id can't silently re-class the car.
+  //
+  // `persist` is what separates the player choosing a class from something
+  // else imposing one. A series carries its own class and re-applies it on
+  // every entry, so it has no need to write it to storage — and if it did, a
+  // championship run in 60cc would leave the menu on 60cc afterwards, having
+  // quietly overwritten the class the player actually races in.
+  select(id, persist = true) {
+    const i = ENGINE_CLASSES.findIndex((c) => c.id === id);
+    if (i < 0) return false;
+    this.selected = i;
+    if (persist) this.persist();
+    return true;
+  },
+
+  persist() {
     try {
       localStorage.setItem("engineClass", this.current().id);
     } catch {

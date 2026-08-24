@@ -25,6 +25,10 @@ const BLACKLISTED_KEYS = [
   "N",
   "z",
   "Z",
+  // X abandons a championship from the menu (phaser/menuScene.js) — a bound
+  // throttle on the same key would end a running series on the way past.
+  "x",
+  "X",
   "f2",
   "F2",
   // Live in a race, not just in a menu, and so the most dangerous omissions:

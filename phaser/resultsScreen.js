@@ -33,8 +33,12 @@ const ResultsScreen = {
 
     ctx.fillStyle = "#AAA";
     ctx.font = "20px 'Courier New'";
+    // The round goes first in a championship: what this race *was* frames the
+    // position it ended in, and it is the one line that says the result counts
+    // for something beyond itself.
+    const round = scene.isSeriesRound ? `${Series.roundLabel(scene.seriesRound)} · ` : "";
     ctx.fillText(
-      `${EngineClass.current().label} · ${RaceLaps.target || "?"} laps · finished P${p.finishPosition} of ${finishOrder.length}`,
+      `${round}${EngineClass.current().label} · ${RaceLaps.target || "?"} laps · finished P${p.finishPosition} of ${finishOrder.length}`,
       cx,
       138,
     );
@@ -107,12 +111,36 @@ const ResultsScreen = {
     ctx.fillText(`${Garage.points()} garage points total`, cx, y);
     y += 34;
 
+    // One line of championship, not the table: the full standings are the
+    // next screen, and this is the number the player wants before they get
+    // there — where the round left them, and what it was worth.
+    if (scene.isSeriesRound) {
+      const me = Series.standings().find((r) => r.isPlayer);
+      if (me) {
+        ctx.fillStyle = me.position === 1 ? "#FFD700" : "#FFF";
+        ctx.font = "bold 20px 'Courier New'";
+        ctx.fillText(
+          `🏆 CHAMPIONSHIP: P${me.position} · ${me.points} pts${me.gained ? ` (+${me.gained})` : ""}`,
+          cx,
+          y,
+        );
+        y += 34;
+      }
+    }
+
     ctx.textAlign = "center";
     ctx.font = "18px 'Courier New'";
 
     this.hitAreas = [];
+    // "Again" means the standings mid-championship — the round is already
+    // scored, so re-running it is not on offer (see RaceScene.resultsActions).
     const buttons = [
-      { action: "again", text: "R  — Race again", y, hoverColor: "#FFD700" },
+      {
+        action: "again",
+        text: scene.isSeriesRound ? "ENTER — Championship standings" : "R  — Race again",
+        y,
+        hoverColor: "#FFD700",
+      },
       { action: "menu", text: "ESC — Main menu", y: y + 34, hoverColor: "#FFD700" },
     ];
 

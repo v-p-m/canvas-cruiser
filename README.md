@@ -1,11 +1,11 @@
-# Canvas Cruiser v0.16.0
+# Canvas Cruiser v0.17.0
 A minimalist top-down racing game built with pure **HTML5 Canvas** and
 **JavaScript** — no build step, no `package.json`, no dependencies to install.
 
-Pick a circuit — **Super Circuit**, **Snake Valley**, **Coastal Sprint** or
-**Redrock Sweeper** — an engine class — **60cc**, **100cc** or **250cc** — and
-a mode — **Free Drive**, **5 Lap Race** or **10 Lap Race** — with the mouse or
-the keyboard.
+Pick a circuit — **Super Circuit**, **Snake Valley**, **Coastal Sprint**,
+**Redrock Sweeper** or **Ironwood Marathon** — an engine class — **60cc**,
+**100cc** or **250cc** — and a mode — **Free Drive**, **5 Lap Race**,
+**10 Lap Race** or the **4-Race Series** — with the mouse or the keyboard.
 
 ## Two pages
 
@@ -36,6 +36,7 @@ python3 -m http.server 8123
 | Q | Records (best laps and race totals) |
 | C | Clear records (on the records screen) |
 | G | Garage (spend race points on part upgrades) |
+| X | Abandon the championship in progress (from the menu) |
 | P | Toggle rain (Free Drive) |
 | N | Toggle night (Free Drive) |
 | M | Mute / unmute |
@@ -79,10 +80,11 @@ the arrow keys. Sections with no names yet are skipped, and if the file is
 missing or malformed the game falls back to a built-in roll.
 
 ## Features
-- Four circuits — the boxy **Super Circuit**, the flowing **Snake Valley**,
-  the sweeping **Coastal Sprint** and the long-straight **Redrock Sweeper**,
-  in [tracks/](tracks/), each with its own starting grid and its own records
-  table
+- Five circuits — the boxy **Super Circuit**, the flowing **Snake Valley**,
+  the sweeping **Coastal Sprint**, the long-straight **Redrock Sweeper** and
+  the switchback **Ironwood Marathon** — a 9,000px lap, a fifth longer than
+  Snake Valley and better than double Redrock Sweeper — in [tracks/](tracks/),
+  each with its own starting grid and its own records table
 - Three engine classes — 60cc Cadet, 100cc Formula and 250cc Superkart. The
   whole field scales, so the racing stays close, but steering rate and grip do
   not: the Superkart carries speed through exactly the same corners that a
@@ -130,6 +132,16 @@ missing or malformed the game falls back to a built-in roll.
   top 3 only — buy up to three tiers each of Engine, Tires and Steering for
   the player's car, persisted across sessions. Numbers-only for now; no
   change to the AI or to what a wing losing itself already does
+- A **4-Race Series**: a championship over four circuits, picked as a MODE.
+  The calendar starts at the circuit you selected and takes in the next three,
+  the engine class is locked for all four rounds, and **every car scores** —
+  10-8-6-4-2-1 by finishing position, so the title is a fight with the field
+  and not a solo time trial. Ties break on wins, then best finish, then a
+  countback through the rounds. Between rounds the standings screen shows the
+  whole championship (with each round's finishing position) and opens the
+  garage, so the points a round pays out can be spent on the car before the
+  next one starts; winning the title pays a bonus on top. A series survives
+  ESC and a reload — the menu offers to continue it, and `X` abandons it
 - Retro arcade countdown lights on race start
 - Built-in track and waypoint editors, plus live physics/AI tuning sliders, on
   their own page: `editor.html`. See **Editor page** above

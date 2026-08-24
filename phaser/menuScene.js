@@ -41,6 +41,10 @@ class MenuScene extends Phaser.Scene {
     this.ready = false;
 
     EngineClass.load(); // the class survives a reload; the menu should open on it
+    // A championship survives a reload too — and an ESC out of one of its
+    // races — so the menu has to know whether START means "begin" or
+    // "continue" before it draws a single row.
+    Series.load();
 
     // Silences the engine/tire voices a race in progress may have left
     // playing — RaceScene calls Sound.update() every frame it's live, this
@@ -53,11 +57,23 @@ class MenuScene extends Phaser.Scene {
     this.state = {
       row: 2, // opens on MODE, same as game.js's menuRow default
       selectedTrack: this.loadSavedTrack(),
-      selectedMode: 1, // "5 Lap Race"
+      // A championship still in progress is what the menu opens on — it is the
+      // thing with something at stake, and START then reads "CONTINUE".
+      selectedMode: Series.active ? PHASER_MODES.findIndex((m) => m.series) : 1,
       trackLoading: false,
       credits: false, // a modal over this screen, not a screen of its own
       keybinds: false, // ditto — the legacy loop's isKeyBindings, an overlay
     };
+    // Straight into the state rather than through syncSeries(): this runs
+    // before the first bake below, so pointing the picker at the round's own
+    // circuit here costs nothing, where syncSeries() would kick a second load
+    // of the track create() is already about to fetch.
+    if (Series.active) {
+      Series.applyClass();
+      const track = Series.currentTrack();
+      const i = track ? PHASER_TRACKS.findIndex((t) => t.id === track.id) : -1;
+      if (i >= 0) this.state.selectedTrack = i;
+    }
     this.loadedTrack = -1;
 
     UI.init(); // one overlay canvas for the page's whole life
@@ -81,7 +97,7 @@ class MenuScene extends Phaser.Scene {
     await loadCredits(); // never throws; keeps the built-in fallback on failure
     CreditsScreen.reset();
 
-    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,ENTER,Q,G,I,K,ESC");
+    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,ENTER,Q,G,I,K,X,ESC");
     PlayerInput.init(); // so the rebind screen's own keys can't stick down
 
     // The rebind screen has to see the raw `e.key` of whatever was pressed —
@@ -138,6 +154,8 @@ class MenuScene extends Phaser.Scene {
     return {
       cycleTrack: (dir) => this.cycleTrack(dir),
       cycleClass: (dir) => this.cycleClass(dir),
+      syncSeries: () => this.syncSeries(),
+      abandonSeries: () => this.abandonSeries(),
       start: () => this.startRace(),
       openRecords: () => this.openRecords(),
       openGarage: () => this.openGarage(),
@@ -147,6 +165,10 @@ class MenuScene extends Phaser.Scene {
   }
 
   cycleTrack(dir) {
+    // Both rows are the championship's while one is running: its calendar was
+    // fixed when it began and its class is part of the title. MenuScreen draws
+    // them dim to say so.
+    if (MenuScreen.seriesLocked(this.state)) return;
     if (PHASER_TRACKS.length < 2) return;
     this.state.selectedTrack =
       (this.state.selectedTrack + dir + PHASER_TRACKS.length) % PHASER_TRACKS.length;
@@ -159,8 +181,44 @@ class MenuScene extends Phaser.Scene {
   }
 
   cycleClass(dir) {
+    if (MenuScreen.seriesLocked(this.state)) return;
     if (ENGINE_CLASSES.length < 2) return;
     EngineClass.cycle(dir);
+  }
+
+  // Puts the picker where a running championship actually is: the round's own
+  // circuit under the (locked) TRACK row, and with it the backdrop bake, plus
+  // the class the series was begun in. Called whenever the MODE row lands on
+  // the series and once on the way in, so the menu never shows a circuit or a
+  // class the next round isn't going to use.
+  //
+  // It sets `selectedTrack` directly rather than through cycleTrack(): that
+  // one persists the choice, and a series visiting other circuits must not
+  // overwrite the one the player picked for their own races.
+  syncSeries() {
+    if (!MenuScreen.seriesLocked(this.state)) return;
+    Series.applyClass();
+    const track = Series.currentTrack();
+    if (!track) return;
+    const i = PHASER_TRACKS.findIndex((t) => t.id === track.id);
+    if (i >= 0 && i !== this.state.selectedTrack) {
+      this.state.selectedTrack = i;
+      this.applySelectedTrack();
+    }
+  }
+
+  // The only way out of a championship short of finishing it — a series
+  // deliberately survives ESC out of one of its races, so something has to be
+  // able to end it. Confirmed, like clearing the records: a full calendar is a
+  // sitting's worth of racing to throw away by mistyping.
+  abandonSeries() {
+    if (!Series.active || this.state.credits) return;
+    const run = Series.results.length;
+    const question = Series.complete()
+      ? "Discard the final standings?"
+      : `Abandon the championship after ${run} of ${SERIES_ROUNDS} rounds?`;
+    if (!confirm(`${question}\n\nGarage points already won are kept.`)) return;
+    Series.clear();
   }
 
   // Ported from applySelectedTrack() in game.js: a fetch-and-bake can be
@@ -278,11 +336,23 @@ class MenuScene extends Phaser.Scene {
 
   startRace() {
     if (this.state.trackLoading || this.state.credits) return; // baking, or credits has input
+    if (MenuScreen.seriesMode(this.state)) return this.startSeries();
     RaceLaps.target = PHASER_MODES[this.state.selectedMode].laps;
     this.scene.start("race", {
       trackFile: PHASER_TRACKS[this.state.selectedTrack].file,
       trackId: PHASER_TRACKS[this.state.selectedTrack].id,
     });
+  }
+
+  // START on the series mode never launches a race itself — it opens the
+  // championship screen, which is the one place a round is started from and
+  // therefore the one place the lap count and the class lock are applied (see
+  // phaser/seriesScene.js). A new series takes its calendar from the circuit
+  // the TRACK row is showing and its class from the CLASS row: the last
+  // moment either one is the player's to choose.
+  startSeries() {
+    if (!Series.active) Series.begin(this.state.selectedTrack, EngineClass.current().id);
+    this.scene.start("series");
   }
 
   openRecords() {
@@ -395,6 +465,7 @@ class MenuScene extends Phaser.Scene {
       if (Phaser.Input.Keyboard.JustDown(this.keys.ENTER)) this.startRace();
       if (Phaser.Input.Keyboard.JustDown(this.keys.Q)) this.openRecords();
       if (Phaser.Input.Keyboard.JustDown(this.keys.G)) this.openGarage();
+      if (Phaser.Input.Keyboard.JustDown(this.keys.X)) this.abandonSeries();
       if (Phaser.Input.Keyboard.JustDown(this.keys.I)) this.openCredits();
       if (Phaser.Input.Keyboard.JustDown(this.keys.K)) this.openKeyBindings();
     }
@@ -413,6 +484,12 @@ class MenuScene extends Phaser.Scene {
     this.report.track = PHASER_TRACKS[this.state.selectedTrack].id;
     this.report.class = EngineClass.current().id;
     this.report.mode = PHASER_MODES[this.state.selectedMode].id;
+    this.report.series = {
+      active: Series.active,
+      round: Series.round,
+      calendar: Series.calendar.slice(),
+      classId: Series.classId,
+    };
     this.report.trackLoading = this.state.trackLoading;
     this.report.credits = this.state.credits;
     this.report.keybinds = this.state.keybinds;
