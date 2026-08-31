@@ -619,7 +619,8 @@ function parkPaceCar() {
   ai.velocityX = 0;
   ai.velocityY = 0;
   ai.currentWaypoint = 0;
-  ai.steerDir = 0;
+  resetSteerLock(ai);
+  ai.lastTarget = undefined;
 }
 
 function startPaceCar() {
@@ -654,7 +655,8 @@ function placePaceCarOnLine(ai, waypoints) {
   ai.velocityX = 0;
   ai.velocityY = 0;
   ai.currentWaypoint = (i + 1) % n;
-  ai.steerDir = 0;
+  resetSteerLock(ai);
+  ai.lastTarget = undefined;
   paceStuckTimer = 0;
 }
 
@@ -1216,6 +1218,7 @@ function resetRace() {
   car.angle = SPAWN_POSITIONS[0].angle;
   car.prevAngle = car.angle;
   car.steer = 0;
+  resetSteerLock(car);
   car.speed = 0;
   car.velocityX = 0;
   car.velocityY = 0;
@@ -1241,7 +1244,7 @@ function resetRace() {
     ai.velocityX = 0;
     ai.velocityY = 0;
     ai.currentWaypoint = 0;
-    ai.steerDir = 0;
+    resetSteerLock(ai);
     ai.startDelay = Math.random() * 400;
     applyCarStats(ai);
     ai.rollDriver();
@@ -1723,13 +1726,15 @@ function stepCarControls(entity, input, delta) {
   if (!input.accel && !input.brake && Math.abs(entity.speed) < 0.01)
     entity.speed = 0;
 
+  // The steering ramp, from carStats.js — the same call phaser/matterCar.js
+  // makes, so the pace car previews the game's steering.
   const flip = entity.speed >= 0 ? 1 : -1;
-  if (input.left) entity.angle -= entity.turnSpeed * flip * delta;
-  if (input.right) entity.angle += entity.turnSpeed * flip * delta;
+  const steer = stepSteerLock(entity, input, delta);
+  entity.angle += entity.turnSpeed * steer * flip * delta;
 
   // Cornering scrub. The opponents never paid this, which is a good part of
   // why they could carry speed through a corner the player had to brake for.
-  if (entity.speed !== 0 && (input.left || input.right)) {
+  if (entity.speed !== 0 && steer !== 0) {
     const load = Math.min(1, slipSin(entity) / SCRUB_FULL_SLIP);
     const rate =
       SCRUB_AT_REST +

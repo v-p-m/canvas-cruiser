@@ -159,13 +159,18 @@ const MatterCar = {
       entity.speed = 0;
 
     // --- steering (stepCarControls) ---
+    // The rise rate lives in carStats.js, so this page and the editor's loop
+    // cannot drift apart on steering feel any more than they can on
+    // `turnSpeed` itself.
     const flip = entity.speed >= 0 ? 1 : -1;
     const lock =
       entity.turnSpeed * (1 - UNSETTLE_STEER_LOSS * (entity.unsettle || 0));
-    if (input.left) entity.angle -= lock * flip * delta;
-    if (input.right) entity.angle += lock * flip * delta;
+    const steer = stepSteerLock(entity, input, delta);
+    entity.angle += lock * steer * flip * delta;
 
-    if (entity.speed !== 0 && (input.left || input.right)) {
+    // Charged off the lock rather than off the keys: the tires are still
+    // turned while the lock unwinds, and `load` below grades it either way.
+    if (entity.speed !== 0 && steer !== 0) {
       const load = Math.min(
         1,
         slipSin(entity, body.velocity.x, body.velocity.y) / SCRUB_FULL_SLIP,

@@ -57,7 +57,7 @@ const DebugConfig = {
   // Same idea for the opponent tuning: anyone who has ever opened the panel
   // has an `ai*` block in localStorage, and it would otherwise pin them to
   // whatever the balance was on the day they opened it.
-  aiVersion: 6,
+  aiVersion: 7,
 
   // Every shipped number the panel can move, read back from the file that owns
   // it. None of them can go in the `defaults` literal above: SPAWN_POSITIONS
@@ -79,8 +79,9 @@ const DebugConfig = {
     this.defaults.aiSkillMax = SKILL_MAX;
     this.defaults.aiCornerMargin = CORNER_MARGIN;
     this.defaults.aiLineOffsetRange = LINE_OFFSET_RANGE;
-    this.defaults.aiAvoidRadius = AVOID_RADIUS;
-    this.defaults.aiAvoidStrength = AVOID_STRENGTH;
+    this.defaults.aiTrafficScan = TRAFFIC_SCAN;
+    this.defaults.aiFollowGap = TRAFFIC_GAP;
+    this.defaults.aiAvoidPull = AVOID_PULL;
 
     SPAWN_POSITIONS.forEach((pos, i) => {
       const name = i === 0 ? "Player" : `AI${i}`;
@@ -150,15 +151,22 @@ const DebugConfig = {
       step: 1,
     },
     {
-      key: "aiAvoidRadius",
-      label: "Avoid radius",
+      key: "aiTrafficScan",
+      label: "Traffic scan",
       min: 0,
-      max: 300,
+      max: 600,
+      step: 10,
+    },
+    {
+      key: "aiFollowGap",
+      label: "Follow gap",
+      min: 0,
+      max: 200,
       step: 5,
     },
     {
-      key: "aiAvoidStrength",
-      label: "Avoid strength",
+      key: "aiAvoidPull",
+      label: "Avoid pull",
       min: 0,
       max: 200,
       step: 5,

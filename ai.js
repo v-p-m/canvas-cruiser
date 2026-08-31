@@ -5,9 +5,11 @@
 // player's lock, a speed ceiling off the road instead of the player's drag,
 // and no cornering scrub. Nothing tuned for the player ever transferred, and
 // every attempt to balance the field moved a number that only existed on one
-// side of the grid. What follows is a *driver*: it reads the track and
-// returns the same four booleans the keyboard produces, and `stepCarControls`
-// / `stepCarMotion` in game.js are the whole of the physics for both.
+// side of the grid. What follows is a *driver*: it reads the track and works
+// the same controls the keyboard does — the throttle and the brake as the
+// keyboard's own booleans, the steering as a lock on the wheel the player's
+// keys wind — and `stepCarControls` / `stepCarMotion` in game.js are the whole
+// of the physics for both.
 //
 // The consequence worth holding on to while tuning: at the player's grip the
 // cars cannot hold the line flat out. Anticipatory corner braking was
@@ -15,11 +17,19 @@
 // reading was taken at the old 0.2 grip and does not survive the change.
 // Braking for corners is now the single largest thing the driver does.
 
-// Corner speed comes out of the steering geometry, not a friction circle.
-// Cornering steadily the heading turns at exactly `turnSpeed`, because the
-// lock is bang-bang and there is no partial input, so the path the car sweeps
-// has radius speed / turnSpeed however sideways the grip is letting it sit.
-// Invert that and a corner of radius R can be carried at R * turnSpeed.
+// Corner speed comes out of the steering geometry, not a friction circle. At
+// full lock the heading turns at exactly `turnSpeed`, so the tightest path the
+// car can sweep has radius speed / turnSpeed however sideways the grip is
+// letting it sit. Invert that and a corner of radius R can be carried at
+// R * turnSpeed.
+//
+// It is a ceiling, and it stays one under a proportional controller: at the
+// margin below the corner only needs that fraction of the lock, and the
+// controller asks for exactly what the error is worth — up to all of it for
+// anything tighter, which is what keeps the ceiling reachable and this line
+// true. The carStats.js ramp is on the same side of it: it scales the *time*
+// to full lock and not the lock, so what a corner costs is a moment of
+// turn-in, not radius.
 //
 // Grip deliberately does not appear: it sets how far the car slides in the
 // corner, not how tight a circle it can describe. What it does change is how
@@ -122,20 +132,86 @@ const LOOKAHEAD_FRAMES = 20; // frames of travel the aim point runs ahead
 const LOOKAHEAD_MIN = 70; // world px — floor, so a stopped car still has a target
 const LOOKAHEAD_MAX = 190; // world px — ceiling
 
-// Bang-bang steering needs a deadband or the car saws at the rate limit all
-// the way down every straight. Both thresholds are in frames of the car's own
-// lock rather than in radians, because that is the only quantum available:
-// there is no partial input, so an error smaller than one frame of `turnSpeed`
-// cannot be corrected — it can only be thrown to the other side of zero.
-// Anything below the smallest correction the car can make has to be a
-// deadband, and tying it to `turnSpeed` keeps that true when the lock moves.
+// The steering controller. This was a Schmitt trigger until 0.18.0 — full lock
+// the frame the heading error passed 0.6 frames of it (~2.1 degrees), nothing
+// again below 0.3 — because the driver's only output was the keyboard's two
+// booleans and there is no way to ask a switch for a third of the wheel. It
+// worked while a key bought full lock on the frame it went down: a corner
+// needing 60% of the lock was driven as 60% duty cycle, one to three frames on
+// and one to two off, and the mean came out right. It also looked like exactly
+// what it was. Traced over a lap it is a square wave — 31% of frames at full
+// lock, 69% at dead centre and *nothing at all* in between — and that is the
+// "snapping between headings" this replaces.
 //
-// Note there is no anticipation term. The heading has no inertia — it stops
-// the instant the key comes up — so predicting where the nose will be and
-// releasing early only inverts the decision, which is how the first cut of
-// this sawed left-right every frame and steered nowhere.
-const STEER_ON = 0.6; // frames of lock worth of heading error that starts a correction
-const STEER_OFF = 0.3; // frames of lock it has to fall back inside to stop
+// carStats.js's ramp did not fix that and could not: it fills the histogram in
+// (50% near centre, 14% still pinned at full lock) but the wheel is still being
+// thrown from one stop toward the other, and the pulse no longer buys the lock
+// it used to, so the duty cycle stopped adding up. Held against the same lap
+// through the same corners, this controller reaches full lock on 0.5% of
+// frames, moves the wheel 0.053 of its range per frame against the trigger's
+// 0.087 and the pre-ramp trigger's 0.371, and crosses centre 3 times a run
+// where they cross it 22 and 43.
+//
+// So the driver asks for a lock instead — `input.steer`, honoured by
+// `stepSteerLock` — and the ask has two parts:
+//
+//   * SWEEP, the rate the aim line is itself turning at, divided by the lock
+//     that rate is worth. This is the whole of a steady corner, and it is what
+//     makes the loop settle with the nose *on* the aim point rather than
+//     beside it. Without it a proportional controller has to sit a standing
+//     error to keep asking for the lock it needs, so the car tracks the line
+//     from outside it and every gain is slower than the trigger: 11.10s at the
+//     stiffest usable gain against the trigger's 11.00, and monotonically
+//     worse from there (11.17 / 11.26 / 11.37 / 11.53 / 11.73 at gain 1.5
+//     through 6, and the same shape on Snake Valley). With it, 10.85.
+//   * GAIN, the error the rest of the wheel is worth, in frames of the car's
+//     own lock — the trigger's unit, and the one that stays meaningful when
+//     `turnSpeed` moves. It only has the transients to handle, so it sits on a
+//     plateau rather than a cliff: 10.867 / 10.864 / 10.845 / 10.854 at 1, 2,
+//     3 and 4. 3 is the middle of it and the smoothest of the four.
+//
+// SWEEP is 1 because 1 is the identity — supply exactly the turn rate the line
+// is asking for — and either side of it measured worse for the reason you
+// would expect: 0.5 under-turns and gives most of the gain back (11.08), 1.5
+// over-turns and buys 0.07s by putting the wheels on the kerbs, 0.4% of a lap
+// off the road to 0.9%. Differencing the raw aim bearing instead of the
+// crab-compensated angle the driver is actually tracking is worse in the dry
+// (10.93) and much worse in the wet (15.44): the slip is part of what the
+// wheel has to supply, not noise on top of it.
+//
+// SLACK is the deadband, and it is on the finished ask rather than on the
+// error, because what it is really for is letting the wheel come back to
+// *exactly* centre. `stepCarControls` charges cornering scrub on any frame the
+// lock is non-zero, so a controller that always asks for a little is always
+// paying, and hands are off the wheel far less than the trigger's release half
+// ever was. It is a straight trade against precision — dry 10.851 / 10.854 /
+// 10.925 / 11.021 / 11.149 and wet 15.213 / 15.098 / 15.085 / 15.021 / 14.966
+// at 0, 0.05, 0.10, 0.20 and 0.35 — so it is set where the dry is still free.
+//
+// Two things this does not fix, and they are the same thing. The scrub gate is
+// most of what the trigger's pace ever was: pre-0.18.0 code, the trigger, no
+// ramp, and the gate held open for the one line's difference laps 11.02s
+// against 10.46s — the entire 0.18.0 regression, before any of this existed.
+// No smooth controller can dodge frames the way a square wave does, and it
+// costs most in the wet, where the slide saturates the scrub's own slip term
+// and the trigger is at dead centre 41% of the time. Judge the two drivers
+// with that gate open, which is the only way to compare them on the wheel
+// rather than on the loophole, and this one is quicker everywhere:
+//
+//   dry / wet            gate as shipped        gate held open
+//   0.18.0 trigger       10.998 / 14.442        11.162 / 15.485
+//   this controller      10.854 / 15.098        10.864 / 15.277
+//
+// The right-hand column is the comparison; the left-hand one is what ships.
+// Read the rows the other way and the same thing shows up as an asymmetry:
+// opening the gate costs the trigger 1.5% dry and 7% wet, and costs this
+// controller 0.1%, because it was never taking the discount. WET_MARGIN cannot
+// buy the wet column back — 0.70 measures 15.40 and 1.00 measures 15.00, so
+// more caution is *slower*, not faster: the scrub is charged on time spent
+// turning, not on speed carried.
+const STEER_GAIN = 3; // frames of lock worth of heading error that asks for all of it
+const STEER_SWEEP = 1.0; // of the aim line's own turn rate, fed straight to the wheel
+const STEER_SLACK = 0.05; // of the lock — under this the driver asks for nothing at all
 
 // Throttle hysteresis, in px/frame. Between target and target+band the driver
 // coasts; without it the pedals chatter every frame at the corner speed.
@@ -262,12 +338,90 @@ const LEAD_EASE = 0.1; // max fraction off the corner margin, same conditions
 const LEAD_FROM = 1500; // world px ahead before any of it starts
 const LEAD_FULL = 6000; // world px ahead at which both are maxed
 
-// Avoidance is a driver behaviour, so it moves the aim point rather than the
-// velocity. Shoving velocity around directly — which is what this used to do
-// — is a force no player has, and it let the field untangle itself out of
-// contact the player had to steer out of.
-const AVOID_RADIUS = 120; // px — start aiming away at this distance
-const AVOID_STRENGTH = 55; // px of lateral aim offset at full closeness
+// TRAFFIC. Avoidance is a driver behaviour, so it moves the aim point and the
+// pedals rather than the velocity. Shoving velocity around directly — which is
+// what this used to do — is a force no player has, and it let the field
+// untangle itself out of contact the player had to steer out of.
+//
+// What replaced *that* was still not a driver looking where it was going: an
+// isotropic push, the aim point shoved directly away from every car inside a
+// radius. Directly away from a car dead ahead is backwards, so the one case
+// that matters pulled the target into the follower's own bonnet — which
+// shortens the lookahead instead of picking a side — and nothing anywhere ever
+// lifted. The driver braked for corners and drove into cars.
+//
+// So the field is read the way the line already is: where each car sits
+// *along* the ring, and how far it is *across* it. Both come off the ring
+// rather than off the bonnet, because a cone in the car's own heading frame
+// loses the car in front halfway round every corner, which is exactly where it
+// is about to hit it.
+//
+// Those two numbers are the two things a driver actually does about traffic:
+//
+//   * PULL OUT, while there is road to pull out onto — a lateral offset on the
+//     aim point, away from the side the other car is on, through the same
+//     wheel the line offset and the wander already turn. It is probed against
+//     `worldTrack.sampleRoad` before it is taken, so a dodge is a lane change
+//     and never a trip through the grass.
+//   * LIFT, which is what is left when there is nowhere to go. Being down to
+//     the speed of the car in front by the time you reach it is the same
+//     problem as being down to the corner's speed by the time you reach that,
+//     so it is the same arithmetic — sqrt(v² + 2·a·d) over the gap that is
+//     left — and the pedals obey whichever of the two is tighter.
+//
+// Both fall to nothing as the gap opens, so a car in clear air drives the
+// shipped line at the shipped pace: this can only cost time where it is buying
+// something, and what it buys is a crash that does not happen.
+//
+// Measured on the game page, seeded, five cars with the skill spread pinned so
+// both arms race the same drivers, four laps each. A contact is a
+// `collisionstart` pair. "Clear" is the field alone on the circuit; "blocked"
+// parks a sixth car on the racing line and holds it there, so the only
+// question the run asks is what the field does when it arrives at something
+// that will not move:
+//
+//                        clear             blocked
+//                        contacts   lap    contacts  hit it  wings lost
+//   Super 100cc  before      43.2  11.420     133.2    17.2      8.4
+//                after        4.2  11.450       5.4     5.8      0.6
+//   Snake Valley before      23.7  14.057     129.7    16.7      8.7
+//                after        8.0  14.073       5.0    12.3      1.7
+//   Super 250cc  before      35.7   9.718
+//                after        4.0   9.795
+//   Super wet    before      45.7  15.298
+//                after       15.3  15.471
+//
+// Ninety per cent of the contact for 0.3% of the lap, and the blocked column
+// is what says whether that was worth having: the field used to arrive at a
+// stopped car and take its own race apart on it — 133 contacts and eight
+// broken wings — where it now files past for five. The pace it does cost is
+// the lift, and it lands where more lifting is called for: 0.8% at 250cc and
+// 1.1% in the wet. Valley's blocked column is the one that did not come all
+// the way — it has the tighter road, so there is more often nowhere to go and
+// the drivers queue and nudge instead of passing.
+//
+// The horizon is not the lever, which is worth knowing before tuning it: at
+// 250 / 450 / 700 the contacts are flat (4.3 / 4.0 / 4.7 clear, 6.3 / 5.0 /
+// 6.3 blocked) and only the pace drifts, 11.424 / 11.448 / 11.478. It is set
+// where it is for a reason the contact count cannot see — v²/2a is a 250px
+// braking distance at 100cc and ~350 at 250cc, and a horizon inside that is a
+// driver who cannot brake in time however hard it tries.
+const TRAFFIC_SCAN = 450; // world px of line ahead searched for traffic
+const TRAFFIC_WIDTH = 46; // world px across the line that counts as in the way
+const TRAFFIC_GAP = 70; // world px held to the car in front at matched speed
+
+// The pull *is* the lever, and it is a straight trade against the lift it
+// saves you from: over 200 / 300 / 450 / 600 px of ramp the contacts fall
+// 12.7 / 5.7 / 4.7 / 1.7 and the lap goes 11.399 / 11.429 / 11.450 / 11.530.
+// 450 is the knee — past it each further car-length of warning is bought at
+// twice the pace, and a driver that eases off the line 600px early for someone
+// it was never going to reach is not being careful, it is being timid.
+const AVOID_AHEAD = 450; // world px of line ahead the lateral push reaches
+const AVOID_WIDTH = 90; // world px across the line the lateral push reaches
+const AVOID_BEHIND = 70; // world px of car alongside that still pushes
+const AVOID_PULL = 70; // world px of lateral aim offset at full strength
+const AVOID_STRAIGHT = 8; // world px of lane offset under which no side is preferred
+const TRAFFIC_CREEP = 1.5; // px/frame the lift will not take a blocked car below
 
 // Index of the ring point nearest a position. Both cars are measured the same
 // way so the systematic offset between "closest point" and "point being
@@ -285,6 +439,19 @@ function nearestPoint(x, y, pts) {
     }
   }
   return best;
+}
+
+// Where a point sits across the line: signed distance from the ring point it
+// is nearest, measured along the same perpendicular `aimPoint` offsets its
+// target along — so a car's lane and a dodge are one number with one sign.
+function laneOffset(ring, idx, x, y) {
+  const n = ring.pts.length;
+  const a = ring.pts[(idx - 1 + n) % n];
+  const b = ring.pts[(idx + 1) % n];
+  const tx = b.x - a.x;
+  const ty = b.y - a.y;
+  const len = Math.hypot(tx, ty) || 1;
+  return ((x - ring.pts[idx].x) * ty - (y - ring.pts[idx].y) * tx) / len;
 }
 
 // Radius of the circle through a point and its neighbours `span` either side —
@@ -451,7 +618,7 @@ class AICar {
     this.wander = 0;
     this.wanderPhase = 0;
     this.currentWaypoint = 0;
-    this.steerDir = 0;
+    this.lastTarget = undefined;
     this.startDelay = Math.random() * 100; // ms
 
     // Race state — counted by updateLapCounter in game.js, which drives
@@ -477,6 +644,9 @@ class AICar {
       (Math.random() - 0.5) * tunedAI("aiLineOffsetRange", LINE_OFFSET_RANGE);
     this.wander = Math.max(0, (1 - this.skill) * WANDER_PX);
     this.wanderPhase = Math.random() * Math.PI * 2;
+    // The steering has one frame of memory (`sweep`), and a car put back on
+    // the grid is nowhere near where it was aiming.
+    this.lastTarget = undefined;
   }
 
   // How much of the geometric corner limit this driver is willing to use,
@@ -544,8 +714,9 @@ class AICar {
   }
 
   // Where to point: a point LOOKAHEAD further along the line, pushed sideways
-  // by this driver's line offset and again by anyone close enough to hit.
-  aimPoint(ring, others) {
+  // by this driver's line offset and again by `dodge`, which is what the
+  // traffic scan wants for the car it is trying not to hit.
+  aimPoint(ring, dodge) {
     const n = ring.pts.length;
     const { prev, cur, t } = this.segmentProgress(ring);
 
@@ -587,30 +758,113 @@ class AICar {
 
     const lateral =
       this.lineOffset + Math.sin(this.wanderPhase) * this.wander;
-    x += (perpX / perpLen) * lateral;
-    y += (perpY / perpLen) * lateral;
+    const px = perpX / perpLen;
+    const py = perpY / perpLen;
 
-    const radius = tunedAI("aiAvoidRadius", AVOID_RADIUS);
-    const strength = tunedAI("aiAvoidStrength", AVOID_STRENGTH);
-    for (const other of others) {
-      if (other === this) continue;
-      const dx = this.x - other.x;
-      const dy = this.y - other.y;
-      const distSq = dx * dx + dy * dy;
-      if (distSq >= radius * radius || distSq === 0) continue;
-
-      const dist = Math.sqrt(distSq);
-      const push = (1 - dist / radius) * strength;
-      x += (dx / dist) * push;
-      y += (dy / dist) * push;
+    // A dodge is only a lane change if there is a lane to change into. Probe
+    // the road field where the offset target would land and hand the pull back
+    // in halves until it fits, rather than steering off in the name of not
+    // hitting anything: the lift in drive() is what covers a pass that isn't
+    // on. Probed at the aim point and not at the car, because the room that
+    // decides a move is the room where the move ends up.
+    if (dodge !== 0 && typeof worldTrack !== "undefined" && worldTrack.field) {
+      for (let tries = 0; tries < 4; tries++) {
+        const onRoad =
+          worldTrack.sampleRoad(
+            x + px * (lateral + dodge),
+            y + py * (lateral + dodge),
+          ) >= 0.5;
+        if (onRoad) break;
+        dodge = tries < 3 ? dodge * 0.5 : 0;
+      }
     }
+
+    x += px * (lateral + dodge);
+    y += py * (lateral + dodge);
     return { x, y };
   }
 
+  // The field, as this driver sees it: for every other car, where it sits
+  // along the line being chased and how far it is across it. Ring steps rather
+  // than pixels of separation for the same reason catch-up counts them — two
+  // cars either side of a hairpin are close in pixels and half a corner apart
+  // in the race — and the distance is then summed off `ring.seg` rather than
+  // taken as steps × spacing, because the smoothing and the clearance walk
+  // both move points and a braking distance wants the real one.
+  //
+  // Returns the lateral aim offset the driver wants (`dodge`) and the nearest
+  // car actually in its path (`block`), which is the one it may have to lift
+  // for. Cars behind still push sideways — that is a driver not leaning on
+  // someone alongside — but only a car ahead can be lifted for.
+  scanTraffic(ring, mine, others, player) {
+    const n = ring.pts.length;
+    const scan = tunedAI("aiTrafficScan", TRAFFIC_SCAN);
+    const pull = tunedAI("aiAvoidPull", AVOID_PULL);
+    const myLane = laneOffset(ring, mine, this.x, this.y);
+
+    // The lift and the pull have their own reaches and only the longer of the
+    // two decides whether a car is worth looking at at all.
+    const range = Math.max(scan, AVOID_AHEAD);
+
+    let dodge = 0;
+    let block = null;
+    // -1 is the player, who is not in `others` on either page: the field is
+    // handed its own cars there, and a driver that is careful with everyone
+    // except the one car with a person in it is the one that matters.
+    for (let k = -1; k < others.length; k++) {
+      const other = k < 0 ? player : others[k];
+      if (!other || other === this) continue;
+
+      const idx = nearestPoint(other.x, other.y, ring.pts);
+      let steps = (((idx - mine) % n) + n) % n;
+      if (steps > n / 2) steps -= n;
+      const reach = steps * RING_SPACING; // nominal, and only used to reject
+      if (reach > range || reach < -AVOID_BEHIND) continue;
+
+      let gap = 0;
+      for (let s = 0; s < Math.abs(steps); s++) {
+        gap += ring.seg[(((mine + (steps > 0 ? s : -s - 1)) % n) + n) % n];
+      }
+      if (steps < 0) gap = -gap;
+      if (gap > range || gap < -AVOID_BEHIND) continue;
+
+      const lane = laneOffset(ring, idx, other.x, other.y) - myLane;
+      const across = Math.abs(lane);
+
+      // The pull, ramped in both axes so it arrives as a lean on the wheel and
+      // not a swerve: full only for a car right on the nose and dead level
+      // across the line, nothing at either edge of the box.
+      if (across < AVOID_WIDTH && gap < AVOID_AHEAD) {
+        const near = gap >= 0 ? 1 - gap / AVOID_AHEAD : 1 + gap / AVOID_BEHIND;
+        // A car square in front has no side of its own to be on, so the driver
+        // commits to its own preferred line instead of dithering on the sign
+        // of a number that is about to change.
+        const side =
+          across < AVOID_STRAIGHT
+            ? this.lineOffset >= 0
+              ? -1
+              : 1
+            : Math.sign(lane);
+        dodge -= side * (1 - across / AVOID_WIDTH) * near * pull;
+      }
+
+      if (
+        gap > 0 &&
+        gap < scan &&
+        across < TRAFFIC_WIDTH &&
+        (!block || gap < block.gap)
+      ) {
+        block = { gap, speed: Math.max(0, other.speed) };
+      }
+    }
+    return { dodge, block };
+  }
+
   // One frame of driving. Returns the same input object the keyboard fills in
-  // for the player; game.js feeds it straight to stepCarControls.
+  // for the player, bar the steering, which is a lock rather than two keys;
+  // game.js feeds it straight to stepCarControls.
   drive(waypoints, player, others, delta = 1) {
-    const idle = { accel: false, brake: false, left: false, right: false };
+    const idle = { accel: false, brake: false, steer: 0 };
     if (!waypoints || waypoints.length === 0) return idle;
 
     // Burn down the start delay before moving. Coasting, not braking — the
@@ -631,12 +885,19 @@ class AICar {
     // corner that followed.
     this.advancePath(ring);
 
-    const aim = this.aimPoint(ring, others);
+    // Where this car is on the ring, once: the traffic scan and the catch-up
+    // band below both measure their gaps from it, and both have to measure
+    // every car the same way for the systematic offset between "nearest point"
+    // and "point being chased" to cancel out of the answer.
+    const mine = nearestPoint(this.x, this.y, ring.pts);
+    const traffic = this.scanTraffic(ring, mine, others, player);
 
-    // STEERING. Bang-bang, at the player's lock, through a Schmitt trigger in
-    // units of that lock so it does not chatter around dead centre. The nose
-    // is aimed short of the marker by however far the car is already sliding,
-    // so it is the velocity that arrives there — see CRAB_COMP.
+    const aim = this.aimPoint(ring, traffic.dodge);
+
+    // STEERING. Proportional, in units of the car's own lock, handed on as
+    // `input.steer`. The nose is aimed short of the marker by however far the
+    // car is already sliding, so it is the velocity that arrives there — see
+    // CRAB_COMP.
     const bearing = Math.atan2(aim.x - this.x, -(aim.y - this.y));
     let crab = 0;
     if (Math.abs(this.speed) > 0.5) {
@@ -651,11 +912,29 @@ class AICar {
       Math.sin(targetAngle - this.angle),
       Math.cos(targetAngle - this.angle),
     );
-    const err = Math.abs(angleDiff);
-    if (this.steerDir !== 0 && err < this.turnSpeed * STEER_OFF)
-      this.steerDir = 0;
-    else if (err > this.turnSpeed * STEER_ON)
-      this.steerDir = Math.sign(angleDiff);
+    // How fast the line the driver is tracking is turning, in locks. Taken
+    // between frames rather than off the ring's curvature because it has to
+    // include the car's own drift across the line, which is most of what a
+    // wet lap is; and off `targetAngle` rather than `bearing`, so the slip the
+    // crab term is already aiming around is fed to the wheel with it.
+    let sweep = 0;
+    if (this.lastTarget !== undefined && delta > 0) {
+      sweep =
+        Math.atan2(
+          Math.sin(targetAngle - this.lastTarget),
+          Math.cos(targetAngle - this.lastTarget),
+        ) /
+        delta /
+        this.turnSpeed;
+    }
+    this.lastTarget = targetAngle;
+    // The slack is subtracted rather than switched, so the ask stays
+    // continuous across its edge: a step there is a trigger again, in
+    // miniature, and it saws for the same reason the old one did.
+    const want =
+      sweep * STEER_SWEEP + angleDiff / this.turnSpeed / STEER_GAIN;
+    const live = Math.max(0, Math.abs(want) - STEER_SLACK);
+    const steer = Math.max(-1, Math.min(1, Math.sign(want) * live));
 
     // Catch-up, in track run along the line rather than pixels of separation.
     // Signed: behind the player it buys aggression, ahead of them it pays some
@@ -663,7 +942,6 @@ class AICar {
     let catchup = 0;
     let lead = 0;
     if (player) {
-      const mine = nearestPoint(this.x, this.y, ring.pts);
       const theirs = nearestPoint(player.x, player.y, ring.pts);
       let gap = (((mine - theirs) % n) + n) % n;
       if (gap > n / 2) gap -= n; // signed — negative is behind the player
@@ -695,15 +973,44 @@ class AICar {
     // floored at zero so a car that has been spun is never handed a negative
     // target and asked to reverse out of it.
     const headingErr = Math.min(Math.abs(angleDiff) / Math.PI, 1);
-    const target =
+    let target =
       this.targetSpeed(ring, this.cornerMargin(catchup, lead), lead) *
       Math.max(0, 1 - headingErr * HEADING_BRAKE);
 
+    // ...and down to the speed of the car in front by the time we arrive at
+    // it, which is the corner model's own arithmetic run over the gap that is
+    // left once the following distance is taken out of it. It is a ceiling
+    // like the corner is, so the tighter of the two is what the pedals see,
+    // and it lets go the moment the dodge above has taken the car out of the
+    // corridor — which is what makes this a pass rather than a queue.
+    if (traffic.block) {
+      const room = Math.max(
+        0,
+        traffic.block.gap - tunedAI("aiFollowGap", TRAFFIC_GAP),
+      );
+      const follow = Math.sqrt(
+        traffic.block.speed * traffic.block.speed +
+          2 * this.acceleration * room,
+      );
+      // Never all the way to a stop, and this is not a nicety: a car whose
+      // target is zero asks for neither pedal, so it sits at zero forever.
+      // Steering does not save it — `angle` is written whatever the speed, so
+      // it can turn its wheel all it likes and still never roll anywhere the
+      // dodge is pointing, and the scan it is stopped by does not change
+      // either. Measured against a car parked on the racing line, two of five
+      // drivers stopped nose to tail behind it and stayed there for the rest
+      // of the race. A creep is what a driver in that position actually does:
+      // keep rolling, and go round.
+      target = Math.min(target, Math.max(follow, TRAFFIC_CREEP));
+    }
+
+    // No `left`/`right`: a pair of booleans could only say "all of it", which
+    // is the thing this stopped doing. `stepSteerLock` reads whichever of the
+    // two the caller supplies.
     return {
       accel: this.speed < target,
       brake: this.speed > target + BRAKE_BAND,
-      left: this.steerDir < 0,
-      right: this.steerDir > 0,
+      steer,
     };
   }
 

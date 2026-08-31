@@ -259,10 +259,11 @@ class RaceScene extends Phaser.Scene {
     RaceConditions.scheduleWeather(this.modeId);
     RaceConditions.scheduleNight(this.modeId);
 
-    // The field, as the drivers see each other: AICar.aimPoint steers away
-    // from everyone in this list, and the player is deliberately not in it —
-    // exactly as game.js passes `opponents`. Built once; it is read every
-    // frame by every car.
+    // The field, as the drivers see each other: AICar.scanTraffic dodges and
+    // lifts for everyone in this list — exactly as game.js passes `opponents`.
+    // The player is not in it and does not need to be: drive() already takes
+    // them as its own argument, for the catch-up band, and reads them into the
+    // same scan from there. Built once; it is read every frame by every car.
     this.aiCars = this.cars.slice(1);
     this.opponents = this.aiCars.map((c) => c.entity);
 
