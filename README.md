@@ -1,4 +1,4 @@
-# Canvas Cruiser v0.17.0
+# Canvas Cruiser v0.18.0
 A minimalist top-down racing game built with pure **HTML5 Canvas** and
 **JavaScript** — no build step, no `package.json`, no dependencies to install.
 
@@ -117,7 +117,15 @@ missing or malformed the game falls back to a built-in roll.
   where they end up
 - AI opponents that drive the player's own car through the player's own
   physics — a resampled, kerb-cleared line around the waypoint ring, with
-  corner braking, catch-up/lift pacing, and mutual repulsion
+  corner braking and catch-up/lift pacing. They turn the wheel rather than
+  flicking it from lock to lock: the driver asks for a steering angle, through
+  the same rate-limited ramp the keyboard feeds, so a corner is one held input
+  instead of a square wave
+- Traffic read off that racing line rather than off the bonnet — how far ahead
+  a car is *along* the line and how far *across* it — and answered the two ways
+  a driver can answer it: a lateral dodge that stays on the road, and a lift
+  that measures out the closing distance the same way corner braking measures
+  out a corner. Ninety per cent less contact than the field that preceded it
 - A real race: opponents are lap-counted and ranked against you, your position
   shows in the HUD, and finishing brings up the full classification. Cars still
   circulating when you take the flag are placed where they stood
