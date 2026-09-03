@@ -24,6 +24,15 @@
 // not the same manoeuvre.
 const RECORDS_PHYSICS_VERSION = "matter-2";
 
+// The total-time store alone, on its own version, because 0.19.0 changed what
+// a total *is* rather than how the car drives: the clock now starts with the
+// lights instead of with the player's own first crossing, which is the roll
+// off the back of the grid — a second and a half — added to every race from
+// here on. Lap times mean exactly what they always did, so bumping the
+// version above to clear this would have taken the lap records with it for
+// nothing.
+const RECORDS_TOTAL_VERSION = "gridclock";
+
 const Records = {
   all: {}, // "track:class" -> [lap times]
   allTotals: {}, // "track:class" -> { mode: [total times] }
@@ -42,12 +51,16 @@ const Records = {
 
   resetOnce() {
     try {
-      if (localStorage.getItem("recordsPhysicsVersion") === RECORDS_PHYSICS_VERSION)
-        return;
-      localStorage.removeItem("highScores");
-      localStorage.removeItem("bestTotalTimes");
-      localStorage.removeItem("bestLap"); // pre-multi-track leftover, same as clearHighScores()
-      localStorage.setItem("recordsPhysicsVersion", RECORDS_PHYSICS_VERSION);
+      if (localStorage.getItem("recordsPhysicsVersion") !== RECORDS_PHYSICS_VERSION) {
+        localStorage.removeItem("highScores");
+        localStorage.removeItem("bestTotalTimes");
+        localStorage.removeItem("bestLap"); // pre-multi-track leftover, same as clearHighScores()
+        localStorage.setItem("recordsPhysicsVersion", RECORDS_PHYSICS_VERSION);
+      }
+      if (localStorage.getItem("recordsTotalVersion") !== RECORDS_TOTAL_VERSION) {
+        localStorage.removeItem("bestTotalTimes");
+        localStorage.setItem("recordsTotalVersion", RECORDS_TOTAL_VERSION);
+      }
     } catch {
       /* private-mode localStorage — nothing to reset or mark */
     }

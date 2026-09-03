@@ -34,6 +34,16 @@ const RaceGrid = {
   LAP_GATE_FROM: 0.4,
   LAP_GATE_TO: 0.65,
 
+  // How far past the tarmac the start line reaches, along its own length.
+  // The tile-9 run spans exactly the road's tiles and stops dead at them,
+  // while the road field is blurred out past the tile edge and the verge
+  // beyond that is driveable at a price — so a car one pixel outside the run
+  // as it crossed lost barely any speed and the whole lap, and a driver who
+  // ran wide over the line, or went round the outside of the pack off the
+  // start, was silently put a lap down for the rest of the race. Clipping the
+  // grass at the line costs grip. It does not cost the lap.
+  LINE_MARGIN: 64, // world px, added to each end of the line
+
   liveries: GRID_LIVERIES,
 
   // Six slots, filled from the loaded track's `spawn` block. A track without
@@ -120,14 +130,38 @@ const RaceGrid = {
   },
 
   // Tile 9 is the start line, and a lap is the transition *onto* it — nothing
-  // else. Counting the crossing is step 3; this is the test it will run.
+  // else. What has moved since 0.19.0 is only how wide "onto it" is: the
+  // painted cells, stretched by LINE_MARGIN along the line and by nothing at
+  // all across it, since across is the direction cars cross in and a lap
+  // counted early is a worse bug than one counted late.
   onStartLine(world, entity) {
-    const map = world.data.map;
-    const ts = world.data.tileSize;
-    const gx = Math.floor(entity.x / ts);
-    const gy = Math.floor(entity.y / ts);
-    return map[gy] !== undefined && map[gy][gx] === 9;
+    const line = this.startLine(world);
+    if (!line) return false;
+    return (
+      entity.x >= line.x0 &&
+      entity.x < line.x1 &&
+      entity.y >= line.y0 &&
+      entity.y < line.y1
+    );
   },
+
+  // The line as one world-space rectangle, built from the tile-9 cells the
+  // first time a loaded track asks for it. Keyed on the track *data* rather
+  // than rebuilt per call: `worldTrack` is reloaded in place when the circuit
+  // changes, but it is handed a new data object when it is, so a circuit
+  // change rebuilds this and nothing has to remember to invalidate it.
+  startLine(world) {
+    const data = world && world.data;
+    if (!data || !data.map) return null;
+    if (this._lineFor !== data) {
+      this._lineFor = data;
+      this._line = buildStartLine(data, this.LINE_MARGIN);
+    }
+    return this._line;
+  },
+
+  _lineFor: null,
+  _line: null,
 
   // World position at a fraction of the lap — the inverse of progress(), so
   // anything measured in lap distance can be drawn back onto the track.
@@ -157,3 +191,47 @@ const RaceGrid = {
     return { x: wps[0].x, y: wps[0].y };
   },
 };
+
+// The tile-9 cells' bounds in world px, with the margin on the line's own
+// axis. Every circuit paints the line as a straight run across the road — one
+// column or one row, which is all a single stroke of the tile editor can lay
+// down — so the longer side of the bounds *is* the line, and the shorter one
+// is the depth cars cross through. A square patch has no across-track axis to
+// pick out, so it gets the margin both ways rather than an arbitrary one.
+function buildStartLine(data, margin) {
+  const ts = data.tileSize;
+  let gx0 = Infinity;
+  let gy0 = Infinity;
+  let gx1 = -Infinity;
+  let gy1 = -Infinity;
+
+  for (let gy = 0; gy < data.map.length; gy++) {
+    const row = data.map[gy];
+    for (let gx = 0; gx < row.length; gx++) {
+      if (row[gx] !== 9) continue;
+      if (gx < gx0) gx0 = gx;
+      if (gx > gx1) gx1 = gx;
+      if (gy < gy0) gy0 = gy;
+      if (gy > gy1) gy1 = gy;
+    }
+  }
+  if (gx0 === Infinity) return null; // no line painted; laps are counted nowhere
+
+  const line = {
+    x0: gx0 * ts,
+    y0: gy0 * ts,
+    x1: (gx1 + 1) * ts,
+    y1: (gy1 + 1) * ts,
+  };
+  const w = line.x1 - line.x0;
+  const h = line.y1 - line.y0;
+  if (w >= h) {
+    line.x0 -= margin;
+    line.x1 += margin;
+  }
+  if (h >= w) {
+    line.y0 -= margin;
+    line.y1 += margin;
+  }
+  return line;
+}

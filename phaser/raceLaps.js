@@ -27,6 +27,25 @@ const RaceLaps = {
 
   nextFinishPosition: 1,
 
+  // The race clock: one instant for the whole field, stamped when the lights
+  // go out. It used to be each car's own first crossing, and that is what put
+  // a driver last on the sheet with the best time on it — the grid is
+  // staggered and the player starts at the back of it, so a car that reached
+  // the line later was handed a shorter total for the same race, and one that
+  // lost ten seconds at the start had all ten of them fall outside its own
+  // clock. A results table whose TOTAL column disagrees with the order it is
+  // printed in is worse than no column. Lap times are untouched: those were
+  // always crossing to crossing, which is the one thing per-car timing did
+  // get right.
+  raceStart: 0,
+
+  // The lights going out, on the same clock update() is given. Idempotent, so
+  // the caller can hand it every frame it is racing rather than having to find
+  // the one it started on.
+  startClock(now) {
+    if (!this.raceStart) this.raceStart = now;
+  },
+
   // Everything a car needs to be scored. Spawn-time state, so it is here rather
   // than spelled out again in the scene: a field this list is missing is a car
   // the counter silently skips.
@@ -59,13 +78,15 @@ const RaceLaps = {
     if (entity.onFinishLine) return; // already counted this crossing
     entity.onFinishLine = true;
 
-    // The first crossing arms the race rather than completing a lap, and every
-    // car times from its own — which is what the player's total has always
-    // meant, so saved records stay comparable.
+    // The first crossing arms the race rather than completing a lap. The lap
+    // clock starts here, on this car's own crossing; the race clock did too
+    // until 0.19.0 and no longer does — `startClock()` above. The fallback is
+    // for a caller with no lights to go out (a headless run that hand-steps
+    // the counter): first crossing, as before.
     if (entity.laps === 0) {
       entity.laps = 1;
       entity.passedGate = false;
-      entity.raceStart = now;
+      entity.raceStart = this.raceStart || now;
       entity.lapStart = now;
       return;
     }
@@ -143,6 +164,7 @@ const RaceLaps = {
 
   reset(entries) {
     this.nextFinishPosition = 1;
+    this.raceStart = 0;
     entries.forEach((e) => this.initEntity(e.entity || e));
   },
 };

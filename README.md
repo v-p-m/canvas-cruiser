@@ -1,4 +1,4 @@
-# Canvas Cruiser v0.18.0
+# Canvas Cruiser v0.19.0
 A minimalist top-down racing game built with pure **HTML5 Canvas** and
 **JavaScript** — no build step, no `package.json`, no dependencies to install.
 
@@ -128,7 +128,13 @@ missing or malformed the game falls back to a built-in roll.
   out a corner. Ninety per cent less contact than the field that preceded it
 - A real race: opponents are lap-counted and ranked against you, your position
   shows in the HUD, and finishing brings up the full classification. Cars still
-  circulating when you take the flag are placed where they stood
+  circulating when you take the flag are placed where they stood. The clock on
+  that table is one race clock, started with the lights for the whole field, so
+  the totals rank the field the same way the positions do — you start at the
+  back of the grid, and the time it takes you to come through counts
+- The start line is as wide as the road plus its verges, so clipping the grass
+  as you cross — going round the outside of the pack off the start, or running
+  wide out of the last corner — costs grip and not the whole lap
 - Synthesised sound — a geared engine note, tire squeal that tracks how far the
   car is sliding, and impact thuds. No audio files; it is all WebAudio
 - Minimap with live car positions and the current viewport

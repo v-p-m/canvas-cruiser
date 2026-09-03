@@ -578,6 +578,16 @@ class RaceScene extends Phaser.Scene {
       }),
     );
 
+    // What actually counts a crossing, which since 0.19.0 is wider than the
+    // cells it is painted on (RaceGrid.LINE_MARGIN) — drawn faint and around
+    // them, because the difference between the two is the whole reason a lap
+    // can go missing and the yellow cells alone would hide it.
+    const line = RaceGrid.startLine(this.world);
+    if (line) {
+      g.lineStyle(2, 0xffe14a, 0.35);
+      g.strokeRect(line.x0, line.y0, line.x1 - line.x0, line.y1 - line.y0);
+    }
+
     // Grid slot numbers, so the order in the screenshot is readable rather
     // than inferred from six coloured rectangles.
     this.grid.forEach((slot, i) => {
@@ -633,6 +643,10 @@ class RaceScene extends Phaser.Scene {
     // while the lights are still counting down (game.js:1928, 1936) — without
     // it every car is free to leave the grid before the lights go off.
     const blocking = StartLights.isBlocking();
+    // The race clock starts with the lights, not with each car's own first
+    // crossing — one instant for six cars, so the results table's totals rank
+    // the field the same way its positions do (phaser/raceLaps.js).
+    if (!blocking) RaceLaps.startClock(time);
 
     // Past the flag the player is a passenger — the keys do nothing and the
     // car brakes itself down through the finish hold below. The opponents are

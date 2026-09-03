@@ -42,7 +42,14 @@ A lap is two things agreeing: the tile grid says where the line is, the
 waypoint ring says where the lap is. Both live in the track file.
 
 - **Tile `9` is the start line.** `updateLapCounter` counts a crossing as the
-  transition onto a `9` cell, nothing else.
+  transition onto the line, nothing else. Paint it as a straight run of cells
+  right across the road: on the game page `RaceGrid.startLine()` takes the
+  bounds of every `9` in the map and stretches them by `LINE_MARGIN` (64px)
+  along the run's own long axis, so a car clipping the verge as it crosses
+  still counts. Two things follow — the run has to be *straight* (a diagonal
+  or an L reads as one fat bounding box), and nothing else on the circuit may
+  come within a tile of either end of it, or a car there scores a lap it
+  did not drive. Both shipped orientations are one column or one row of three.
 - **Waypoint 0 must sit just before the line**, within ~30px. `laps +
   trackProgress()` is the race-order score, and it only rises smoothly if the
   lap counter and the ring wrap at the same place; put waypoint 0 elsewhere and
