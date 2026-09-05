@@ -22,6 +22,21 @@ const Rain = {
   SPLASH_LIFE: 10, // delta units (~frames at 60fps) a splash ring lives
 
   // How much rain damps grip / friction
+  // Deliberately left alone when 0.20.0 took stock `driftGrip` from 0.1 to
+  // 0.075. This is a *proportion* of that number, not a grip in its own right,
+  // so leaving it is what makes the wet slide a third more in step with the
+  // dry rather than staying at the 0.042 it used to land on. Re-basing it to
+  // hold that figure was tried first and is the worse answer twice over: the
+  // wet is the half of the game that is *about* sliding, and every number
+  // measured against "the wet keeps 42% of grip" — ai.js's WET_MARGIN, the
+  // hydroplaning penalty below — would have had to be re-derived to say the
+  // same thing.
+  //
+  // The fully wet car is a long way past the turnSpeed/driftGrip = 1 that
+  // carStats.js's MAX_SLIP_RATIO holds the dry one clear of: 1.9 now, against
+  // 1.43 before. It has been past it since the penalty was 0.55, and that is
+  // the point — in the wet a held lock has no steady state, so the car has to
+  // be driven in corrections rather than leaned on.
   GRIP_PENALTY: 0.42, // scales driftGrip when fully wet
   FRICTION_BONUS: 0, // real asphalt doesn't coast faster wet — see BUILD 0.14.0 notes
 

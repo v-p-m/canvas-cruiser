@@ -59,6 +59,12 @@ const DebugConfig = {
   // whatever the balance was on the day they opened it.
   aiVersion: 7,
 
+  // And the same again for the physics block. 0.20.0 moved a shipped CAR_STATS
+  // number for the first time since this panel existed, so a saved
+  // `playerDriftGrip` would pin the editor's pace car to the old grip while the
+  // game page slides — a preview lying about the one thing it previews.
+  physVersion: 1,
+
   // Every shipped number the panel can move, read back from the file that owns
   // it. None of them can go in the `defaults` literal above: SPAWN_POSITIONS
   // and MAX_DPR live in game.js, which is parsed last, and the rest belong to
@@ -256,6 +262,11 @@ const DebugConfig = {
         for (const key of Object.keys(parsed))
           if (key.startsWith("ai")) delete parsed[key];
       }
+      const savedPhysVersion = +localStorage.getItem("debugConfigPhysVersion");
+      if (savedPhysVersion !== this.physVersion) {
+        for (const key of Object.keys(parsed))
+          if (key.startsWith("player")) delete parsed[key];
+      }
       Object.assign(this.values, parsed);
     } catch {
       localStorage.removeItem("debugConfig");
@@ -266,6 +277,7 @@ const DebugConfig = {
     localStorage.setItem("debugConfig", JSON.stringify(this.values));
     localStorage.setItem("debugConfigSpawnVersion", this.spawnKey());
     localStorage.setItem("debugConfigAiVersion", this.aiVersion);
+    localStorage.setItem("debugConfigPhysVersion", this.physVersion);
   },
 
   reset() {
@@ -274,6 +286,7 @@ const DebugConfig = {
     localStorage.removeItem("debugConfig");
     localStorage.removeItem("debugConfigSpawnVersion");
     localStorage.removeItem("debugConfigAiVersion");
+    localStorage.removeItem("debugConfigPhysVersion");
     this.apply();
     this.buildPanel();
   },

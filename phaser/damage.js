@@ -43,15 +43,15 @@
 // ── The aero, and why these two numbers are not one number ──────────────────
 //
 // The handling model settles a steady corner at sin(slip) = turnSpeed /
-// driftGrip (see matterCar.js's SCRUB_FULL_SLIP note) — 0.06/0.1 = 0.6 on an
+// driftGrip (see matterCar.js's SCRUB_FULL_SLIP note) — 0.06/0.075 = 0.8 on an
 // undamaged car. So the two wings have two different levers, and the split is
 // the real one:
 //
-//   front wing gone → turnSpeed × 0.82 → 0.049/0.1  = 0.49
+//   front wing gone → turnSpeed × 0.82 → 0.049/0.075 = 0.66
 //     The car turns in less *and* slides less: understeer. Which is what it
 //     feels like — you ask for the apex, the car goes straight on, and the only
 //     answer is to arrive slower.
-//   rear wing gone → driftGrip × 0.78 → 0.06/0.078 = 0.77
+//   rear wing gone → driftGrip × 0.90 → 0.06/0.0675 = 0.89
 //     The car turns in as sharply as it ever did and then keeps going round:
 //     oversteer. Loose, quick to point, and it will bite.
 //
@@ -60,15 +60,29 @@
 //   - A broken rear wing is not just looser, it is slower, because
 //     SCRUB_FULL_SLIP is 0.5: an undamaged car only saturates the cornering
 //     scrub around the apex, and a loose one is past it for the whole corner.
-//   - Both wings gone lands at 0.049/0.078 = 0.63, back beside the stock 0.6.
+//   - Both wings gone lands at 0.049/0.0675 = 0.73, back beside the stock 0.8.
 //     The balance returns and the grip does not — neutral, slow to turn, short
 //     at both ends, which is what a car with no aero is. Nothing enforces that;
 //     it is the same equation doing its job.
 //
-// The floor both numbers have to stay clear of is turnSpeed/driftGrip = 1,
-// where a held lock has no steady state at all and the car just spins. With the
-// front wing still on, that is driftGrip at 0.6 of stock. 0.78 is not near it by
-// accident.
+// The ceiling both numbers have to stay clear of is turnSpeed/driftGrip = 1,
+// where a held lock has no steady state at all and the car just spins — and
+// that ceiling is why REAR_GRIP moved 0.78 -> 0.90 when 0.20.0 took stock grip
+// down to 0.075. The proportional cut is not the thing to preserve: 0.78 of
+// the new grip is a ratio of 1.03, a car with no steady state on any lock at
+// all, and the rear wing would have stopped being a penalty and started being
+// a retirement. What is preserved is the distance to the cliff. 0.90 lands a
+// broken rear wing at 0.89 against a stock 0.8 — a smaller step than the old
+// 0.77-from-0.6, because there is less room above it, and the oversteer is
+// bigger in absolute terms either way.
+//
+// This is now one of three things multiplying that ratio rather than the only
+// one, so what it may not do is assume it has the headroom to itself: tier-3
+// garage Steering on stock Tires is already 0.896 before a wing breaks. The
+// stack is capped in carStats.js (MAX_SLIP_RATIO), which is the only place
+// that can see all of it — but the cap is a guard rail, not a licence to tune
+// against, and a REAR_GRIP that leans on it is a rear wing whose penalty
+// quietly stops growing.
 //
 // Measured, and both predictions hold — a solo skill-1 car, Super Circuit,
 // 100cc dry, hand-stepped Matter, mean of the timed laps, against the fraction
@@ -79,6 +93,11 @@
 //   rear off    10.750s   +3.7%      1.6%   ... oversteer, and the scrub is
 //                                            where the time goes
 //   both off    11.428s  +10.2%      0.5%   ... balance back, grip gone
+//
+// Those four rows were measured before 0.20.0 lowered stock `driftGrip`, so
+// they are now the shape of the penalty rather than its size: every row starts
+// from a car that already slides, and the rear-wing row starts from a shallower
+// cut. Re-measure before quoting the seconds.
 //
 // So a wing is worth roughly half a second a lap and both are worth a second —
 // two to five seconds over a five-lap race. Enough to lose a race that was
@@ -202,7 +221,7 @@ const Damage = {
   // measured below valid: a car is either on the intact numbers or the broken
   // ones, never somewhere in between.
   FRONT_TURN: 0.82, // of turnSpeed, front wing gone
-  REAR_GRIP: 0.78, // of driftGrip, rear wing gone
+  REAR_GRIP: 0.9, // of driftGrip, rear wing gone — set against the cliff, not scaled
 
   FLASH_MS: 2000, // how long the HUD tell flashes after a break or a fresh crack
 

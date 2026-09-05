@@ -24,11 +24,35 @@ const CAR_FRICTION = 0.96;
 // engine class's multiplier — applyCarStats() below is where the two meet, so
 // there is one place that multiplies. Only speed and acceleration scale by
 // class; turn speed and grip deliberately do not (see engineClass.js).
+//
+// `driftGrip` is the slide, and it is the one number that decides how much of
+// it there is. The steering turns the heading at `turnSpeed` while the grip
+// lerp drags the velocity back onto it at `driftGrip`, so a held lock settles
+// at sin(slip) = turnSpeed / driftGrip — a constant, independent of speed and
+// of how hard the driver asks (see matterCar.js's SCRUB_FULL_SLIP note). At
+// 0.1 that was 0.6, 37 degrees: a car that corners tidily and only looks
+// sideways when it is provoked. 0.075 puts it at 0.8, 53 degrees, which is the
+// 0.20.0 change — a third more lateral velocity through the same corner, and a
+// third longer to gather it back up.
+//
+// It is the *only* number that moved, and that is deliberate: `GRIP_PENALTY`
+// in rain.js is a proportion of this one, so the wet slides a third more too
+// rather than being held at the grip it used to have. Scaling the two together
+// is what keeps every wet number measured against that proportion — ai.js's
+// WET_MARGIN above all — still meaning what it says.
+//
+// 1.0 is a cliff, not the far end of a dial: there a held lock has no steady
+// state at all and the car simply spins, and at 0.8 the stock car is closer to
+// it than anything shipped before. Three things multiply one side or the other
+// of the ratio — the garage's Steering and Tires tiers, a broken wing, and the
+// rain — so it is their *stack* that has to clear the cliff, not each on its
+// own. MAX_SLIP_RATIO below is where that is enforced; the rain is deliberately
+// outside it (see there).
 const CAR_STATS = {
   acceleration: 0.2,
   maxSpeed: 10,
   turnSpeed: 0.06,
-  driftGrip: 0.1,
+  driftGrip: 0.075, // slip equilibrium 0.8 — see above
 };
 
 // Steering feel. The lock used to be a switch: any frame with left or right
@@ -188,6 +212,28 @@ function tunedStat(key) {
   return v?.[k] ?? CAR_STATS[key];
 }
 
+// The ceiling on the composed slide ratio, enforced here because this is the
+// one place that sees all of it at once: engine class, garage tiers and a
+// broken wing each multiply one side of turnSpeed / driftGrip, and no one of
+// them can tell what the others have already done. Stock is 0.8, tier-3
+// Steering on stock Tires reaches 0.896, a broken rear wing 0.889 — all fine —
+// but a player who has bought the one and then breaks the other stacks to
+// 0.996, which is a car that has no steady state on any held lock. That is not
+// a hard-earned handful, it is a retirement, and it arrives through a door
+// nobody designed.
+//
+// What gets trimmed is the *lock*, never the grip: the car declines the last
+// few degrees of steering its rear tires cannot support, which is both what
+// really happens and the version that does not quietly repair the damage the
+// player is supposed to be feeling. It bites on one combination only — a
+// broken rear wing with Steering tiered above Tires — and at most by 8%.
+//
+// The rain is deliberately not covered. `Rain.gripScale()` multiplies grip at
+// the physics step, downstream of everything here, and a fully wet car has sat
+// past this ratio since long before the cliff was written down: that is what
+// makes rain frightening, and capping it would be capping the weather.
+const MAX_SLIP_RATIO = 0.92;
+
 function applyCarStats(entity) {
   const mods = entity.mods || NO_MODS;
   entity.acceleration =
@@ -195,5 +241,13 @@ function applyCarStats(entity) {
   entity.maxSpeed = tunedStat("maxSpeed") * EngineClass.speedScale() * mods.speed;
   entity.turnSpeed = tunedStat("turnSpeed") * mods.turn;
   entity.driftGrip = tunedStat("driftGrip") * mods.grip;
+  // Guarded on a positive grip so the editor's slider can still be dragged to
+  // zero — that is a car on ice, and answering it with a car that cannot steer
+  // would be a stranger thing than the one being asked for.
+  if (
+    entity.driftGrip > 0 &&
+    entity.turnSpeed > entity.driftGrip * MAX_SLIP_RATIO
+  )
+    entity.turnSpeed = entity.driftGrip * MAX_SLIP_RATIO;
   entity.friction = CAR_FRICTION;
 }

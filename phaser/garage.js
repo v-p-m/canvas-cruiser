@@ -23,12 +23,17 @@ const GARAGE_TIER_COST = [null, 3, 6, 10];
 // Flat multiplier granted at each tier, applied to the part's own mods
 // field(s). Checked against the slip equilibrium matterCar.js documents
 // (sin(slip) = turnSpeed / driftGrip, and 1.0 is where a held lock stops
-// having a steady state): stock sits at 0.6. Engine never touches either side
-// of that ratio. Tires (grip, the denominator) and Steering (turn, the
-// numerator) move opposite sides of it, but by the same table at matching
-// tiers, so a player who tiers them evenly never moves the ratio at all —
-// only tiering Steering ahead of Tires pushes it, and the worst case, tier 3
-// Steering against stock Tires, only reaches 0.672. Comfortably clear.
+// having a steady state): stock sits at 0.8 since 0.20.0. Engine never touches
+// either side of that ratio. Tires (grip, the denominator) and Steering (turn,
+// the numerator) move opposite sides of it, but by the same table at matching
+// tiers, so a player who tiers them evenly never moves the ratio at all — only
+// tiering Steering ahead of Tires pushes it, and the worst case, tier 3
+// Steering against stock Tires, reaches 0.896. Clear on its own, and it was
+// 0.672 when stock grip was 0.1 — but the headroom this table used to have to
+// itself is gone, and stacked with a broken rear wing it would cross 1. That
+// is what MAX_SLIP_RATIO in carStats.js exists for: the composed ratio is
+// capped where all three multipliers are visible at once, so this table does
+// not have to know what damage.js did.
 const GARAGE_TIER_MULT = [1, 1.04, 1.08, 1.12];
 
 // Finish position -> points. Only the top 3 pay, and the table doesn't scale

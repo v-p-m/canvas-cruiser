@@ -50,7 +50,7 @@ const SKID_MAX_EDGE = 4096; // px — cap on the layer's own resolution, not its
 const SKID_SLIP_START = 1.8; // world px/frame of lateral slide before a mark shows
 const SKID_SLIP_FULL = 4.5; // ...and where it is as dark as the tire can make it
 const SKID_MIN_LOAD = 0.4; // a tire at the threshold already marks — see wheelLoad()
-const SKID_REF_GRIP = 0.1; // the grip the two above were measured at — entity.driftGrip
+const SKID_REF_GRIP = 0.075; // stock driftGrip — what the two above are normalised against
 const SKID_MARK_W = 5; // world px — the contact patch, narrower than the tire
 const SKID_MIN_SPEED = 0.5; // world px/frame — below this a car is parked, not sliding
 const SKID_MAX_SEGMENT = 40; // world px — a longer step is a respawn, not a slide
@@ -184,7 +184,10 @@ const SkidMarks = {
     // proportionally less — the thresholds move with `driftGrip` for exactly
     // the reason game.js's skidThreshold() does. Rain deliberately stays out of
     // it: it lowers grip to make the car slide, and dividing that back out
-    // would erase the point.
+    // would erase the point — and 0.20.0's lower stock grip is the same case,
+    // so the reference came down with it instead of staying at the 0.1 the two
+    // thresholds were measured against. A car built to slide further has to be
+    // seen to.
     const ref = SKID_REF_GRIP / entity.driftGrip;
     // Past the threshold the tire is scrubbing, and a scrubbing tire leaves a
     // mark you can see — the ramp above SKID_MIN_LOAD says how hard, it does not

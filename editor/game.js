@@ -376,7 +376,7 @@ const keys = {};
 // transform keeps paintSkidMark working in plain world coordinates.
 const SKID_MAX_EDGE = 4096; // px
 const SKID_SLIP = 2.4; // world px/frame of lateral slide before a mark is laid
-const SKID_REF_GRIP = 0.1; // the grip SKID_SLIP was measured at — car.driftGrip
+const SKID_REF_GRIP = 0.075; // stock driftGrip — what SKID_SLIP is normalised against
 const skidCanvas = document.createElement("canvas");
 const skidCtx = skidCanvas.getContext("2d");
 let skidScale = 1;
@@ -441,7 +441,10 @@ function lateralSlip(entity) {
 // matters once a part upgrade moves one car's `driftGrip` off the others' —
 // which is exactly when a fixed number would stop meaning the same manoeuvre.
 // Rain is deliberately not in here: it lowers grip to make the cars slide,
-// and dividing that back out would erase the point.
+// and dividing that back out would erase the point — and 0.20.0's lower stock
+// grip is that same case, so the reference moved down with it rather than
+// staying at the 0.1 the threshold was measured against. A car built to slide
+// further has to be seen to.
 function skidThreshold(entity) {
   return SKID_SLIP * (SKID_REF_GRIP / entity.driftGrip);
 }
@@ -1682,7 +1685,7 @@ const OFFROAD_DRAG = 0.08; // fraction of speed shed per frame, fully off the ro
 // charging the full rate for any frame with a steering key down cost a 100ms
 // correction a fifth of the car's speed, and slip is what tells a turn-in
 // apart from a slide. A held lock settles at sin(slip) = turnSpeed / driftGrip
-// = 0.6, so a real corner still pays the old rate.
+// = 0.8 since 0.20.0, so a real corner still pays the old rate.
 const SCRUB_FULL_SLIP = 0.5; // sin of heading-vs-velocity angle that scrubs in full
 const SCRUB_AT_MAX = 0.06; // of speed shed per frame, fully sideways at maxSpeed
 const SCRUB_AT_REST = 0.02; // ... and the same, at a standstill

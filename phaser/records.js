@@ -22,7 +22,11 @@
 // which is dormant on a clean lap, this one moves every lap — a solo reference
 // car came down 3.6% on Super Circuit — so times either side of it are again
 // not the same manoeuvre.
-const RECORDS_PHYSICS_VERSION = "matter-2";
+// "matter-3": 0.20.0's lower stock `driftGrip`. The car slides further out of
+// every corner and gathers it up more slowly, which moves every lap on every
+// circuit rather than only the ones with contact in them — so, again, the
+// times either side of it are not the same manoeuvre.
+const RECORDS_PHYSICS_VERSION = "matter-3";
 
 // The total-time store alone, on its own version, because 0.19.0 changed what
 // a total *is* rather than how the car drives: the clock now starts with the

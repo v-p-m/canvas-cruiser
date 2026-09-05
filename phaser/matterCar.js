@@ -71,8 +71,9 @@ const UNSETTLE_STEER_LOSS = 1; // of turnSpeed, at a full-strength hit
 //
 // Slip is the honest measure of what a tire is scrubbing: the heading rotates
 // at `turnSpeed` while the grip lerp drags the velocity back at `driftGrip`,
-// so a held lock settles at sin(slip) = turnSpeed / driftGrip = 0.6 and a real
-// corner still saturates this well before the apex, at exactly the old rate. A
+// so a held lock settles at sin(slip) = turnSpeed / driftGrip = 0.8 (it was
+// 0.6 until 0.20.0 lowered the grip) and a real corner still saturates this
+// well before the apex, at exactly the old rate. A
 // tap never gets there — one frame of lock is 0.06 rad with the velocity still
 // pointing where it was — so turn-in is nearly free and the slide is not.
 //
@@ -87,6 +88,11 @@ const UNSETTLE_STEER_LOSS = 1; // of turnSpeed, at a full-strength hit
 // quicker (10.669s -> 10.283s) because it carries more speed through turn-in
 // and brakes more to pay for it (1.5% of frames -> 3.8%). Holding the old
 // field pace would want CORNER_MARGIN in ai.js at ~0.567 rather than 0.64.
+// 0.20.0 moved the equilibrium up (0.6 -> 0.8) and deliberately left the
+// threshold here where it was: the rate is what a fully scrubbing tire costs,
+// and a tire past the threshold is already fully scrubbing. Raising it in step
+// would have made the bigger slide cheaper per frame than the smaller one it
+// replaced, which is backwards.
 const SCRUB_FULL_SLIP = 0.5; // sin of heading-vs-velocity angle that scrubs in full
 const SCRUB_AT_MAX = 0.06; // of speed shed per frame, fully sideways at maxSpeed
 const SCRUB_AT_REST = 0.02; // ... and the same, at a standstill
