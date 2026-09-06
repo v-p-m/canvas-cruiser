@@ -1,9 +1,10 @@
 // The garage screen as a Phaser scene, modeled on phaser/recordsScene.js:
 // started from MenuScene or from the championship's between-rounds screen,
-// and it hands back to whichever of the two sent it. There is still no
-// pause/resume path out of a race — same reason RecordsScene doesn't reopen
-// mid-race either — so `from` is a choice between two screens, not a return
-// into a running one.
+// and it hands back to whichever of the two sent it. Neither is a race: the
+// legacy screen's mid-race door is not ported, so `from` is a choice between
+// two screens rather than a return into a running one. A race frozen by
+// mid-race ESC is left asleep throughout and is resumed from the menu, not
+// from here.
 //
 // The series case is the point of the door: points won in round 1 are meant
 // to be spent before round 2, and dropping the player at the main menu

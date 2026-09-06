@@ -9,9 +9,16 @@
 //
 // Scaled exactly like resizeCanvas() in game.js: CSS pixels for layout
 // (UI.width/UI.height), backing store oversized by devicePixelRatio so text
-// stays crisp. There is no Quality.cap here yet — quality.js isn't wired into
-// the Phaser page until step 6 — so this reads devicePixelRatio raw, same as
-// RenderScale.apply() does for Phaser's own canvas today.
+// stays crisp — but capped by currentMaxDpr() (phaser/renderScale.js), the
+// same ladder Quality moves for Phaser's own canvas. This overlay carries the
+// HUD, the minimap and, through rain.js/night.js, the wet tint, the drop
+// layer and the night veil: three full-viewport composites over a canvas the
+// exact size of the one underneath. The frame is fill-rate bound and cost is
+// linear in dpr², so leaving this at the raw devicePixelRatio meant the
+// quality governor stepped down half the fill rate it was measuring and left
+// the other half at full density — the slow frames it was reacting to were
+// partly its own. resizeCanvas() re-runs this alongside RenderScale.apply()
+// so a step down moves both canvases in the same commit.
 const UI = {
   canvas: null,
   ctx: null,
@@ -52,7 +59,11 @@ const UI = {
   resize() {
     this.width = window.innerWidth;
     this.height = window.innerHeight;
-    this.dpr = window.devicePixelRatio || 1;
+    // renderScale.js is loaded ahead of this file on both the game page and
+    // any harness that boots it, but a bare `dpr` is the safe reading if some
+    // future page pulls the overlay in on its own.
+    const cap = typeof currentMaxDpr === "function" ? currentMaxDpr() : Infinity;
+    this.dpr = Math.min(window.devicePixelRatio || 1, cap);
     this.canvas.width = Math.round(this.width * this.dpr);
     this.canvas.height = Math.round(this.height * this.dpr);
     // The backing store is now larger than the viewport at any dpr above 1,

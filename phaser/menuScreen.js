@@ -276,6 +276,11 @@ const MenuScreen = {
         action: typeof Sound !== "undefined" && Sound.muted ? "Sound: OFF" : "Sound: ON",
         id: "mute",
       },
+      // Last, and only while there is a race frozen behind this menu — the
+      // same row screens.js:262 appends for the same reason. It is the one
+      // clickable ESC the menu ever has: with no paused race, ESC here does
+      // nothing and the row would be a button that lies.
+      ...(state.paused ? [{ key: "ESC", action: "Resume race", id: "resume" }] : []),
     ];
 
     const hints = [
@@ -372,6 +377,9 @@ const MenuScreen = {
         break;
       case "keybindings":
         actions.openKeyBindings();
+        break;
+      case "resume":
+        actions.resumeRace();
         break;
     }
   },

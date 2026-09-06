@@ -161,7 +161,31 @@ class MenuScene extends Phaser.Scene {
       openGarage: () => this.openGarage(),
       openCredits: () => this.openCredits(),
       openKeyBindings: () => this.openKeyBindings(),
+      resumeRace: () => this.resumeRace(),
     };
+  }
+
+  // The way back into a race frozen by mid-race ESC (RaceScene.pauseToMenu).
+  // `isSleeping` is the whole of the state: there is no `racePaused` flag to
+  // keep in step with the scene manager, which is what the legacy loop had to
+  // do and what its cycleTrack/cycleClass comments are about.
+  racePaused() {
+    return this.scene.isSleeping("race");
+  }
+
+  resumeRace() {
+    if (this.state.credits || this.state.keybinds || !this.racePaused()) return;
+    this.scene.wake("race"); // fires RaceScene's own "wake", which restores the globals
+    this.scene.stop(); // this menu, on its way out — its shutdown clears its listeners
+  }
+
+  // A frozen race is discarded the moment the player commits to another one.
+  // Records, the garage, the credits and the rebind screen all leave it
+  // asleep and hand back to this menu, so ESC still resumes after a detour
+  // through any of them; only a new race (or a championship round, which is
+  // the same thing one scene later) can't share the page with it.
+  dropPausedRace() {
+    if (this.racePaused()) this.scene.stop("race");
   }
 
   cycleTrack(dir) {
@@ -337,6 +361,7 @@ class MenuScene extends Phaser.Scene {
   startRace() {
     if (this.state.trackLoading || this.state.credits) return; // baking, or credits has input
     if (MenuScreen.seriesMode(this.state)) return this.startSeries();
+    this.dropPausedRace();
     RaceLaps.target = PHASER_MODES[this.state.selectedMode].laps;
     this.scene.start("race", {
       trackFile: PHASER_TRACKS[this.state.selectedTrack].file,
@@ -352,6 +377,7 @@ class MenuScene extends Phaser.Scene {
   // moment either one is the player's to choose.
   startSeries() {
     if (!Series.active) Series.begin(this.state.selectedTrack, EngineClass.current().id);
+    this.dropPausedRace();
     this.scene.start("series");
   }
 
@@ -462,6 +488,9 @@ class MenuScene extends Phaser.Scene {
         MenuScreen.changeRow(this.state, -1, this.menuActions());
       if (Phaser.Input.Keyboard.JustDown(this.keys.RIGHT))
         MenuScreen.changeRow(this.state, 1, this.menuActions());
+      // ESC is the menu's only key that isn't a screen of its own: it means
+      // "back to the race" and nothing at all when there isn't one.
+      if (Phaser.Input.Keyboard.JustDown(this.keys.ESC)) this.resumeRace();
       if (Phaser.Input.Keyboard.JustDown(this.keys.ENTER)) this.startRace();
       if (Phaser.Input.Keyboard.JustDown(this.keys.Q)) this.openRecords();
       if (Phaser.Input.Keyboard.JustDown(this.keys.G)) this.openGarage();
@@ -470,6 +499,10 @@ class MenuScene extends Phaser.Scene {
       if (Phaser.Input.Keyboard.JustDown(this.keys.K)) this.openKeyBindings();
     }
 
+    // Read per frame rather than stamped in create(): the menu outlives the
+    // decision (START stops the frozen race from under it), and the extra
+    // control row has to go the same frame the race does.
+    this.state.paused = this.racePaused();
     MenuScreen.draw(this.state);
     if (this.state.credits) CreditsScreen.draw();
     // Over the menu it was opened from, drawn last so its hover cursor wins.

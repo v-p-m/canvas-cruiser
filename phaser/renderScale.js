@@ -70,5 +70,19 @@ const RenderScale = {
 // canvas to resize, so this just re-runs RenderScale.apply() against
 // whichever scene last called it.
 function resizeCanvas() {
-  if (_activeScene) RenderScale.apply(_activeScene);
+  // `_activeScene` is whichever scene called apply() last, and a scene that has
+  // since been shut down still answers to that name while its cameras are
+  // gone — Quality._commit() is driven by the frame interval, so it can land
+  // in the gap between one scene stopping and the next one calling apply().
+  // Before 0.20.0 that gap only opened on a scene change; a race frozen to the
+  // menu and resumed opens it every time. `cameras.main` is what apply()
+  // reaches for first and the thing that is missing, so it is the test.
+  if (_activeScene && _activeScene.cameras && _activeScene.cameras.main)
+    RenderScale.apply(_activeScene);
+  // The UI overlay is a second canvas of the same size, and every full-
+  // viewport composite the weather draws lands on it — so a cap that only
+  // moved Phaser's own backing store would leave half the fill rate where it
+  // was. It reads the cap itself (phaser/uiCanvas.js); this is what tells it
+  // the cap has moved.
+  if (UI.canvas) UI.resize();
 }

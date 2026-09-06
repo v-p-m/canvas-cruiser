@@ -1,4 +1,4 @@
-# Canvas Cruiser v0.19.0
+# Canvas Cruiser v0.20.0
 A minimalist top-down racing game built with pure **HTML5 Canvas** and
 **JavaScript** — no build step, no `package.json`, no dependencies to install.
 
@@ -31,8 +31,8 @@ python3 -m http.server 8123
 | ↑ / ↓ | Accelerate / Brake & reverse; on the menu, move between rows |
 | ← / → | Steer; on the menu, change the highlighted row |
 | ENTER | Start (the menu's START row does the same) |
-| ESC | Pause to the menu; again to resume |
-| R | Restart the race |
+| ESC | Pause to the menu; again to resume. On the results screen, back to the menu |
+| R | Race again (from the results screen) |
 | Q | Records (best laps and race totals) |
 | C | Clear records (on the records screen) |
 | G | Garage (spend race points on part upgrades) |
@@ -95,6 +95,12 @@ missing or malformed the game falls back to a built-in roll.
 - Matter.js physics under the game, with the handling model ported verbatim
   from the original hand-rolled loop — there are deliberately **no walls**;
   running wide costs grip and time through off-road drag, never a barrier
+- A car that slides. Since 0.20.0 the grip the tires hold onto their heading
+  with is a third lower, which lets the car take a third more lateral velocity
+  through the same corner and gives it a third longer to gather that back up —
+  the difference between a car that turns and a car you have to catch. The wet
+  slides further again, in step. Every lap and total-time record was cleared
+  once on the change: the corners are not the same manoeuvre any more
 - Car-to-car contact that actually costs something: a hit shoves speed into
   the car it lands on, scrubs speed off both cars, spins the one hit
   off-centre, and leaves it unsettled with reduced grip for a moment —
@@ -132,6 +138,11 @@ missing or malformed the game falls back to a built-in roll.
   that table is one race clock, started with the lights for the whole field, so
   the totals rank the field the same way the positions do — you start at the
   back of the grid, and the time it takes you to come through counts
+- ESC mid-race freezes the race rather than throwing it away: the menu comes
+  up over it, ESC again drops you back in exactly where you left, and neither
+  the race clock nor the lap you were on is charged for the time you were
+  away. Records, the garage and the credits are all reachable and hand back to
+  it; only starting another race gives it up
 - The start line is as wide as the road plus its verges, so clipping the grass
   as you cross — going round the outside of the pack off the start, or running
   wide out of the last corner — costs grip and not the whole lap

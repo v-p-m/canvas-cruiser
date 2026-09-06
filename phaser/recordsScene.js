@@ -1,6 +1,8 @@
 // The records screen as a Phaser scene. Started from MenuScene with the
 // track+class to show; always hands back to "menu" — see RecordsScreen's
-// header for why there's no "back to race" path yet.
+// header for why there's no "back to race" path. A race frozen by mid-race
+// ESC survives the detour: this scene never touches it, and the menu it hands
+// back to is where resuming lives.
 class RecordsScene extends Phaser.Scene {
   constructor() {
     super({ key: "records" });

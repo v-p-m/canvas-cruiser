@@ -2,10 +2,12 @@
 // handleLeaderboardClick (screens.js:790-898). Same trade-off as the menu and
 // HUD — see phaser/menuScreen.js's header.
 //
-// Only reachable from the menu on this page (Q, or the menu row). The legacy
-// screen can also open mid-race and hands you back to a paused race — that
-// needs pause/resume machinery this port doesn't have yet, so "back" here
-// always means the menu. `phaser/recordsScene.js` is what owns that.
+// Only reachable from the menu on this page (Q, or the menu row), so "back"
+// here always means the menu — the legacy screen opens mid-race as well, and
+// that path is not ported. It is no longer a dead end, though: since 0.20.0
+// mid-race ESC leaves the race asleep rather than stopping it, and the menu
+// this hands back to still offers ESC to resume it (phaser/menuScene.js's
+// resumeRace). `phaser/recordsScene.js` is what owns the handoff.
 const RecordsScreen = {
   hitAreas: [],
 

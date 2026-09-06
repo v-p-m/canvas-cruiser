@@ -68,6 +68,12 @@ class RaceScene extends Phaser.Scene {
     this.finishHoldTimer = 0; // ms left of the roll-out
     this.isNewBestTotal = false;
     this.garagePointsAwarded = 0; // reset with the rest: "race again" reuses this instance
+    // Reset with the rest: "race again" reuses this instance, and a stale
+    // `resumedFromPause` would shift the new race's clock by the gap the old
+    // one spent in the menu (see pauseToMenu()).
+    this.frozen = null;
+    this.resumedFromPause = false;
+    this.pausedAt = 0;
     // Armed lazily on the first update() — see there for why begin() can't
     // just be called here.
     this.startLightsArmed = false;
@@ -287,8 +293,17 @@ class RaceScene extends Phaser.Scene {
     // Registered up front rather than when the flag falls: UI.onClick only
     // ever sees clicks while UI.setInteractive(true), which finishRace()
     // below is what flips, so this sits idle and harmless until then.
-    this.resultsClickHandler = (x, y) =>
+    //
+    // The `finishOrder` guard is what keeps that true across a pause. Sleeping
+    // this scene does not fire its shutdown, so this handler is still in
+    // UI.clickHandlers while the menu is up over a frozen race — and the menu
+    // turns UI.setInteractive back on. ResultsScreen is a module: its hitAreas
+    // are still the *previous* race's until something redraws them, so without
+    // this a click on a menu row could land on a stale "main menu" box.
+    this.resultsClickHandler = (x, y) => {
+      if (!this.finishOrder) return;
       ResultsScreen.handleClick(this.resultsActions(), x, y);
+    };
     UI.onClick(this.resultsClickHandler);
 
     this.ready = true;
@@ -311,6 +326,83 @@ class RaceScene extends Phaser.Scene {
       again: () => this.scene.restart({ trackFile: this.trackFile, trackId: this.trackId }),
       menu: () => this.scene.start("menu"),
     };
+  }
+
+  // Mid-race ESC: freeze the race, put the menu in front of it, and leave it
+  // recoverable. Sleep rather than pause — a *paused* Phaser scene still
+  // renders, and the menu draws a bake of its own circuit over the whole
+  // viewport, so the two would composite.
+  //
+  // What has to be saved is the set of page-level globals the menu is about to
+  // write to. `worldTrack` is the one that would break the race outright:
+  // MenuScreen's backdrop reassigns it on every TRACK press
+  // (phaser/menuScene.js's applyPreviewBake), and ai.js reads its racing line
+  // and its off-road test straight off that name. The weather is the same
+  // story one step quieter — the menu rolls its own night and rain into the
+  // same Rain and Night objects the frozen race is holding, so a race paused
+  // in a downpour would come back dry.
+  //
+  // The puddles are kept as the array rather than re-scattered on the way
+  // back. They are placed randomly, and a puddle that moved while the player
+  // was in the menu is one they are about to drive through expecting the dry
+  // line they left.
+  pauseToMenu(time) {
+    this.pausedAt = time;
+    this.frozen = {
+      rain: {
+        intensity: Rain.intensity,
+        targetIntensity: Rain.targetIntensity,
+        active: Rain.active,
+        puddles: Rain.puddles,
+      },
+      night: {
+        intensity: Night.intensity,
+        targetIntensity: Night.targetIntensity,
+        active: Night.active,
+      },
+    };
+    // Armed per pause rather than once in create(), which runs again on every
+    // "race again" and would stack a handler per race. `once` is not teardown
+    // enough on its own: a scene's event emitter outlives its shutdown (Phaser
+    // strips only the four transition listeners), and a pause can be abandoned
+    // rather than resumed — START from the menu stops the race out from under
+    // an armed listener. That one survives into the next race and fires
+    // alongside its own on the next resume, the second call landing on the
+    // `frozen` the first just cleared. Hence the method and not a closure:
+    // off() can only find a handler it can compare.
+    this.events.off("wake", this.resumeFromMenu, this);
+    this.events.once("wake", this.resumeFromMenu, this);
+    this.scene.sleep();
+    this.scene.launch("menu");
+  }
+
+  // The other half of pauseToMenu(). Everything here is a global put back the
+  // way the race left it; the clock is the one thing that cannot be, and
+  // update() handles that on the first frame after.
+  resumeFromMenu() {
+    window.worldTrack = this.world;
+    Night.buildLights(); // the menu stood these on its own circuit's verges
+    Object.assign(Rain, this.frozen.rain);
+    Object.assign(Night, this.frozen.night);
+    this.frozen = null;
+
+    // The menu called RenderScale.apply() with itself, so `_activeScene` — the
+    // scene a Quality step-down re-applies the scale to — is a menu that is
+    // about to be stopped. Claiming it back is what keeps the governor able to
+    // move this race's resolution at all, and it re-fits the night layer and
+    // re-bakes the sprites for a window resized while the race was frozen.
+    // Safe here for the same reason Quality.sample() is safe at the top of
+    // update(): the wake event is processed before any scene updates, so the
+    // textures it throws away are replaced before the per-car loop reads them.
+    RenderScale.apply(this);
+
+    UI.setInteractive(false); // the menu turned it on; the HUD has no buttons
+    // A key still held from the menu isn't a throttle input — the same reason
+    // create() clears these on the way in. resetKeys() covers the fixed keys
+    // (the ESC that resumed, especially, which is otherwise still JustDown).
+    PlayerInput.init().clear();
+    this.input.keyboard.resetKeys();
+    this.resumedFromPause = true;
   }
 
   // One car, on its grid slot. Index 0 is the player and the rest are AICars,
@@ -621,6 +713,24 @@ class RaceScene extends Phaser.Scene {
     // so nothing renders against a destroyed frame.
     Quality.sample(deltaMs); // raw interval, not the clamped/frame-unit `delta` below
 
+    // A slept scene stops updating, but Phaser's loop `time` — the clock
+    // RaceLaps and StartLights are both handed — keeps running. So the time
+    // spent in the menu would land on the player's race total, their current
+    // lap, and the countdown, none of which they were driving through. Shift
+    // every anchor forward by exactly that gap instead: a pause costs nothing
+    // and the numbers on the HUD are the same after it as before. Lap times
+    // already banked are crossing-to-crossing and never move.
+    if (this.resumedFromPause) {
+      this.resumedFromPause = false;
+      const paused = time - this.pausedAt;
+      if (RaceLaps.raceStart) RaceLaps.raceStart += paused;
+      for (const c of this.cars) {
+        if (c.entity.raceStart) c.entity.raceStart += paused;
+        if (c.entity.lapStart) c.entity.lapStart += paused;
+      }
+      StartLights._lastTick += paused;
+    }
+
     // game.js counts delta in 60fps frames, and every constant in the handling
     // model is expressed per frame, so the port has to feed it the same unit.
     const delta = Math.min(deltaMs / (1000 / 60), 3);
@@ -636,8 +746,11 @@ class RaceScene extends Phaser.Scene {
       StartLights.begin();
       StartLights._lastTick = time;
     }
-    // No menu/pause overlay exists in this scene to fold into `held` — ESC
-    // exits the scene outright rather than freezing in place (see below).
+    // `held` stays false: the legacy loop needed it because its one gameLoop
+    // kept running behind the menu, and ESC during the countdown left the
+    // sequence ticking (and beeping) over the top of it. Here the whole scene
+    // sleeps, so the countdown stops with everything else and the shift above
+    // is what hands it back the time it missed.
     StartLights.update(time, false);
     // Same isRacing gate the legacy loop holds the whole race sim behind
     // while the lights are still counting down (game.js:1928, 1936) — without
@@ -865,11 +978,14 @@ class RaceScene extends Phaser.Scene {
         this.resultsActions().again();
       if (Phaser.Input.Keyboard.JustDown(this.keys.ESC)) this.resultsActions().menu();
     } else {
-      // Mid-race ESC — no pause/resume machinery yet (see resultsScreen.js's
-      // header), so this is a straight exit rather than the legacy loop's
-      // freeze-and-resume; same "menu" action the results screen's ESC uses.
+      // Mid-race ESC freezes the race and drops to the menu, which offers
+      // ESC again as the way back — the legacy loop's own behaviour
+      // (game.js:778, screens.js:262), which this page had replaced with a
+      // straight exit because there was nowhere to freeze *to*. ESC on the
+      // results screen still means "menu" and always will: there is nothing
+      // left to resume once the flag is out.
       if (Phaser.Input.Keyboard.JustDown(this.keys.ESC)) {
-        this.resultsActions().menu();
+        this.pauseToMenu(time);
         return;
       }
 
