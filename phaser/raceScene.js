@@ -415,6 +415,10 @@ class RaceScene extends Phaser.Scene {
     const entity =
       index === 0 ? {} : new AICar(null, slot.x, slot.y, slot.color);
 
+    // Grid rank, front row first, so the best-developed rival is the one
+    // starting at the front — the player lines up at the back of all of them.
+    const dev = index === 0 ? 1 : Garage.fieldDevelopment(index - 1);
+
     Object.assign(entity, {
       x: slot.x,
       y: slot.y,
@@ -441,13 +445,19 @@ class RaceScene extends Phaser.Scene {
       // "stock", because damage is fitted here too (phaser/damage.js) and a
       // null would make the player's car the one car in the race whose wings
       // could not break — the regression CLAUDE.md is about, arriving from the
-      // other direction. Garage.mods() only ever feeds the player's slot —
-      // upgrades bought from race points are the driver's own car, not a
-      // handicap redistributed across the field.
+      // other direction.
+      //
+      // Both sides of the garage arrive here, and they are not the same thing
+      // wearing different numbers: the player's slot gets the parts they
+      // actually bought, part by part, while an opponent gets one scalar off
+      // Garage.fieldDevelopment() — the field developing behind the player
+      // rather than a handicap redistributed across it. AI_TOP_SPEED still
+      // multiplies on top, so what the opponents give away in a straight line
+      // is a constant of the game and not something the shop can spend away.
       mods:
         index === 0
           ? Garage.mods()
-          : { speed: AI_TOP_SPEED, accel: 1, turn: 1, grip: 1 },
+          : { speed: AI_TOP_SPEED * dev, accel: dev, turn: 1, grip: dev },
     });
 
     // Wings on, and a snapshot of the car as built for them to come off. Before

@@ -26,6 +26,18 @@ const GarageScreen = {
     ctx.font = "bold 18px 'Courier New'";
     ctx.fillText(`${Garage.points()} points`, UI.width / 2, 122);
 
+    // The field develops alongside the player's car, and a progression system
+    // that does that silently reads as the game cheating. So the number sits
+    // on the shelf next to what it answers: what the best-funded rival on the
+    // grid is running against whatever is bought here.
+    ctx.fillStyle = "#7A7A7A";
+    ctx.font = "13px 'Courier New'";
+    ctx.fillText(
+      `the field develops too — best rival ×${Garage.fieldDevelopment(0).toFixed(2)}`,
+      UI.width / 2,
+      144,
+    );
+
     const colX = [UI.width * 0.2, UI.width * 0.5, UI.width * 0.8];
 
     this.hitAreas = [];

@@ -156,8 +156,13 @@ missing or malformed the game falls back to a built-in roll.
 - A **Garage** (`G` from the menu): points earned by finishing a lap race —
   top 3 only — buy up to three tiers each of Engine (top speed), Gearbox
   (acceleration) and Tires (grip) for the player's car, persisted across
-  sessions. Numbers-only for now; no
-  change to the AI or to what a wing losing itself already does
+  sessions — and **the field develops with you**: buy a part and the grid
+  answers with machinery of its own, the front row taking three quarters of
+  what you fitted and the backmarker half of that, so what the points buy is a
+  real edge rather than a parade. The rivals' development moves speed, accel
+  and grip only — never steering, which would have the whole field taking
+  corners flat — and while your car is stock the grid is exactly the grid it
+  always was
 - A **4-Race Series**: a championship over four circuits, picked as a MODE.
   The calendar starts at the circuit you selected and takes in the next three,
   the engine class is locked for all four rounds, and **every car scores** —

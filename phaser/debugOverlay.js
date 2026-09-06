@@ -76,8 +76,15 @@ const DebugOverlay = {
     standings.forEach((s) => {
       const e = s.entity;
       const lap = e.lastLapTime ? `${e.lastLapTime.toFixed(2)}s` : "—";
-      const who = s.isPlayer ? "YOU" : `AI ${e.skill.toFixed(2)}`;
-      lines.push(`${s.position}. ${who.padEnd(9)} L${e.laps}  ${lap}`);
+      // Two columns for a rival, because since the garage started developing
+      // the field there are two reasons one can be off the pace: `skill` is
+      // the driver, `m` is the car. Read off `mods` rather than a field of
+      // its own — every car carries mods, and a property only opponents have
+      // is exactly the shape difference spawnCar exists to refuse.
+      const who = s.isPlayer
+        ? "YOU"
+        : `AI ${e.skill.toFixed(2)} m${e.mods.grip.toFixed(2)}`;
+      lines.push(`${s.position}. ${who.padEnd(16)} L${e.laps}  ${lap}`);
     });
 
     const x = DEBUG_PANEL_X;
