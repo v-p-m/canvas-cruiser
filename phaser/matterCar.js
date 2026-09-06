@@ -93,9 +93,50 @@ const UNSETTLE_STEER_LOSS = 1; // of turnSpeed, at a full-strength hit
 // and a tire past the threshold is already fully scrubbing. Raising it in step
 // would have made the bigger slide cheaper per frame than the smaller one it
 // replaced, which is backwards.
-const SCRUB_FULL_SLIP = 0.5; // sin of heading-vs-velocity angle that scrubs in full
+//
+// 0.20.1 moves it, and this is a reversal of the paragraph above: leaving the
+// threshold at 0.5 while the equilibrium went to 0.8 meant 62% of the steering
+// range bought the full rate, against 83% of it before, so a half-lock
+// correction — which is most of what a lap is made of — was charged as though
+// it were a full slide. Driven, that is a car that scrubs off speed for asking
+// it a small question. The cost of the reversal is the one the old note names:
+// a slip of 0.6, which used to be the maximum and paid in full, now pays 92%.
+// A tap is still nearly free and a real slide still saturates well before the
+// apex; what changed is the middle, and the middle is where the driving is.
+const SCRUB_FULL_SLIP = 0.65; // sin of heading-vs-velocity angle that scrubs in full
 const SCRUB_AT_MAX = 0.06; // of speed shed per frame, fully sideways at maxSpeed
 const SCRUB_AT_REST = 0.02; // ... and the same, at a standstill
+
+// Power understeer — the throttle is what the driver pays to turn.
+//
+// Until now the throttle and the steering were independent: the car turned at
+// `turnSpeed` whether it was accelerating, coasting or braking, so there was
+// never a moment where the answer to a corner was to lift. Holding the pedal
+// down was free, and a lap had exactly one decision in it (brake or don't).
+// This is the second one: while the throttle is down the front tires are being
+// asked to turn a car that is still being driven straight, and the lock they
+// give back is short. Lifting hands it back.
+//
+// It is the **lock** that is cut and not the grip, deliberately. Cutting grip
+// points the nose in and sends the car on anyway — that is a slide, and
+// rain.js already owns it. Cutting the lock is the car declining to turn,
+// which is what understeer is; and because the corner scrub is charged on slip
+// and slip comes from the lock, it falls out that turning while flat is cheap
+// and nearly useless while turning after a lift is dear and works. That is the
+// trade being offered, and both halves of it land on the same frame.
+//
+// The push winds on and off over POWER_PUSH_FRAMES rather than switching with
+// the key, so a *partial* lift is a real thing a keyboard can ask for: a
+// 100ms dab off the throttle gives back most of the lock without giving back
+// the speed, which is the input the whole change exists to reward.
+//
+// Nothing here is gated on the driver being human. The AI already lifts for
+// corners — its target speed comes off the same geometry — so it pays this
+// mostly on corner exit, where it is back on the pedal and should be running
+// wide anyway. If the field starts missing apexes, POWER_PUSH is the number.
+const POWER_PUSH = 0.3; // of the lock, lost at full throttle and top speed
+const POWER_PUSH_FROM = 0.4; // of maxSpeed, below which the throttle costs nothing
+const POWER_PUSH_FRAMES = 6; // to wind the push fully on, or off on a lift
 
 // Reads the velocity rather than `entity.speed`, because the whole point is
 // the difference between a car that is turning and a car that is sliding.
@@ -169,8 +210,28 @@ const MatterCar = {
     // cannot drift apart on steering feel any more than they can on
     // `turnSpeed` itself.
     const flip = entity.speed >= 0 ? 1 : -1;
+    // Held as its own wound-on state rather than read off the key, so a dab
+    // off the throttle is worth part of the lock back — see POWER_PUSH.
+    const throttle = input.accel && !input.brake && !input.rollOut ? 1 : 0;
+    const holdStep = delta / POWER_PUSH_FRAMES;
+    entity.powerHold = throttle
+      ? Math.min(1, (entity.powerHold || 0) + holdStep)
+      : Math.max(0, (entity.powerHold || 0) - holdStep);
+    // Ramped in over the top of the speed range: at a standstill and out of
+    // slow corners the throttle is what gets the car turned, not what stops it.
+    const fast = entity.maxSpeed
+      ? Math.max(
+          0,
+          (Math.abs(entity.speed) / entity.maxSpeed - POWER_PUSH_FROM) /
+            (1 - POWER_PUSH_FROM),
+        )
+      : 0;
+    const push = POWER_PUSH * entity.powerHold * Math.min(1, fast);
+
     const lock =
-      entity.turnSpeed * (1 - UNSETTLE_STEER_LOSS * (entity.unsettle || 0));
+      entity.turnSpeed *
+      (1 - UNSETTLE_STEER_LOSS * (entity.unsettle || 0)) *
+      (1 - push);
     const steer = stepSteerLock(entity, input, delta);
     entity.angle += lock * steer * flip * delta;
 
