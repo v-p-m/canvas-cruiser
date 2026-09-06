@@ -76,13 +76,12 @@
 // 0.77-from-0.6, because there is less room above it, and the oversteer is
 // bigger in absolute terms either way.
 //
-// This is now one of three things multiplying that ratio rather than the only
-// one, so what it may not do is assume it has the headroom to itself: tier-3
-// garage Steering on stock Tires is already 0.896 before a wing breaks. The
-// stack is capped in carStats.js (MAX_SLIP_RATIO), which is the only place
-// that can see all of it — but the cap is a guard rail, not a licence to tune
-// against, and a REAR_GRIP that leans on it is a rear wing whose penalty
-// quietly stops growing.
+// This is not the only thing multiplying that ratio, so what it may not do is
+// assume it has the headroom to itself — the garage's Tires tier and the rain
+// move the same denominator. The stack is capped in carStats.js
+// (MAX_SLIP_RATIO), which is the only place that can see all of it — but the
+// cap is a guard rail, not a licence to tune against, and a REAR_GRIP that
+// leans on it is a rear wing whose penalty quietly stops growing.
 //
 // Measured, and both predictions hold — a solo skill-1 car, Super Circuit,
 // 100cc dry, hand-stepped Matter, mean of the timed laps, against the fraction

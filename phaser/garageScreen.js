@@ -5,8 +5,8 @@
 const GarageScreen = {
   hitAreas: [],
 
-  LABEL: { engine: "🔧 ENGINE", tires: "🛞 TIRES", steering: "🎯 STEERING" },
-  FIELD: { engine: "speed + accel", tires: "grip", steering: "turn" },
+  LABEL: { engine: "🔧 ENGINE", gearbox: "⚙️ GEARBOX", tires: "🛞 TIRES" },
+  FIELD: { engine: "top speed", gearbox: "accel", tires: "grip" },
 
   // `opts.backLabel` is the one thing the caller varies: the garage is
   // reachable from the menu and from the championship between rounds, and a

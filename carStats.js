@@ -44,9 +44,9 @@ const CAR_FRICTION = 0.96;
 // 1.0 is a cliff, not the far end of a dial: there a held lock has no steady
 // state at all and the car simply spins, and at 0.8 the stock car is closer to
 // it than anything shipped before. Three things multiply one side or the other
-// of the ratio — the garage's Steering and Tires tiers, a broken wing, and the
-// rain — so it is their *stack* that has to clear the cliff, not each on its
-// own. MAX_SLIP_RATIO below is where that is enforced; the rain is deliberately
+// of the ratio — the garage's Tires tier, a broken wing, and the rain — so it
+// is their *stack* that has to clear the cliff, not each on its own.
+// MAX_SLIP_RATIO below is where that is enforced; the rain is deliberately
 // outside it (see there).
 const CAR_STATS = {
   acceleration: 0.2,
@@ -215,18 +215,22 @@ function tunedStat(key) {
 // The ceiling on the composed slide ratio, enforced here because this is the
 // one place that sees all of it at once: engine class, garage tiers and a
 // broken wing each multiply one side of turnSpeed / driftGrip, and no one of
-// them can tell what the others have already done. Stock is 0.8, tier-3
-// Steering on stock Tires reaches 0.896, a broken rear wing 0.889 — all fine —
-// but a player who has bought the one and then breaks the other stacks to
-// 0.996, which is a car that has no steady state on any held lock. That is not
-// a hard-earned handful, it is a retirement, and it arrives through a door
-// nobody designed.
+// them can tell what the others have already done. It was written when the
+// garage sold a Steering tier: that raised the numerator, and tier 3 on stock
+// Tires (0.896) plus a broken rear wing stacked to 0.996 — a car with no
+// steady state on any held lock, arriving through a door nobody designed.
+// Dropping that part in 0.20.0 took the stack apart. What is left on the shelf
+// is Tires, which only lowers the ratio, so the worst case shipped today is a
+// broken rear wing alone at 0.889 and nothing here bites.
+//
+// It stays because the reason it was written has not gone away: this is still
+// the only place that sees the composed ratio, and the next part or penalty
+// that touches either side of it will not know what the others did either.
 //
 // What gets trimmed is the *lock*, never the grip: the car declines the last
 // few degrees of steering its rear tires cannot support, which is both what
 // really happens and the version that does not quietly repair the damage the
-// player is supposed to be feeling. It bites on one combination only — a
-// broken rear wing with Steering tiered above Tires — and at most by 8%.
+// player is supposed to be feeling.
 //
 // The rain is deliberately not covered. `Rain.gripScale()` multiplies grip at
 // the physics step, downstream of everything here, and a fully wet car has sat

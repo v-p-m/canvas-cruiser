@@ -154,8 +154,9 @@ missing or malformed the game falls back to a built-in roll.
 - Lap timing with a top-5 leaderboard and best total times, kept per circuit
   and per engine class (persisted to localStorage)
 - A **Garage** (`G` from the menu): points earned by finishing a lap race —
-  top 3 only — buy up to three tiers each of Engine, Tires and Steering for
-  the player's car, persisted across sessions. Numbers-only for now; no
+  top 3 only — buy up to three tiers each of Engine (top speed), Gearbox
+  (acceleration) and Tires (grip) for the player's car, persisted across
+  sessions. Numbers-only for now; no
   change to the AI or to what a wing losing itself already does
 - A **4-Race Series**: a championship over four circuits, picked as a MODE.
   The calendar starts at the circuit you selected and takes in the next three,

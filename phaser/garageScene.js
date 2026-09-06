@@ -57,8 +57,8 @@ class GarageScene extends Phaser.Scene {
     // Keyboard equivalents of the buy buttons, same pattern as RecordsScreen's
     // "C" for clear — a click isn't the only way to reach a screen action.
     if (Phaser.Input.Keyboard.JustDown(this.keys.one)) this.actions().buy("engine");
-    if (Phaser.Input.Keyboard.JustDown(this.keys.two)) this.actions().buy("tires");
-    if (Phaser.Input.Keyboard.JustDown(this.keys.three)) this.actions().buy("steering");
+    if (Phaser.Input.Keyboard.JustDown(this.keys.two)) this.actions().buy("gearbox");
+    if (Phaser.Input.Keyboard.JustDown(this.keys.three)) this.actions().buy("tires");
 
     GarageScreen.draw({
       backLabel:
@@ -71,8 +71,8 @@ class GarageScene extends Phaser.Scene {
     this.report.points = Garage.points();
     this.report.tiers = {
       engine: Garage.tier("engine"),
+      gearbox: Garage.tier("gearbox"),
       tires: Garage.tier("tires"),
-      steering: Garage.tier("steering"),
     };
   }
 }

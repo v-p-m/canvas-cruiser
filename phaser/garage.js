@@ -11,7 +11,7 @@
 // wing change — so a tier bought here survives a wing breaking mid-race the
 // same way engine-class scaling always has. Nothing on the damage/physics
 // chain changes for this to work; see phaser/raceScene.js's spawnCar.
-const GARAGE_PARTS = ["engine", "tires", "steering"];
+const GARAGE_PARTS = ["engine", "gearbox", "tires"];
 const GARAGE_MAX_TIER = 3;
 
 // Points to reach each tier from the one below it — a step cost, not a
@@ -21,19 +21,19 @@ const GARAGE_MAX_TIER = 3;
 const GARAGE_TIER_COST = [null, 3, 6, 10];
 
 // Flat multiplier granted at each tier, applied to the part's own mods
-// field(s). Checked against the slip equilibrium matterCar.js documents
-// (sin(slip) = turnSpeed / driftGrip, and 1.0 is where a held lock stops
-// having a steady state): stock sits at 0.8 since 0.20.0. Engine never touches
-// either side of that ratio. Tires (grip, the denominator) and Steering (turn,
-// the numerator) move opposite sides of it, but by the same table at matching
-// tiers, so a player who tiers them evenly never moves the ratio at all — only
-// tiering Steering ahead of Tires pushes it, and the worst case, tier 3
-// Steering against stock Tires, reaches 0.896. Clear on its own, and it was
-// 0.672 when stock grip was 0.1 — but the headroom this table used to have to
-// itself is gone, and stacked with a broken rear wing it would cross 1. That
-// is what MAX_SLIP_RATIO in carStats.js exists for: the composed ratio is
-// capped where all three multipliers are visible at once, so this table does
-// not have to know what damage.js did.
+// field. One part, one field, since 0.20.0: Engine is top speed and Gearbox is
+// acceleration, which the Engine tier used to buy together — a single part
+// that moved two of the car's four numbers was half the shop, and neither half
+// could be bought on its own.
+//
+// Nothing sold here touches the *numerator* of the slip equilibrium
+// matterCar.js documents (sin(slip) = turnSpeed / driftGrip, and 1.0 is where
+// a held lock stops having a steady state, stock 0.8 since 0.20.0). That is
+// what dropping the Steering part bought: Engine and Gearbox sit outside the
+// ratio entirely and Tires is the denominator, so every tier on the shelf now
+// moves the car *away* from the cliff. MAX_SLIP_RATIO in carStats.js still
+// guards the stack, but the garage no longer contributes to it — a broken rear
+// wing does.
 const GARAGE_TIER_MULT = [1, 1.04, 1.08, 1.12];
 
 // Finish position -> points. Only the top 3 pay, and the table doesn't scale
@@ -52,7 +52,7 @@ const GARAGE_SERIES_AWARD = { 1: 6, 2: 4, 3: 2 };
 
 const Garage = {
   _points: 0,
-  _tiers: { engine: 0, tires: 0, steering: 0 },
+  _tiers: { engine: 0, gearbox: 0, tires: 0 },
 
   load() {
     this._points = 0;
@@ -64,7 +64,7 @@ const Garage = {
       localStorage.removeItem("garagePoints");
     }
 
-    this._tiers = { engine: 0, tires: 0, steering: 0 };
+    this._tiers = { engine: 0, gearbox: 0, tires: 0 };
     try {
       const t = JSON.parse(localStorage.getItem("garageTiers"));
       if (t && typeof t === "object" && !Array.isArray(t)) {
@@ -72,6 +72,7 @@ const Garage = {
           const v = t[part];
           if (Number.isInteger(v) && v >= 0 && v <= GARAGE_MAX_TIER) this._tiers[part] = v;
         }
+        if ("steering" in t) this.migrate(t);
       } else if (t !== null) {
         localStorage.removeItem("garageTiers");
       }
@@ -145,15 +146,31 @@ const Garage = {
     return gained;
   },
 
+  // A pre-0.20.0 save, brought forward. The marker is the saved `steering`
+  // key itself — save() always writes every part it knows about, so a key that
+  // no longer exists can only have come from a build that had it. The old
+  // Engine tier is mirrored onto Gearbox rather than refunded or halved: it
+  // bought both fields, so mirroring is the reading under which the player's
+  // car is still exactly the car they parked. Steering has no successor, so
+  // what it cost comes back as points instead.
+  migrate(saved) {
+    this._tiers.gearbox = this._tiers.engine;
+    const tier = saved.steering;
+    if (Number.isInteger(tier))
+      for (let i = 1; i <= Math.min(tier, GARAGE_MAX_TIER); i++)
+        this._points += GARAGE_TIER_COST[i];
+    this.save();
+  },
+
   // {speed, accel, turn, grip} for spawnCar to hand the player's entity.
-  // Engine drives speed and accel together (one multiplier, both fields);
-  // Tires is grip; Steering is turn.
+  // Engine is top speed, Gearbox is acceleration, Tires is grip. `turn` is
+  // always 1 and is still sent: applyCarStats() reads all four unguarded, and
+  // a partial object is a NaN stat rather than a stock one.
   mods() {
-    const engine = GARAGE_TIER_MULT[this.tier("engine")];
     return {
-      speed: engine,
-      accel: engine,
-      turn: GARAGE_TIER_MULT[this.tier("steering")],
+      speed: GARAGE_TIER_MULT[this.tier("engine")],
+      accel: GARAGE_TIER_MULT[this.tier("gearbox")],
+      turn: 1,
       grip: GARAGE_TIER_MULT[this.tier("tires")],
     };
   },
