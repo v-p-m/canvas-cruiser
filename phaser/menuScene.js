@@ -97,7 +97,7 @@ class MenuScene extends Phaser.Scene {
     await loadCredits(); // never throws; keeps the built-in fallback on failure
     CreditsScreen.reset();
 
-    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,ENTER,Q,G,I,K,X,ESC");
+    this.keys = this.input.keyboard.addKeys("UP,DOWN,LEFT,RIGHT,ENTER,Q,G,I,K,R,X,ESC");
     PlayerInput.init(); // so the rebind screen's own keys can't stick down
 
     // The rebind screen has to see the raw `e.key` of whatever was pressed —
@@ -162,6 +162,7 @@ class MenuScene extends Phaser.Scene {
       openCredits: () => this.openCredits(),
       openKeyBindings: () => this.openKeyBindings(),
       resumeRace: () => this.resumeRace(),
+      restartRace: () => this.restartRace(),
     };
   }
 
@@ -177,6 +178,28 @@ class MenuScene extends Phaser.Scene {
     if (this.state.credits || this.state.keybinds || !this.racePaused()) return;
     this.scene.wake("race"); // fires RaceScene's own "wake", which restores the globals
     this.scene.stop(); // this menu, on its way out — its shutdown clears its listeners
+  }
+
+  // The other thing a frozen race can be: run again from the start. Same key
+  // the results screen restarts with, and the same restart — RaceScene's own
+  // `scene.restart()` is a queued stop and start of that key, which is exactly
+  // what this does from the outside, so a race restarted from here comes up
+  // through create() like any other and rolls its own fresh weather.
+  //
+  // The race is restarted on *its* terms, not the menu's: restartData() is the
+  // frozen scene's own circuit and series flag. Cycling TRACK while paused
+  // moves the backdrop and nothing else — the picker is a preview until START,
+  // and R here means "this race again", not "the race I am now looking at".
+  //
+  // Not guarded by a confirm(): abandonSeries() asks because it destroys a
+  // saved championship, and this destroys nothing but a race the player has
+  // already stopped to leave. It costs the ESC that got them here, which is
+  // why the in-race R stays inert (see RaceScene's results handler).
+  restartRace() {
+    if (this.state.credits || this.state.keybinds || !this.racePaused()) return;
+    const data = this.scene.get("race").restartData();
+    this.scene.stop("race"); // the frozen one, before its key is started again
+    this.scene.start("race", data); // and this menu with it, as START does
   }
 
   // A frozen race is discarded the moment the player commits to another one.
@@ -491,6 +514,10 @@ class MenuScene extends Phaser.Scene {
       // ESC is the menu's only key that isn't a screen of its own: it means
       // "back to the race" and nothing at all when there isn't one.
       if (Phaser.Input.Keyboard.JustDown(this.keys.ESC)) this.resumeRace();
+      // R, like ESC, is about the race behind this menu and does nothing when
+      // there isn't one — and it is the results screen's own "race again" key,
+      // so restarting reads the same whether the race is over or only paused.
+      if (Phaser.Input.Keyboard.JustDown(this.keys.R)) this.restartRace();
       if (Phaser.Input.Keyboard.JustDown(this.keys.ENTER)) this.startRace();
       if (Phaser.Input.Keyboard.JustDown(this.keys.Q)) this.openRecords();
       if (Phaser.Input.Keyboard.JustDown(this.keys.G)) this.openGarage();

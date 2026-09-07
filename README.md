@@ -32,7 +32,7 @@ python3 -m http.server 8123
 | ← / → | Steer; on the menu, change the highlighted row |
 | ENTER | Start (the menu's START row does the same) |
 | ESC | Pause to the menu; again to resume. On the results screen, back to the menu |
-| R | Race again (from the results screen) |
+| R | Race again (from the results screen), or restart the race paused behind the menu |
 | Q | Records (best laps and race totals) |
 | C | Clear records (on the records screen) — remappable; the button stays |
 | G | Garage (spend race points on part upgrades) |
@@ -149,7 +149,10 @@ missing or malformed the game falls back to a built-in roll.
   up over it, ESC again drops you back in exactly where you left, and neither
   the race clock nor the lap you were on is charged for the time you were
   away. Records, the garage and the credits are all reachable and hand back to
-  it; only starting another race gives it up
+  it; only starting another race gives it up. R there restarts the race you are
+  paused in — the same key the results screen races again with, on the same
+  circuit and the same championship round, whatever the menu's picker is
+  showing behind it
 - The start line is as wide as the road plus its verges, so clipping the grass
   as you cross — going round the outside of the pack off the start, or running
   wide out of the last corner — costs grip and not the whole lap

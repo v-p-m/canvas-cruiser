@@ -1,11 +1,13 @@
 // The start menu, ported off screens.js's drawStartMenu / drawSelectorRow /
 // drawStartButton / handleMenuClick (screens.js:94-374) onto the UI overlay
 // canvas (phaser/uiCanvas.js). The drawing is verbatim where the legacy
-// globals it read have a Phaser-side equivalent; where they don't yet (no
-// pause screen, no DEBUG tools on this page) the row is either dropped or
-// left visible but wired to a "not yet ported" stub — see PORTING.md step 5.
-// Sound landed in step 6: M mutes, by key (phaser/soundHooks.js, page-wide)
-// or by clicking this row.
+// globals it read have a Phaser-side equivalent. Where none arrived, the row
+// went rather than staying as a button that lies: DEBUG is the one that never
+// came back (see the controls block below). The legacy pause screen's own two
+// rows did arrive, in 0.20.0 — this menu *is* the pause screen now, so ESC
+// (resume) and R (restart) are appended to the same list, but only while there
+// is a race frozen behind it. M mutes, by key (phaser/soundHooks.js,
+// page-wide) or by clicking its row.
 //
 // State lives on the caller (MenuScene), not in here, so this file stays the
 // same shape as screens.js: a draw function and a click handler that agree on
@@ -279,8 +281,15 @@ const MenuScreen = {
       // Last, and only while there is a race frozen behind this menu — the
       // same row screens.js:262 appends for the same reason. It is the one
       // clickable ESC the menu ever has: with no paused race, ESC here does
-      // nothing and the row would be a button that lies.
-      ...(state.paused ? [{ key: "ESC", action: "Resume race", id: "resume" }] : []),
+      // nothing and the row would be a button that lies. R is the same
+      // bargain for the other thing that can be done with a frozen race, and
+      // is deliberately the results screen's own "race again" key.
+      ...(state.paused
+        ? [
+            { key: "ESC", action: "Resume race", id: "resume" },
+            { key: "R", action: "Restart race", id: "restart" },
+          ]
+        : []),
     ];
 
     const hints = [
@@ -380,6 +389,9 @@ const MenuScreen = {
         break;
       case "resume":
         actions.resumeRace();
+        break;
+      case "restart":
+        actions.restartRace();
         break;
     }
   },

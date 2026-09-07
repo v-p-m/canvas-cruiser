@@ -316,6 +316,20 @@ class RaceScene extends Phaser.Scene {
     this.reportGrid();
   }
 
+  // What "this race, again" is, as scene data: the circuit it was run on, and
+  // whether it scores. It lives here rather than being assembled by whoever
+  // restarts, because the two callers cannot both know it — MenuScene restarts
+  // a race frozen behind it (restartRace()), where the menu's own picker is a
+  // preview until START and `series` is the caller's to state rather than
+  // Series.active's to infer (see create()).
+  restartData() {
+    return {
+      trackFile: this.trackFile,
+      trackId: this.trackId,
+      series: this.isSeriesRound,
+    };
+  }
+
   resultsActions() {
     // A championship round has already banked its points by the time this
     // screen is up, so "race again" cannot mean "run it again" — that would
@@ -329,7 +343,7 @@ class RaceScene extends Phaser.Scene {
         menu: () => this.scene.start("menu"),
       };
     return {
-      again: () => this.scene.restart({ trackFile: this.trackFile, trackId: this.trackId }),
+      again: () => this.scene.restart(this.restartData()),
       menu: () => this.scene.start("menu"),
     };
   }
@@ -995,9 +1009,11 @@ class RaceScene extends Phaser.Scene {
 
     if (this.finishOrder) {
       ResultsScreen.draw(this);
-      // R only means anything once the results screen is showing — there's no
-      // in-race reset on this page yet, so it's silent until then rather than
-      // double as a shortcut mid-race. ESC exits from either state (below).
+      // R only means anything once the results screen is showing. A live R
+      // stays silent on purpose even though there is a restart now: it is on
+      // the paused menu (MenuScene.restartRace), which costs an ESC first, so
+      // a race in progress cannot be thrown away by one mistyped key at
+      // 200km/h. ESC exits from either state (below).
       // ENTER joins R only in a championship, where "again" means the
       // standings and the next round and the button says ENTER. On an ordinary
       // race it stays R alone: ENTER there would restart a race the player was
