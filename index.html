@@ -14,7 +14,7 @@
             // index.html is the only file GitHub Pages will let go stale for
             // just 10 minutes; a constant inside a script cannot invalidate
             // that script.
-            window.BUILD = "0.20.1";
+            window.BUILD = "0.21.0";
         </script>
         <style>
             /* This page does not load style.css — that sheet pins the
@@ -85,6 +85,10 @@
                 // where the tires are, and rain.js for how wet it is.
                 "phaser/skidMarks.js",
                 "phaser/raceGrid.js",
+                // The flag marshal at the start line. Reads raceGrid.js above
+                // for where the line is, and carSprites.js's own mixHex/
+                // mixColor for how a colour is shaded and dimmed.
+                "phaser/marshal.js",
                 "phaser/raceLaps.js",
                 "phaser/raceConditions.js",
                 // camera/viewZoom/ctx: the globals rain.js and night.js read

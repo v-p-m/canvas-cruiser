@@ -171,10 +171,11 @@ class RaceScene extends Phaser.Scene {
     // canvas) the camera stops tracking and the car drifts off-centre. Only
     // the physics wall above needs the map's real extent.
 
-    // Car sprites registered as Phaser textures this render scale — tracked
-    // so RenderScale.apply() can throw them out along with CarSprites' own
-    // cache when the scale moves. Must exist before RenderScale.apply(),
-    // which is why this comes before the spawns that call carTexture().
+    // Every sprite baked at this render scale, registered as a Phaser texture
+    // — the cars, and the marshal at the start line — tracked so
+    // RenderScale.apply() can throw them out along with CarSprites' own cache
+    // when the scale moves. Must exist before RenderScale.apply(), which is
+    // why this comes before the spawns that call carTexture().
     this.carTextureKeys = new Set();
     RenderScale.apply(this);
     // A plain `window` listener outlives the scene unless removed by hand —
@@ -232,6 +233,11 @@ class RaceScene extends Phaser.Scene {
     this.carByBody = new Map(this.cars.map((c) => [c.body, c]));
     Impacts.init(this);
     Damage.init(this); // the debris emitter, and the break counter reset for a restart
+
+    // The flag marshal, on the verge beside the start line. Placed off the
+    // track's own road field rather than out of the track file, so a circuit
+    // posts its own without being re-authored (phaser/marshal.js).
+    Marshal.init(this, this.world);
 
     // The race, as the standings see it: six identical entries, the player's
     // marked only by a name and a flag. Built once — `RaceLaps.standings()`
@@ -518,29 +524,33 @@ class RaceScene extends Phaser.Scene {
     return { entity, body, sprite, bodyImg, wheelImgs, color: slot.color };
   }
 
-  // CarSprites bakes a plain canvas; Phaser needs that canvas registered as a
-  // texture before an Image can show it. Keyed the same way CarSprites caches
-  // internally (colour + dim + wing state), so a re-bake only touches the keys
-  // that actually changed and every other livery's texture is untouched.
-  // Tracked in carTextureKeys so RenderScale.apply() knows what to throw out.
-  carTexture(color, dim, broken = "") {
-    const key = `car:${color}@${dim}@${broken}`;
+  // Anything baked in device pixels, registered as a Phaser texture and
+  // tracked so RenderScale.apply() knows what to throw out when the scale
+  // moves. `make` is only called on a miss, so asking for a key every frame —
+  // which is what the per-car loop and the marshal both do — costs a Map
+  // lookup and nothing else.
+  bakedTexture(key, make) {
     if (!this.textures.exists(key)) {
-      this.textures.addCanvas(key, CarSprites.get(color, dim, broken));
+      this.textures.addCanvas(key, make());
       this.carTextureKeys.add(key);
     }
     return key;
   }
 
+  // CarSprites bakes a plain canvas; Phaser needs that canvas registered as a
+  // texture before an Image can show it. Keyed the same way CarSprites caches
+  // internally (colour + dim + wing state), so a re-bake only touches the keys
+  // that actually changed and every other livery's texture is untouched.
+  carTexture(color, dim, broken = "") {
+    return this.bakedTexture(`car:${color}@${dim}@${broken}`, () =>
+      CarSprites.get(color, dim, broken),
+    );
+  }
+
   // One wheel texture serves every car, same as CarSprites.wheel() serves one
   // baked canvas for the legacy loop's ctx.drawImage calls.
   wheelTexture(dim) {
-    const key = `wheel@${dim}`;
-    if (!this.textures.exists(key)) {
-      this.textures.addCanvas(key, CarSprites.wheel(dim));
-      this.carTextureKeys.add(key);
-    }
-    return key;
+    return this.bakedTexture(`wheel@${dim}`, () => CarSprites.wheel(dim));
   }
 
   // A soft dot, baked once and reused by every car's spray — same "no PNGs,
@@ -848,6 +858,17 @@ class RaceScene extends Phaser.Scene {
         this.updateSpray(c.entity);
       }
     }
+
+    // The flag comes out when the *leader* starts the final lap, and stays out
+    // until the race is over — which is what a chequered flag does, and it
+    // needs no player branch to say it. `laps` is the lap being driven, so the
+    // final one is `laps === target`; a car past the flag is above that and
+    // keeps the condition true for everyone still running. Free Drive has no
+    // target and therefore no last lap, so the flag never comes up.
+    const lastLap =
+      !!RaceLaps.target &&
+      this.cars.some((c) => c.entity.laps >= RaceLaps.target);
+    Marshal.update(this, deltaMs, lastLap, dim);
 
     // The order is frozen the moment the player takes the flag, not when the
     // last car does — everyone still out there is classified where they stand,

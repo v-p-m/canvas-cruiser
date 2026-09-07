@@ -1,4 +1,4 @@
-# Canvas Cruiser v0.20.0
+# Canvas Cruiser v0.21.0
 A minimalist top-down racing game built with pure **HTML5 Canvas** and
 **JavaScript** — no build step, no `package.json`, no dependencies to install.
 
@@ -121,6 +121,10 @@ missing or malformed the game falls back to a built-in roll.
   lights
 - Skid marks laid down as the tires actually track over a frame, not stamped
   where they end up
+- A flag marshal on the verge at the start line, who stands there all race with
+  the flag at their side and waves the chequered flag from the moment the
+  leader starts the final lap. Their post is found off each circuit's own road
+  field, so a new track gets one without being re-authored
 - AI opponents that drive the player's own car through the player's own
   physics — a resampled, kerb-cleared line around the waypoint ring, with
   corner braking and catch-up/lift pacing. They turn the wheel rather than
