@@ -25,12 +25,32 @@
             // implies is not the game's. Read it for the line, not the clock.
             window.BUILD = "0.21.0";
             window.EDITOR_PAGE = true;
-
-            const css = document.createElement("link");
-            css.rel = "stylesheet";
-            css.href = `style.css?v=${window.BUILD}`;
-            document.head.appendChild(css);
         </script>
+        <style>
+            /* Inline rather than a sheet because index.html cannot share it:
+               pinning the canvas at 100vw/100vh is what this page's free
+               camera wants and exactly what fights RenderScale.apply()'s
+               explicit CSS size over there. Two pages, two sets of three
+               rules — see index.html's own block for the other half. */
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            body {
+                background: #111;
+                overflow: hidden;
+            }
+            canvas {
+                display: block;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background: #222;
+            }
+        </style>
     </head>
     <body>
         <canvas id="gameCanvas"></canvas>
@@ -39,28 +59,28 @@
             // Load order matters — see CLAUDE.md. Injected scripts default to
             // async, so async=false is what keeps them executing in this order.
             //
-            // Bare paths are the files both pages load; everything under
+            // shared/ is the files both pages load; everything under
             // editor/ exists only here. That split is the directory layout's
-            // job — if a file at the root grows a `DebugConfig.x` that isn't
+            // job — if a file in shared/ grows a `DebugConfig.x` that isn't
             // behind a `typeof` guard, it has just broken index.html.
             for (const src of [
-                "track.js",
+                "shared/track.js",
                 "editor/trackEditor.js",
-                "carStats.js",
-                "carSprites.js",
-                "ai.js",
-                "startLights.js",
+                "shared/carStats.js",
+                "shared/carSprites.js",
+                "shared/ai.js",
+                "shared/startLights.js",
                 "editor/waypointEditor.js",
                 "editor/debugHUD.js",
-                "engineClass.js",
+                "shared/engineClass.js",
                 // After ai.js and carStats.js: the panel seeds its defaults
                 // from their constants rather than keeping a second copy.
                 "editor/debugConfig.js",
-                "keyBindings.js",
-                "sound.js",
-                "rain.js",
-                "night.js",
-                "quality.js",
+                "shared/keyBindings.js",
+                "shared/sound.js",
+                "shared/rain.js",
+                "shared/night.js",
+                "shared/quality.js",
                 "editor/screens.js",
                 "editor/game.js",
             ]) {

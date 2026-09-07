@@ -17,10 +17,10 @@
             window.BUILD = "0.21.0";
         </script>
         <style>
-            /* This page does not load style.css — that sheet pins the
-               one canvas to the viewport with position:fixed/100vw, which
-               would fight RenderScale.apply()'s explicit CSS size. These are
-               the three rules of it that still apply: a canvas left at its
+            /* Not shared with editor.html's own block: that one pins the
+               canvas to the viewport with position:fixed/100vw, which would
+               fight RenderScale.apply()'s explicit CSS size. These are the
+               three rules of it that still apply here: a canvas left at its
                default display:inline sits on a text baseline, and the few
                pixels of descender space under it grow #game past the viewport
                and put a scrollbar on the page. */
@@ -42,15 +42,15 @@
         <script>
             for (const src of [
                 "vendor/phaser.min.js",
-                "track.js",
-                "rain.js",
-                "night.js",
-                "sound.js",
+                "shared/track.js",
+                "shared/rain.js",
+                "shared/night.js",
+                "shared/sound.js",
                 // The grid-start countdown — Sound.beep() above is the only
                 // thing it calls, and raceScene.js is the only thing that
                 // calls it, so it just needs to land somewhere before that.
-                "startLights.js",
-                "quality.js",
+                "shared/startLights.js",
+                "shared/quality.js",
                 // The opponent driver and the numbers it drives on. This page
                 // does not load debugConfig.js: that panel tunes the legacy
                 // loop, and it lives on editor.html now, so ai.js and
@@ -59,17 +59,17 @@
                 // and rain.js hand out scalars, and ai.js needs no changes at
                 // all — drive() already returns the input shape MatterCar.step
                 // takes.
-                "engineClass.js",
-                "ai.js",
-                "carStats.js",
+                "shared/engineClass.js",
+                "shared/ai.js",
+                "shared/carStats.js",
                 // The real car art. Bakes to a canvas per livery — see
                 // phaser/renderScale.js for who tells it when to re-bake.
-                "carSprites.js",
+                "shared/carSprites.js",
                 // Remappable controls, straight out of the legacy game and
                 // unmodified: keyBindings.js owns the store and the rebind
                 // screen's own drawing, phaser/playerInput.js is what turns a
                 // binding into the four booleans RaceScene feeds MatterCar.
-                "keyBindings.js",
+                "shared/keyBindings.js",
                 "phaser/playerInput.js",
                 "phaser/matterCar.js",
                 // What a car-to-car hit costs. Reads MATTER_CAR above for the
