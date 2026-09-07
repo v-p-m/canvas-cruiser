@@ -8,11 +8,14 @@
 // splitting it again is how it would come back.
 //
 // The legacy counter carries an `isPlayer` branch — the HUD's lap number, the
-// records, the per-lap weather. None of that exists on the Phaser page yet
-// (steps 5, 6 and 8), so the port has no branch at all: every car keeps its own
-// lap count, lap times and race clock on itself, and whatever draws the HUD
-// later reads the player's entity like any other. That is a smaller counter
-// than the one it replaces, not a different one.
+// records, the per-lap weather. All three are on this page now and none of them
+// is in here: the HUD reads the player's own entity (phaser/hudScreen.js), and
+// the records and the weather schedule hang off that entity's `lastLapTime`
+// and `laps` changing, watched from RaceScene's update. So the port has no
+// branch at all — every car keeps its lap count, its lap times and its race
+// clock on itself, and what wants the player's numbers reads the player's car
+// like any other. That is a smaller counter than the one it replaces, not a
+// different one.
 //
 // The clock is a parameter rather than a `performance.now()` call inside, so a
 // headless run that hand-steps the world can hand it the same fixed step it

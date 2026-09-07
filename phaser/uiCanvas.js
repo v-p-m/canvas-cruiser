@@ -34,9 +34,10 @@ const UI = {
     Object.assign(this.canvas.style, {
       position: "absolute",
       inset: "0",
-      // Off by default: a screen with no buttons of its own (there are none
-      // yet, but the HUD will be one) must not steal clicks Phaser's canvas
-      // would otherwise get. Whoever draws an interactive screen this frame
+      // Off by default: a screen with no buttons of its own — the in-race HUD
+      // is exactly that until the flag brings the results up — must not steal
+      // clicks Phaser's canvas would otherwise get. Whoever draws an
+      // interactive screen this frame
       // turns it on; see setInteractive().
       pointerEvents: "none",
     });

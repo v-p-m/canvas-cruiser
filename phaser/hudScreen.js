@@ -12,13 +12,16 @@
 // that is allowed to treat the player as special, because a HUD showing one
 // car's numbers is what a HUD *is*.
 //
-// Not carried over yet, and a separate later step, not an oversight: the gold
-// "beat the record" treatment on LAP_BEST and the LAST readout — there is no
-// loaded highScores table on this page until step 8 decides how records
-// survive the physics change. TOTAL does appear the instant the player
-// finishes, and the HUD keeps drawing through RaceScene's finish hold, which
-// is the point of the hold — the last lap and the total get their moment
-// before the results cover them.
+// The gold "beat the record" treatment is here, on both readouts it is on in
+// the legacy loop: the banner takes its gold from Records.saveLapTime()'s own
+// return (raceScene.js), and LAST goes gold when it *is* the record, which is
+// the head of the table RaceScene has already pointed at this track and class
+// (Records.select). Reading the live table rather than a flag kept here is
+// what keeps the two agreeing on a lap that ties the record.
+//
+// TOTAL appears the instant the player finishes, and the HUD keeps drawing
+// through RaceScene's finish hold, which is the point of the hold — the last
+// lap and the total get their moment before the results cover them.
 const HUD_GAP = 20; // px between readouts in the top bar, same as screens.js
 
 function formatTime(seconds) {
@@ -26,8 +29,8 @@ function formatTime(seconds) {
 }
 
 // One banner, two weights — ported off screens.js's LapBanner. `isBest` is
-// always false for now (see the file header); the shape stays so step 8 only
-// has to change the call site, not this object.
+// what Records.saveLapTime() returned for this lap: the record it beat, and
+// not a comparison made here, so the banner cannot disagree with the table.
 const HudBanner = {
   active: false,
   timer: 0,
@@ -142,7 +145,10 @@ const HudScreen = {
         const right = UI.width / 2 - ctx.measureText(timeText).width / 2 - HUD_GAP;
         if (right - ctx.measureText(lastText).width > leftBlockEnd + HUD_GAP) {
           ctx.textAlign = "right";
-          ctx.fillStyle = "#00AA44"; // gold-if-record awaits step 8
+          // Gold when this lap is the record — the same test as the legacy
+          // HUD (screens.js:708), against the slice RaceScene selected for
+          // this track and class.
+          ctx.fillStyle = p.lastLapTime === Records.highScores[0] ? "#FFD700" : "#00AA44";
           ctx.fillText(lastText, right, 35);
           ctx.fillStyle = "#00FF00";
           ctx.textAlign = "center";
