@@ -66,7 +66,9 @@ const RecordsScreen = {
     const buttons = [
       {
         action: "clear",
-        text: "C — Clear records",
+        text: KeyBindings.isBoundToDriving("c")
+          ? "Clear records"
+          : "C — Clear records",
         y: 420,
         color: "#AAA",
         hoverColor: "#FF6666",

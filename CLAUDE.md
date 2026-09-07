@@ -166,8 +166,16 @@ that laps and race order depend on — see the **track-authoring** skill.
   configurable, so the HTML self-heals within 10 minutes and the query string
   does the rest.
 - Keys added to game logic that must not be remappable belong in
-  `BLACKLISTED_KEYS` in `keyBindings.js` — which is the **union across both
-  pages**, since one saved set of bindings is read by both.
+  `BLACKLISTED_KEYS` in `keyBindings.js`. It is **per page**, not the union:
+  one saved set of bindings is read by both, but a key a page never looks at
+  is one its player may have, which is what freed `B`/`C`/`E`/`T`/`Z` on the
+  game page in 0.21.0 while the editor page still reserves them (the
+  `window.EDITOR_PAGE` branch there). `load()` re-validates against the
+  running page's list, and keeps the saved binding in `KeyBindings.stored`
+  separately from the `bindings` this page acts on, so a rebind on one page
+  cannot silently wipe what the other is using. A shipped shortcut on a key
+  that is now bindable has to stand aside when it is taken — `isBoundToDriving()`,
+  as `recordsScene.js` does for its C.
 - Everything is drawn in **CSS pixels**: `resizeCanvas()` scales the context by
   `devicePixelRatio` and `camera.width`/`camera.height` are the viewport. Never
   read `canvas.width`/`canvas.height` for layout — that is the backing store,

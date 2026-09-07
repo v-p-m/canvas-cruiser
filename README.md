@@ -34,7 +34,7 @@ python3 -m http.server 8123
 | ESC | Pause to the menu; again to resume. On the results screen, back to the menu |
 | R | Race again (from the results screen) |
 | Q | Records (best laps and race totals) |
-| C | Clear records (on the records screen) |
+| C | Clear records (on the records screen) — remappable; the button stays |
 | G | Garage (spend race points on part upgrades) |
 | X | Abandon the championship in progress (from the menu) |
 | P | Toggle rain (Free Drive) |
@@ -43,10 +43,13 @@ python3 -m http.server 8123
 | K | Remap the driving keys (from the menu) |
 | I | Credits (from the menu) |
 
-Steering and throttle keys are remappable and persist across reloads. The
-track/waypoint editors and the tuning sliders moved to `editor.html` in
-0.14.0, so `B`/`C`/`E`/`T`/`Z` do nothing in the game any more — the game's
-only debug surface is the `?debug=1` URL flag above.
+Steering and throttle keys are remappable and persist across reloads, and
+since 0.21.0 that includes `B`/`C`/`E`/`T`/`Z`. The track/waypoint editors and
+the tuning sliders moved to `editor.html` in 0.14.0, so those five are free
+here — the game's only debug surface is the `?debug=1` URL flag above. They
+still drive the tools on the editor page, so a control bound to one of them
+falls back to its arrow-key default over there (and only there: the binding
+itself is kept).
 
 ### Editor page (`editor.html`)
 Opens straight into the waypoint editor with a free camera (drag the car

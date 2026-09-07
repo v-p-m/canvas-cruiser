@@ -52,7 +52,13 @@ class RecordsScene extends Phaser.Scene {
 
     if (Phaser.Input.Keyboard.JustDown(this.keys.esc) || Phaser.Input.Keyboard.JustDown(this.keys.q))
       this.actions().back();
-    if (Phaser.Input.Keyboard.JustDown(this.keys.c)) this.actions().clear();
+    // C is bindable on this page (keyBindings.js — the editors that used to
+    // own it live on editor.html), so the shortcut stands aside for a player
+    // who has taken the key: clearing every record with the throttle on the
+    // way past a screen is worse than reaching for the button, which is still
+    // there either way.
+    if (!KeyBindings.isBoundToDriving("c") && Phaser.Input.Keyboard.JustDown(this.keys.c))
+      this.actions().clear();
 
     RecordsScreen.draw({
       trackLabel: this.trackLabel,

@@ -1,30 +1,23 @@
 // keyBindings.js
 
-// Reserved keys, as the *union* across both pages — this file is loaded by
-// index.html and by editor.html, and one saved binding is read by both. B, C,
-// E, T and Z do nothing in the game any more (the editors and the tuning panel
-// went to editor.html), but they still drive the tools there, so freeing them
-// here would let a throttle bound in the game open the track editor.
+// Reserved keys — the ones the page's own code owns, so a driving control
+// bound to one would fire that function under the throttle.
+//
+// The list is what *this* page owns, not the union of both: one saved binding
+// is read by index.html and by editor.html, but the two pages do not own the
+// same keys, and a key a page never looks at is one its player may have.
 const BLACKLISTED_KEYS = [
   "Escape",
   "Enter",
   " ",
   "q",
   "Q",
-  "b",
-  "B",
   "r",
   "R",
-  "c",
-  "C",
-  "e",
-  "E",
   "m",
   "M",
   "n",
   "N",
-  "z",
-  "Z",
   // X abandons a championship from the menu (phaser/menuScene.js) — a bound
   // throttle on the same key would end a running series on the way past.
   "x",
@@ -36,14 +29,22 @@ const BLACKLISTED_KEYS = [
   // a throttle bound to P would change the weather every time it was pressed.
   "p",
   "P",
-  // Menu screens — K opens this one, I opens the credits, T the track editor.
+  // Menu screens — K opens this one, I opens the credits.
   "i",
   "I",
   "k",
   "K",
-  "t",
-  "T",
 ];
+
+// The editor page's own tools: B toggles the editors off entirely, C the
+// tuning sliders, E the waypoint editor, T the tile map, Z an undo.
+// handleDebugKey() in editor/game.js consumes the event before the car sees
+// it, so a control bound to one of them simply would not drive here. On
+// index.html they are free — the editors moved out in 0.14.0 — and load()
+// below is what keeps a T bound over there from opening the tile map here.
+if (window.EDITOR_PAGE) {
+  BLACKLISTED_KEYS.push("b", "B", "c", "C", "e", "E", "t", "T", "z", "Z");
+}
 
 const KeyBindings = {
   defaults: {
@@ -53,23 +54,30 @@ const KeyBindings = {
     right: "ArrowRight",
   },
 
-  bindings: {},
+  bindings: {}, // what this page acts on
+  stored: {}, // what is in localStorage — the two differ, see load()
   listening: null, // which action is waiting for a key
 
   load() {
     const saved = localStorage.getItem("keyBindings");
-    this.bindings = { ...this.defaults };
-    if (!saved) return;
-    try {
-      Object.assign(this.bindings, JSON.parse(saved));
-    } catch {
-      localStorage.removeItem("keyBindings");
+    this.stored = { ...this.defaults };
+    if (saved) {
+      try {
+        Object.assign(this.stored, JSON.parse(saved));
+      } catch {
+        localStorage.removeItem("keyBindings");
+      }
     }
-    // The saved copy predates any key added to BLACKLISTED_KEYS since, and
-    // handleRebind() only guards the moment of binding — without this, a key
-    // that has *become* reserved keeps driving the car and fires the game
-    // function it was reserved for on every press. Same rule as the rest of
-    // the stored state: what's read back is validated, not trusted.
+    // Two ways a stored key can be unusable here. It predates a key added to
+    // BLACKLISTED_KEYS since, and handleRebind() only guards the moment of
+    // binding — without this, a key that has *become* reserved keeps driving
+    // the car and fires the game function it was reserved for on every press.
+    // Or it is one of the other page's reserved keys, bound where it is free.
+    // Either way the action falls back to its default *on this page only*, and
+    // `stored` keeps the binding as saved, so a rebind here writes back what
+    // the other page is still using instead of quietly wiping it. Same rule as
+    // the rest of the stored state: what's read back is validated, not trusted.
+    this.bindings = { ...this.stored };
     for (const action of Object.keys(this.defaults)) {
       if (BLACKLISTED_KEYS.includes(this.bindings[action])) {
         this.bindings[action] = this.defaults[action];
@@ -78,17 +86,29 @@ const KeyBindings = {
   },
 
   save() {
-    localStorage.setItem("keyBindings", JSON.stringify(this.bindings));
+    localStorage.setItem("keyBindings", JSON.stringify(this.stored));
   },
 
   reset() {
     this.bindings = { ...this.defaults };
+    this.stored = { ...this.defaults };
     localStorage.removeItem("keyBindings");
   },
 
   // Returns true if the given e.key matches the action
   is(action, key) {
     return this.bindings[action] === key;
+  },
+
+  // True if some driving control is bound to this key, ignoring case — a
+  // binding is whatever `e.key` was pressed ("c"), while a screen shortcut is
+  // usually a Phaser KeyCode that fires for either case. A shortcut on a key
+  // a player has taken has to stand aside rather than fire under the throttle.
+  isBoundToDriving(key) {
+    const k = key.toLowerCase();
+    return Object.values(this.bindings).some(
+      (b) => typeof b === "string" && b.toLowerCase() === k,
+    );
   },
 
   // Start listening for a new key for this action
@@ -115,6 +135,7 @@ const KeyBindings = {
     }
 
     this.bindings[this.listening] = key;
+    this.stored[this.listening] = key;
     this.lastRejected = null;
     this.listening = null;
     this.save();
