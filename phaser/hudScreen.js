@@ -154,6 +154,24 @@ const HudScreen = {
           ctx.textAlign = "center";
         }
       }
+
+      // The gap to the ghost, on the other side of the clock — Free Drive
+      // only, and only once there is a record lap to be behind or ahead of
+      // (phaser/ghost.js). Red behind, green ahead, the way a delta reads on
+      // any timing screen; it is the ghost's own number, not a race interval.
+      const gap = Ghost.delta(scene.world, p, now);
+      if (gap !== null) {
+        const ghostText = `GHOST ${gap >= 0 ? "+" : "-"}${Math.abs(gap).toFixed(2)}`;
+        const left = UI.width / 2 + ctx.measureText(timeText).width / 2 + HUD_GAP;
+        const speedLeft = UI.width - 20 - ctx.measureText("000 KM/H").width;
+        if (left + ctx.measureText(ghostText).width < speedLeft - HUD_GAP) {
+          ctx.textAlign = "left";
+          ctx.fillStyle = gap > 0 ? "#FF5555" : "#00FF88";
+          ctx.fillText(ghostText, left, 35);
+          ctx.fillStyle = "#00FF00";
+          ctx.textAlign = "center";
+        }
+      }
     }
 
     this.drawSeriesRound(scene);

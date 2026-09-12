@@ -59,6 +59,7 @@ const Records = {
         localStorage.removeItem("highScores");
         localStorage.removeItem("bestTotalTimes");
         localStorage.removeItem("bestLap"); // pre-multi-track leftover, same as clearHighScores()
+        Ghost.clear(); // a record lap's trace under the old physics is as stale as its time
         localStorage.setItem("recordsPhysicsVersion", RECORDS_PHYSICS_VERSION);
       }
       if (localStorage.getItem("recordsTotalVersion") !== RECORDS_TOTAL_VERSION) {
@@ -161,6 +162,7 @@ const Records = {
     this.allTotals = {};
     this.highScores = [];
     this.bestTotalTimes = {};
+    Ghost.clear(); // the ghost is a record too, and C on the records screen means all of them
     try {
       localStorage.removeItem("highScores");
       localStorage.removeItem("bestLap");

@@ -99,6 +99,11 @@ class RaceScene extends Phaser.Scene {
     this.seriesRow = null;
     Records.load();
     Records.select(this.trackId, EngineClass.current().id);
+    // The record lap's trace, keyed the same way — after Records.load(), whose
+    // physics-version reset may have just cleared it (phaser/ghost.js).
+    Ghost.load();
+    Ghost.select(this.trackId, EngineClass.current().id);
+    Ghost.reset();
     // Before spawnCar, which reads Garage.mods() for the player's slot.
     Garage.load();
 
@@ -894,12 +899,18 @@ class RaceScene extends Phaser.Scene {
     // Static, and it costs two number compares to say so — see crowd.js.
     Crowd.update(this, dim);
 
+    // The record lap: its recorder, after the loop above has stamped this
+    // frame's crossing on the player's entity, and its playback, which only
+    // shows in Free Drive (phaser/ghost.js).
+    const p = this.player.entity;
+    if (!blocking) Ghost.record(this.world, p, time);
+    Ghost.update(this, p, time, dim);
+
     // The order is frozen the moment the player takes the flag, not when the
     // last car does — everyone still out there is classified where they stand,
     // and nothing in the table can drift while the roll-out plays out. An
     // opponent gaining a place after the player is done would read as the
     // results reordering themselves.
-    const p = this.player.entity;
     if (!this.finishOrder && !this.pendingFinishOrder && p.finished) {
       this.pendingFinishOrder = RaceLaps.classify(this.world, this.entries);
       this.finishHoldTimer = FINISH_HOLD_MS;
@@ -963,6 +974,8 @@ class RaceScene extends Phaser.Scene {
       this.playerLastLapSeen = p.lastLapTime;
       const isBest = Records.saveLapTime(this.trackId, EngineClass.current().id, p.lastLapTime);
       HudBanner.show(p.lastLapTime, isBest);
+      // The lap that just went gold is the one the ghost drives from now on.
+      if (isBest) Ghost.commit(p.lastLapTime);
     }
     HudBanner.update(deltaMs);
 
