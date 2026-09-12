@@ -46,7 +46,17 @@
 
 const Impacts = {
   RUB_SPEED: 0.4, // px/frame — below this a contact is two cars leaning, not a hit
-  SPEED_TRANSFER: 0.75, // of the along-heading impulse, into entity.speed
+  // Of the along-heading impulse, into entity.speed. 0.75 until 0.22.0, and
+  // that was most of why contact could not pass a rival: with equal masses
+  // the transfer moves 0.45c each way, 90% of the closing speed in one hit,
+  // so a car that clipped the one ahead at 2 px/frame came out of it going
+  // *slower* than the car it hit. Measured on the staged clip below (skill-1
+  // bots both, no traffic model, a lane beside and just behind at closing 2):
+  // the striker gave up 5.9% of its next two seconds and the victim 0.8%,
+  // and the striker was 0.5 px/frame the slower car afterwards. At 0.35 a
+  // bump leaves the pair with ~0.58c of the closing speed still between them
+  // rather than 0.1c — the overtaker is still the faster car, only less so.
+  SPEED_TRANSFER: 0.35,
   // The inelastic half. SPEED_TRANSFER only *moves* momentum between the two
   // cars along their headings, so on its own a rear-end shoves the car in front
   // faster and a side-swipe costs neither car anything — nothing is ever lost.
@@ -55,8 +65,16 @@ const Impacts = {
   // graded by severity instead of a threshold: it is what makes hitting someone
   // slow *them*, whatever the geometry. Both cars pay the same, per CLAUDE.md —
   // a scrub the player takes and the AI doesn't is the old regression exactly.
-  SCRUB_PER_SPEED: 0.06, // of speed, per px/frame of closing speed
-  SCRUB_MAX: 0.35, // of speed — a shunt is not a handbrake
+  //
+  // In px/frame, not as a fraction of each car's own speed — the other half
+  // of the pass problem. A proportional scrub charges the faster car more in
+  // absolute terms for the same hit, and the faster car is by definition the
+  // one trying to get past. These are the old 0.06-of-speed and 0.35-of-speed
+  // re-expressed at the reference victim's 9 px/frame, so what a shunt costs
+  // the car that was hit has not moved; what has is that the car doing the
+  // hitting no longer pays more for arriving quicker.
+  SCRUB_PER_SPEED: 0.54, // px/frame of speed, per px/frame of closing speed
+  SCRUB_MAX: 3.2, // px/frame — a shunt is not a handbrake
   YAW_PER_SLIP: 0.02, // rad/frame of spin per px/frame of tangential impulse
   // Not a "stays under CAR_STATS.turnSpeed (0.06) so it is always catchable"
   // cap any more — that guaranteed recoverability by making a deliberate
@@ -209,8 +227,10 @@ const Impacts = {
     const hy = -Math.cos(e.angle);
     // Scrub first, then the transfer: the loss is off the speed the car
     // *arrived* with, and the shove it receives is not something it then gets
-    // to lose a third of again in the same frame.
-    e.speed *= 1 - Math.min(this.SCRUB_MAX, closing * this.SCRUB_PER_SPEED);
+    // to lose a third of again in the same frame. Toward zero and never
+    // through it — a car nudged while crawling is stopped, not reversed.
+    const scrub = Math.min(this.SCRUB_MAX, closing * this.SCRUB_PER_SPEED);
+    e.speed = Math.sign(e.speed) * Math.max(0, Math.abs(e.speed) - scrub);
     e.speed += (dvx * hx + dvy * hy) * this.SPEED_TRANSFER;
 
     // Off-centre hits rotate. `inertia: Infinity` means Matter will not do this
