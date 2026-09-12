@@ -1,4 +1,4 @@
-# Canvas Cruiser v0.21.0
+# Canvas Cruiser v0.22.0
 A minimalist top-down racing game built with pure **HTML5 Canvas** and
 **JavaScript** — no build step, no `package.json`, no dependencies to install.
 
@@ -34,7 +34,7 @@ python3 -m http.server 8123
 | ESC | Pause to the menu; again to resume. On the results screen, back to the menu |
 | R | Race again (from the results screen), or restart the race paused behind the menu |
 | Q | Records (best laps and race totals) |
-| C | Clear records (on the records screen) — remappable; the button stays |
+| C | Clear records (on the records screen) — the ghost laps with them; remappable, and the button stays |
 | G | Garage (spend race points on part upgrades) |
 | X | Abandon the championship in progress (from the menu) |
 | P | Toggle rain (Free Drive) |
@@ -107,7 +107,10 @@ missing or malformed the game falls back to a built-in roll.
 - Car-to-car contact that actually costs something: a hit shoves speed into
   the car it lands on, scrubs speed off both cars, spins the one hit
   off-centre, and leaves it unsettled with reduced grip for a moment —
-  recoverable, not a hard cap
+  recoverable, not a hard cap. Since 0.22.0 the scrub is the same number of
+  px/frame for both cars rather than a share of each one's own speed, and less
+  of the closing speed changes hands, so clipping the car ahead on the way past
+  no longer leaves you the slower car of the two
 - A hard enough hit breaks a wing, and lesser ones wear it down — permanent for
   the race, unlike the temporary cost above. A broken front wing costs turn, a
   broken rear costs grip; every car breaks on the same hit and pays the same
@@ -131,6 +134,23 @@ missing or malformed the game falls back to a built-in roll.
 - Spectators standing on the verges in knots around the lap, in the same coats
   every time you race there. Their spots come off the same road field the
   marshal's post does, so a new circuit draws its own crowd
+- Five named rivals — **Aalto**, **Okafor**, **Moraes**, **Kovac** and
+  **Brennan** — each the same driver on every circuit: a front-runner who is
+  metronomic, a quick but variable number two, a midfielder, a wild one who
+  takes a podium some days and last on others, and a backmarker. What makes
+  them different is only driving — how
+  much of the corner they use, how steadily, and which side of the road they
+  favour — never the car, which is the player's own with the field's
+  development applied. The front row is the best driver in the best-developed
+  car, so a championship is a story with the same names in it round after round
+- A **ghost** in Free Drive: your record lap for that circuit and class,
+  recorded as the path the car took and driven again as a translucent copy of
+  your own car that leaves the line when you do, with the gap to it on the
+  HUD. The record is recorded in every mode — a lap that went gold in a race
+  is the ghost too — and cleared with the records
+- The trackside has a sound: a crowd murmur that swells as you pass each knot
+  of spectators and falls away down the straight, rain hissing under the wet,
+  and a cheer for the flag — once for whoever takes it, and again for you
 - AI opponents that drive the player's own car through the player's own
   physics — a resampled, kerb-cleared line around the waypoint ring, with
   corner braking and catch-up/lift pacing. They turn the wheel rather than
