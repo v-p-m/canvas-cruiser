@@ -244,11 +244,13 @@ class RaceScene extends Phaser.Scene {
 
     // The race, as the standings see it: six identical entries, the player's
     // marked only by a name and a flag. Built once — `RaceLaps.standings()`
-    // re-sorts it every frame it is asked for.
+    // re-sorts it every frame it is asked for. The rivals' names come off the
+    // roster by grid slot (phaser/drivers.js), the same rank the livery and the
+    // driver were dealt by, so the name on the sheet is the driver in the car.
     this.entries = this.cars.map((c, i) => ({
       entity: c.entity,
       isPlayer: i === 0,
-      name: i === 0 ? "YOU" : `CPU ${i}`,
+      name: i === 0 ? "YOU" : DRIVERS[i - 1].name,
       color: this.grid[i].color,
     }));
 
@@ -496,9 +498,12 @@ class RaceScene extends Phaser.Scene {
     applyCarStats(entity);
 
     // What makes an opponent slower than the player: skill, line offset and
-    // aim wander, re-rolled per race. All three cost time through cornering
-    // scrub and corner entry speed — none of them touches the car.
-    if (entity.rollDriver) entity.rollDriver();
+    // aim wander, re-rolled per race around the profile this grid slot's
+    // driver carries (phaser/drivers.js) — the same rank `dev` above was read
+    // by, so the front row is the best driver in the best car. All three cost
+    // time through cornering scrub and corner entry speed — none of them
+    // touches the car.
+    if (entity.rollDriver) entity.rollDriver(DRIVERS[index - 1]);
 
     const body = MatterCar.create(
       this,

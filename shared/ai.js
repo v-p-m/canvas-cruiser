@@ -64,6 +64,10 @@ const LOOKAHEAD_DIST = 1200; // world px — stop scanning once this far ahead
 const SKILL_MIN = 0.80;
 const SKILL_MAX = 0.95;
 const LINE_OFFSET_RANGE = 40; // world px of lateral line preference, full width
+// A named driver (phaser/drivers.js) brings a line preference of their own;
+// this is how far it wanders from race to race, so the inside-line driver is
+// still an inside-line driver and not always on the same pixel of it.
+const LINE_NOISE = 6; // world px, half-width of the per-race jitter on a profile's line
 
 // The shipped number, unless the editor page's slider panel is loaded and has
 // been dragged. Same rule as carStats.js: the constants above are the truth,
@@ -636,12 +640,26 @@ class AICar {
   // driving, none of it machinery: a slower rival gives the corner more room
   // and takes a wider line, and loses the time there rather than being handed
   // a lower top speed it could never have chosen.
-  rollDriver() {
+  //
+  // With a profile (phaser/drivers.js) the draw is centred on that driver's
+  // own numbers — their skill, plus or minus their own inconsistency, and
+  // their own side of the road — so the same rival is the same rival on every
+  // circuit. Without one it is the uniform band, which is what the editor
+  // page's pace car still runs and what its skill sliders tune. Both go
+  // through the same clamp, so a profile can never roll outside what the
+  // band allows.
+  rollDriver(profile) {
     const lo = tunedAI("aiSkillMin", SKILL_MIN);
     const hi = tunedAI("aiSkillMax", SKILL_MAX);
-    this.skill = lo + Math.random() * (hi - lo);
-    this.lineOffset =
-      (Math.random() - 0.5) * tunedAI("aiLineOffsetRange", LINE_OFFSET_RANGE);
+    if (profile) {
+      const skill = profile.skill + (Math.random() - 0.5) * 2 * profile.spread;
+      this.skill = Math.max(lo, Math.min(hi, skill));
+      this.lineOffset = profile.line + (Math.random() - 0.5) * 2 * LINE_NOISE;
+    } else {
+      this.skill = lo + Math.random() * (hi - lo);
+      this.lineOffset =
+        (Math.random() - 0.5) * tunedAI("aiLineOffsetRange", LINE_OFFSET_RANGE);
+    }
     this.wander = Math.max(0, (1 - this.skill) * WANDER_PX);
     this.wanderPhase = Math.random() * Math.PI * 2;
     // The steering has one frame of memory (`sweep`), and a car put back on

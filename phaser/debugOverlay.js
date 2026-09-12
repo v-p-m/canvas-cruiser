@@ -80,11 +80,13 @@ const DebugOverlay = {
       // the field there are two reasons one can be off the pace: `skill` is
       // the driver, `m` is the car. Read off `mods` rather than a field of
       // its own — every car carries mods, and a property only opponents have
-      // is exactly the shape difference spawnCar exists to refuse.
+      // is exactly the shape difference spawnCar exists to refuse. The name
+      // is the roster's (phaser/drivers.js), so a skill that looks wrong can
+      // be read against the profile it was rolled from.
       const who = s.isPlayer
         ? "YOU"
-        : `AI ${e.skill.toFixed(2)} m${e.mods.grip.toFixed(2)}`;
-      lines.push(`${s.position}. ${who.padEnd(16)} L${e.laps}  ${lap}`);
+        : `${s.name} ${e.skill.toFixed(2)} m${e.mods.grip.toFixed(2)}`;
+      lines.push(`${s.position}. ${who.padEnd(19)} L${e.laps}  ${lap}`);
     });
 
     const x = DEBUG_PANEL_X;

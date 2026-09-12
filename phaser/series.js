@@ -18,9 +18,10 @@
 // Championship points are awarded to *every* car, not just the player — the
 // point of a title fight is that someone else can win it. The field's
 // identities survive from round to round on the driver name RaceLaps.classify
-// puts in each row ("YOU", "CPU 1"…), which phaser/raceScene.js builds by grid
-// index, and the liveries are code (GRID_LIVERIES), so CPU 3 is the same
-// orange car on every circuit.
+// puts in each row ("YOU", and the roster in phaser/drivers.js), which
+// phaser/raceScene.js builds by grid index, and the liveries are code
+// (GRID_LIVERIES), so OKAFOR is the same orange car — and, since 0.22.0, the
+// same driver — on every circuit.
 const SERIES_ROUNDS = 4;
 const SERIES_LAPS = 5; // laps per round — four 5-lap races is one sitting
 
@@ -42,8 +43,10 @@ const SERIES_POINTS = [10, 8, 6, 4, 2, 1];
 // Bumped to 2 when the calendar went from three rounds to four: adopt() would
 // have thrown a saved three-round series out on the length check anyway, but
 // the version is what says *why*, and it is the only thing that still works if
-// a later change keeps the length.
-const SERIES_VERSION = 2;
+// a later change keeps the length. Bumped to 3 when the rivals got names:
+// identity here *is* the row name, so a saved series of "CPU n" rows would
+// have gone on scoring beside the new names as five extra drivers.
+const SERIES_VERSION = 3;
 
 const Series = {
   active: false,
