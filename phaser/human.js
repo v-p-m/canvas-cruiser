@@ -221,12 +221,19 @@ const Human = {
   // runs to the map edge one side can be a field away. Returns null where the
   // march finds nothing inside the map, which is the caller's cue to put nobody
   // there at all.
-  vergeSpot(world, cx, cy, along) {
+  //
+  // `sides` is which of the two to try, and it is what a caller who wants a
+  // *chosen* verge asks with: nearest-wins is right for a lone post and cannot
+  // express "this side, and the other one only if there is nothing here",
+  // which is what a crowd alternating along the ring needs (phaser/crowd.js).
+  // `nx`/`ny` come back with the spot for the same reason Night._verge() hands
+  // them out — they are the direction that was marched, so away from the road.
+  vergeSpot(world, cx, cy, along, sides = [1, -1]) {
     const worldW = world.data.map[0].length * world.data.tileSize;
     const worldH = world.data.map.length * world.data.tileSize;
 
     let best = null;
-    for (const side of [1, -1]) {
+    for (const side of sides) {
       const dx = along.x * side;
       const dy = along.y * side;
       for (let d = 8; d <= HUMAN_REACH; d += 8) {
@@ -235,7 +242,7 @@ const Human = {
         const y = cy + dy * (d + HUMAN_STANDOFF);
         if (x < 16 || y < 16 || x > worldW - 16 || y > worldH - 16) break;
         if (!best || d < best.d)
-          best = { d, x, y, angle: Math.atan2(-dx, dy) }; // facing back at the road
+          best = { d, x, y, nx: dx, ny: dy, angle: Math.atan2(-dx, dy) }; // facing back at the road
         break;
       }
     }

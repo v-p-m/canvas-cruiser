@@ -88,11 +88,13 @@
                 // People on foot. human.js is the figure with no job — the
                 // grid, the bake, and the march off the road that finds it a
                 // spot — and reads carSprites.js's own mixHex/mixColor for how
-                // a colour is shaded and dimmed. marshal.js is the one role
-                // there is so far, and reads raceGrid.js above for where the
-                // start line it stands at is.
+                // a colour is shaded and dimmed. The two roles over it are
+                // marshal.js, which reads raceGrid.js above for where the start
+                // line it stands at is, and crowd.js, which needs neither and
+                // walks the waypoint ring for its own spots.
                 "phaser/human.js",
                 "phaser/marshal.js",
+                "phaser/crowd.js",
                 "phaser/raceLaps.js",
                 "phaser/raceConditions.js",
                 // camera/viewZoom/ctx: the globals rain.js and night.js read

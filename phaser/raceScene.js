@@ -238,6 +238,9 @@ class RaceScene extends Phaser.Scene {
     // track's own road field rather than out of the track file, so a circuit
     // posts its own without being re-authored (phaser/marshal.js).
     Marshal.init(this, this.world);
+    // And the people who came to watch — the same figure in a different coat,
+    // marched onto the verges off the same road field (phaser/crowd.js).
+    Crowd.init(this, this.world);
 
     // The race, as the standings see it: six identical entries, the player's
     // marked only by a name and a flag. Built once — `RaceLaps.standings()`
@@ -883,6 +886,8 @@ class RaceScene extends Phaser.Scene {
       !!RaceLaps.target &&
       this.cars.some((c) => c.entity.laps >= RaceLaps.target);
     Marshal.update(this, deltaMs, lastLap, dim);
+    // Static, and it costs two number compares to say so — see crowd.js.
+    Crowd.update(this, dim);
 
     // The order is frozen the moment the player takes the flag, not when the
     // last car does — everyone still out there is classified where they stand,

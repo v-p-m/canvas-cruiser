@@ -128,6 +128,9 @@ missing or malformed the game falls back to a built-in roll.
   the flag at their side and waves the chequered flag from the moment the
   leader starts the final lap. Their post is found off each circuit's own road
   field, so a new track gets one without being re-authored
+- Spectators standing on the verges in knots around the lap, in the same coats
+  every time you race there. Their spots come off the same road field the
+  marshal's post does, so a new circuit draws its own crowd
 - AI opponents that drive the player's own car through the player's own
   physics — a resampled, kerb-cleared line around the waypoint ring, with
   corner braking and catch-up/lift pacing. They turn the wheel rather than
