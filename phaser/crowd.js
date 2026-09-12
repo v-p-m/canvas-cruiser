@@ -28,6 +28,13 @@ const ROW_DEPTH = 15; // world px between one rank and the next, back from the r
 const GROUP_JITTER = 7; // world px of nudge, both axes
 const GROUP_FACE = 0.3; // rad: everyone watches the road, nobody stands to attention
 const CROWD_MAX = 56; // people, whole circuit — a cap, not a target
+// How far a knot can be heard from, for nearness() below: the distance at
+// which one knot's voice has fallen to half. It has to be well under half of
+// GROUP_SPACING, because that is the furthest a car on the ring ever is from
+// a knot — at 420 with a 1/(1+d²) tail, eight knots summed to full volume
+// everywhere on Super Circuit and the murmur never moved. A quartic tail and
+// this range measure ~1 beside a knot and ~0.15 halfway to the next.
+const CROWD_RANGE = 200; // world px
 
 // How much room the marshal gets. They are posted on the verge at the start
 // line, which is exactly the sort of place a crowd wants to stand, and a
@@ -64,6 +71,7 @@ const Crowd = {
   // that isn't there, and nothing else in the race reads this.
   init(scene, world) {
     this.figures = [];
+    this.knots = []; // {x, y, n} per knot actually stood up, for nearness()
     this._dim = -1; // forces the first refresh() below, whatever the night is doing
     this._dpr = 0;
 
@@ -133,6 +141,7 @@ const Crowd = {
         GROUP_MIN + Math.floor(crowdHash(g, 1) * (GROUP_MAX - GROUP_MIN + 1));
       const coatFrom = Math.floor(crowdHash(g, 7) * CROWD_COATS.length);
       const coatStep = crowdHash(g, 8) < 0.5 ? 1 : CROWD_COATS.length - 1;
+      const before = this.figures.length;
       for (let i = 0; i < n; i++) {
         if (this.figures.length >= CROWD_MAX) break;
         const row = i % GROUP_ROWS;
@@ -162,8 +171,26 @@ const Crowd = {
         const coat = CROWD_COATS[(coatFrom + i * coatStep) % CROWD_COATS.length];
         this.figures.push(Human.spawn(scene, { x, y, angle }, coat));
       }
+      // The knot as the sound hears it: where it stands and how many actually
+      // made it onto the grass, not how many were dealt.
+      const stood = this.figures.length - before;
+      if (stood > 0) this.knots.push({ x: spot.x, y: spot.y, n: stood });
       if (this.figures.length >= CROWD_MAX) break;
     }
+  },
+
+  // How much crowd there is at a point, 0..1 — the sum of every knot's voice
+  // at that distance, each falling off as 1 / (1 + (d / CROWD_RANGE)⁴), scaled
+  // so one full knot at arm's length is 1. Read by the race for the murmur
+  // (Sound.ambience); a dozen knots a frame is nothing.
+  nearness(x, y) {
+    let sum = 0;
+    for (const k of this.knots) {
+      const d = Math.hypot(k.x - x, k.y - y) / CROWD_RANGE;
+      const d2 = d * d;
+      sum += k.n / (1 + d2 * d2);
+    }
+    return Math.min(1, sum / GROUP_MAX);
   },
 
   // Where the marshal refreshes every frame — it is one figure, and it is

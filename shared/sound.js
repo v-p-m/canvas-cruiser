@@ -2,7 +2,7 @@
 // Sound
 //
 // Everything here is synthesised at runtime — no audio files, nothing to
-// load, nothing to keep in sync with the repo. Four voices:
+// load, nothing to keep in sync with the repo. The voices:
 //
 //   engine  two detuned oscillators through a lowpass, pitched off a fake
 //           gearbox so accelerating sweeps and drops instead of sliding up
@@ -10,7 +10,22 @@
 //   tires   looping white noise through a bandpass, opened by how far the
 //           car's velocity has diverged from where it is pointing
 //   impact  a filtered noise burst, one-shot, scaled by collision force
+//   crack   a wing letting go — bright, short, its own gate (see below)
 //   beep    a plain tone with a hard envelope, for the start lights
+//   crowd   the same noise through a wide low-mid bandpass, swelling as the
+//           car passes a knot of spectators and falling away down the straight
+//   rain    the noise again, high-passed to a hiss, opened by how hard it
+//           is raining
+//   cheer   a one-shot swell of the crowd's own voice, for the flag
+//
+// The last three are the trackside: what the race sounds like from outside
+// the car. They are driven by ambience(), not update(), because they live
+// as long as the *scene* does rather than as long as the car is moving — the
+// crowd is there through the countdown and is what cheers over the roll-out,
+// which are exactly the two moments update()'s `moving` is false. What
+// silences them is arriving on the menu, which calls ambience(0, 0) on its
+// way in, the same way it already calls update() with `moving` false to
+// shut the engine off.
 //
 // Browsers refuse to start an AudioContext before a user gesture, so the
 // graph is built lazily by unlock() from the first key or click. Every
@@ -28,6 +43,18 @@ const IMPACT_MIN_GAP = 0.05; // seconds between impact voices
 const BEEP_COUNT_HZ = 440; // start lights, one per red light
 const BEEP_GO_HZ = 880; // start lights, GO
 const BEEP_GAIN = 0.18;
+// The trackside. The crowd sits under the engine at full: it is a murmur
+// passed at speed, not a stadium, and a knot of six people on a verge is
+// what it is the sound of. Its level is a slow swell on top of the nearness
+// the caller hands it, so it breathes rather than hisses.
+const CROWD_MAX_GAIN = 0.1;
+const CROWD_SWELL = 0.25; // fraction of the level the swell moves it by
+const CROWD_SWELL_HZ = 0.4; // and how slowly
+const RAIN_MAX_GAIN = 0.06;
+const CHEER_GAIN = 0.22;
+const CHEER_SECONDS = 2.5; // attack to silence
+const CHEER_MIN_GAP = 1.0; // seconds — one flag, one cheer
+
 
 const Sound = {
   ctx: null,
@@ -36,9 +63,12 @@ const Sound = {
   engine: null,
   tires: null,
   noiseBuffer: null,
+  crowd: null,
+  rain: null,
   impactCount: 0, // voices built, read by the B overlay
   _lastImpact: -1,
   _lastCrack: -1, // crack() keeps its own, or impact()'s gate would eat every break
+  _lastCheer: -1, // and so does cheer(): the flag falls inside the last lap's traffic
 
   load() {
     this.muted = localStorage.getItem("soundMuted") === "1";
@@ -134,6 +164,97 @@ const Sound = {
     tireSrc.start();
 
     this.tires = { src: tireSrc, filter: tireFilter, gain: tireGain };
+
+    // --- Crowd ---
+    // A wide, low-Q band in the low mids: voices at a distance, with the
+    // consonants gone. The tire squeal sits an octave and a half above it,
+    // so the two never read as one noise.
+    const crowdSrc = ac.createBufferSource();
+    crowdSrc.buffer = this.noiseBuffer;
+    crowdSrc.loop = true;
+    crowdSrc.playbackRate.value = 0.7;
+
+    const crowdFilter = ac.createBiquadFilter();
+    crowdFilter.type = "bandpass";
+    crowdFilter.frequency.value = 650;
+    crowdFilter.Q.value = 0.6;
+
+    const crowdGain = ac.createGain();
+    crowdGain.gain.value = 0;
+
+    crowdSrc.connect(crowdFilter).connect(crowdGain).connect(this.master);
+    crowdSrc.start();
+
+    this.crowd = { src: crowdSrc, filter: crowdFilter, gain: crowdGain };
+
+    // --- Rain ---
+    // The same noise with everything below the hiss taken out. Steady: rain
+    // on a roof is the one sound here with no rhythm in it.
+    const rainSrc = ac.createBufferSource();
+    rainSrc.buffer = this.noiseBuffer;
+    rainSrc.loop = true;
+
+    const rainHigh = ac.createBiquadFilter();
+    rainHigh.type = "highpass";
+    rainHigh.frequency.value = 2500;
+
+    const rainLow = ac.createBiquadFilter();
+    rainLow.type = "lowpass";
+    rainLow.frequency.value = 6000;
+
+    const rainGain = ac.createGain();
+    rainGain.gain.value = 0;
+
+    rainSrc.connect(rainHigh).connect(rainLow).connect(rainGain).connect(this.master);
+    rainSrc.start();
+
+    this.rain = { src: rainSrc, gain: rainGain };
+  },
+
+  // The trackside, once a frame for as long as a race scene is awake.
+  //   crowd  0..1, how near the car is to the spectators (Crowd.nearness)
+  //   rain   0..1, how hard it is raining (Rain.intensity)
+  // Both to 0 is silence, and is what the menu asks for on the way in.
+  ambience(crowd, rain) {
+    if (!this.ctx || !this.crowd) return;
+    if (this.muted) return;
+    const t = this.ctx.currentTime;
+    const swell = 1 - CROWD_SWELL * (0.5 + 0.5 * Math.sin(t * CROWD_SWELL_HZ * 2 * Math.PI));
+    this.crowd.gain.gain.setTargetAtTime(CROWD_MAX_GAIN * crowd * swell, t, 0.12);
+    this.rain.gain.gain.setTargetAtTime(RAIN_MAX_GAIN * rain, t, 0.3);
+  },
+
+  // The flag. A one-shot swell of the crowd's own band, brighter and on top
+  // of it rather than through it, so it carries whatever the murmur is doing
+  // — the car is usually past the last knot by the line. Its own gate: a
+  // flag falls inside the last lap's traffic, and impact()'s would eat it.
+  cheer() {
+    if (!this.ctx || !this.noiseBuffer || this.muted) return;
+    const ac = this.ctx;
+    const t = ac.currentTime;
+    if (t - this._lastCheer < CHEER_MIN_GAP) return;
+    this._lastCheer = t;
+
+    const src = ac.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    src.loop = true;
+    src.playbackRate.value = 0.8;
+
+    const filter = ac.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(700, t);
+    filter.frequency.linearRampToValueAtTime(1100, t + 0.4); // the rise of a shout
+    filter.Q.value = 0.8;
+
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(CHEER_GAIN, t + 0.15);
+    gain.gain.setValueAtTime(CHEER_GAIN, t + 0.7);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + CHEER_SECONDS);
+
+    src.connect(filter).connect(gain).connect(this.master);
+    src.start(t);
+    src.stop(t + CHEER_SECONDS + 0.05);
   },
 
   // Called once per frame with the player's state.

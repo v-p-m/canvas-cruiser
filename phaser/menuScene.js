@@ -51,8 +51,11 @@ class MenuScene extends Phaser.Scene {
     // scene never does, so without one call here to schedule the fade
     // (setTargetAtTime keeps approaching 0 on its own after) "ESC — Main
     // menu" from the results screen would leave the last lap's engine note
-    // holding forever.
+    // holding forever. The trackside voices are on their own call for the
+    // same reason: the race keeps the crowd up through its countdown and
+    // over its roll-out, so it is this scene, not `moving`, that ends them.
     Sound.update(0, 1, false, 0, false);
+    Sound.ambience(0, 0);
 
     this.state = {
       row: 2, // opens on MODE, same as game.js's menuRow default

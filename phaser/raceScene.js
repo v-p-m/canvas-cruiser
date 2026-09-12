@@ -77,6 +77,9 @@ class RaceScene extends Phaser.Scene {
     // Armed lazily on the first update() — see there for why begin() can't
     // just be called here.
     this.startLightsArmed = false;
+    // The crowd's two cheers, once each — see the flag below.
+    this.cheeredFlag = false;
+    this.cheeredPlayer = false;
 
     // Falls back to Super Circuit for a direct scene.start("race")/restart
     // with no menu in front of it — a headless check, mainly.
@@ -896,6 +899,19 @@ class RaceScene extends Phaser.Scene {
       !!RaceLaps.target &&
       this.cars.some((c) => c.entity.laps >= RaceLaps.target);
     Marshal.update(this, deltaMs, lastLap, dim);
+    // The crowd cheers the flag: once for whoever takes it first, with no
+    // player branch to say who — and once more for the player, if that was
+    // someone else. That second one is the HUD's kind of exception, and for
+    // the HUD's reason: the person hearing it is the one who just finished.
+    if (!this.cheeredFlag && this.cars.some((c) => c.entity.finished)) {
+      this.cheeredFlag = true;
+      this.cheeredPlayer = this.player.entity.finished;
+      Sound.cheer();
+    }
+    if (!this.cheeredPlayer && this.player.entity.finished) {
+      this.cheeredPlayer = true;
+      Sound.cheer();
+    }
     // Static, and it costs two number compares to say so — see crowd.js.
     Crowd.update(this, dim);
 
@@ -1027,6 +1043,10 @@ class RaceScene extends Phaser.Scene {
       p.velocityX * Math.cos(p.angle) + p.velocityY * Math.sin(p.angle),
     );
     Sound.update(p.speed, p.maxSpeed, input.accel, slip, !blocking && !this.finishOrder);
+    // The trackside, for as long as this scene is awake: through the
+    // countdown and over the roll-out, which is where the crowd matters most.
+    // The menu silences it on the way in (shared/sound.js).
+    Sound.ambience(Crowd.nearness(p.x, p.y), Rain.intensity);
 
     this.drawPuddles(); // Phaser's own scene graph — stays live through the results screen too
 
